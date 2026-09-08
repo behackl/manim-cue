@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+__pycache__/
+*.pyc
+agents/
+media/
+.vscode/settings.json

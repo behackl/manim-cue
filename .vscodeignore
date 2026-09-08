@@ -1,0 +1,17 @@
+.git/**
+.github/**
+.vscode/**
+.vscode-test/**
+node_modules/**
+src/**
+webview/*.ts
+test/**
+agents/**
+*.vsix
+esbuild.mjs
+tsconfig.json
+pnpm-lock.yaml
+dist/*.map
+dist/smoke.cjs
+pnpm-workspace.yaml
+**/__pycache__/**

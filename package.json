@@ -1,0 +1,191 @@
+{
+  "name": "manim-cue",
+  "displayName": "Manim Cue",
+  "description": "Inspect Manim's executed timeline, source locations and sound cues.",
+  "version": "0.1.5",
+  "publisher": "manim-cue-local",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onLanguage:python"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "extensionDependencies": [
+    "ms-python.python"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Scene discovery and execution require workspace trust."
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "manimCue.open",
+        "title": "Manim Cue: Open Scene",
+        "icon": "$(play-circle)"
+      },
+      {
+        "command": "manimCue.refresh",
+        "title": "Manim Cue: Refresh Timeline",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "manimCue.cancel",
+        "title": "Manim Cue: Cancel",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "manimCue.preview",
+        "title": "Manim Cue: Render Preview",
+        "icon": "$(device-camera-video)"
+      },
+      {
+        "command": "manimCue.logs",
+        "title": "Manim Cue: Show Logs"
+      },
+      {
+        "command": "manimCue.clearCaches",
+        "title": "Manim Cue: Clear Caches"
+      },
+      {
+        "command": "manimCue.doctor",
+        "title": "Manim Cue: Check Python Environment"
+      },
+      {
+        "command": "manimCue.selectPython",
+        "title": "Manim Cue: Select Python for Manim Cue"
+      },
+      {
+        "command": "manimCue.export",
+        "title": "Manim Cue: Export Timeline JSON"
+      }
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "manimCue",
+          "title": "Manim Cue",
+          "icon": "resources/cue.svg"
+        }
+      ]
+    },
+    "views": {
+      "manimCue": [
+        {
+          "id": "manimCue.timeline",
+          "name": "Timeline",
+          "type": "webview"
+        }
+      ]
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "manimCue.open",
+          "when": "resourceLangId == python",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "manimCue.refresh",
+          "when": "view == manimCue.timeline",
+          "group": "navigation"
+        },
+        {
+          "command": "manimCue.cancel",
+          "when": "view == manimCue.timeline",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Manim Cue",
+      "properties": {
+        "manimCue.pythonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Optional absolute Python executable for Cue (preserve .venv/bin/python symlinks). Overrides the Python extension's selection for the scene file. Use Manim Cue: Check Python Environment to see the actual runtime."
+        },
+        "manimCue.autoRefreshOnSave": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Refresh the active Scene after saving its source (500 ms debounce). External saved changes also refresh. Unsaved edits mark results stale and cancel work; helper/config changes require manual refresh."
+        },
+        "manimCue.autoPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render a separate, muted video after timeline evaluation. Event/video alignment is not verified."
+        },
+        "manimCue.frameRate": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 120,
+          "description": "Evaluation AND preview FPS. This changes animation/updater semantics; it is not just playback quality."
+        },
+        "manimCue.previewWidth": {
+          "type": "integer",
+          "default": 960,
+          "minimum": 64,
+          "maximum": 3840,
+          "description": "Approximate preview width; preserve the configured aspect ratio and use even dimensions."
+        },
+        "manimCue.workingDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Working directory, absolute or relative to the workspace. Empty uses the workspace folder, or the source parent."
+        },
+        "manimCue.timeoutSeconds": {
+          "type": "integer",
+          "default": 600,
+          "minimum": 5,
+          "maximum": 7200,
+          "description": "Timeout per evaluation or preview process."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:python": "uv run --no-project python -m unittest discover -s test -p '*_test.py'",
+    "test:integration": "tsx --test test/integration/*.test.ts",
+    "test:vscode": "node test/vscode/run.cjs",
+    "test:ui": "pnpm build && tsx --test test/browser/*.test.ts",
+    "package": "pnpm build && vsce package --no-dependencies --allow-missing-repository"
+  },
+  "dependencies": {
+    "@vscode/python-extension": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.96.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.0",
+    "esbuild": "^0.25.0",
+    "playwright-core": "^1.63.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "packageManager": "pnpm@11.5.1"
+}

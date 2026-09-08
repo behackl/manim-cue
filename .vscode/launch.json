@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "Run Manim Cue",
+    "type": "extensionHost",
+    "request": "launch",
+    "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}/examples"],
+    "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+    "preLaunchTask": "build"
+  }]
+}

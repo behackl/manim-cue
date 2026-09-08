@@ -1,0 +1,200 @@
+"""Small file-based tools around public Manim/PyAV APIs. Not a scene runner."""
+import configparser
+import hashlib
+import inspect
+import json
+import math
+import os
+from pathlib import Path
+import sys
+
+LIMIT = 16 * 1024 * 1024
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def write_json(path, value):
+    Path(path).write_text(json.dumps(value, ensure_ascii=True, allow_nan=False), encoding="utf-8")
+
+
+def diagnose():
+    report = {
+        "python": sys.executable, "python_version": sys.version.split()[0],
+        "prefix": sys.prefix, "base_prefix": sys.base_prefix, "cwd": str(Path.cwd()),
+        "manim_module": None, "manim_version": None, "status": "import-error", "error": None,
+    }
+    try:
+        import manim
+    except Exception as error:
+        report["status"] = "missing-manim" if isinstance(error, ModuleNotFoundError) and error.name == "manim" else "import-error"
+        report["error"] = f"{type(error).__name__}: {error}"
+        return report
+    report["manim_module"] = getattr(manim, "__file__", None)
+    report["manim_version"] = getattr(manim, "__version__", None)
+    try:
+        supported = "capture_timeline" in inspect.signature(manim.Manager.evaluate).parameters
+    except (AttributeError, TypeError, ValueError):
+        supported = False
+    report["status"] = "ready" if supported else "unsupported-manim"
+    if not supported:
+        report["error"] = "This Manim build lacks Manager.evaluate(capture_timeline=True). Use the experimental timeline-export build (a57eaaff or compatible)."
+    return report
+
+
+def prepare(request):
+    report = diagnose()
+    if report["status"] != "ready":
+        raise RuntimeError(
+            f"Manim Cue environment check: {report['status']}\n"
+            f"Python: {report['python']}\nWorking directory: {report['cwd']}\n"
+            f"Manim module: {report['manim_module'] or '(not imported)'}\n{report['error']}\n"
+            "Run Manim Cue: Check Python Environment or Select Python for Manim Cue. "
+            "The scene file's environment may differ from another editor's status-bar selection."
+        )
+    import manim
+    from manim import config
+    run = Path(request["run"])
+    source = Path(request["source"])
+    project = Path.cwd() / "manim.cfg"
+    user = Path.home() / ("AppData/Roaming/Manim/manim.cfg" if os.name == "nt" else ".config/manim/manim.cfg")
+    parser = configparser.ConfigParser()
+    if project.is_file():
+        parser.read(project, encoding="utf-8")
+    if not parser.has_section("CLI"):
+        parser.add_section("CLI")
+    width = max(64, int(request["width"]) // 2 * 2)
+    height = max(2, round(width * config.pixel_height / config.pixel_width / 2) * 2)
+    assets = config.get_dir("assets_dir", module_name=source.stem, scene_name=request["scene"])
+    seed = config.seed if config.seed is not None else 0
+    overrides = {
+        "input_file": source, "output_file": run / "media" / "preview.mp4",
+        "format": "mp4", "renderer": "cairo", "frame_rate": request["fps"],
+        "pixel_width": width, "pixel_height": height,
+        "frame_width": config.frame_width, "frame_height": config.frame_height,
+        "seed": seed, "background_opacity": 1,
+        "preview": False, "live_preview": False, "show_in_file_browser": False,
+        "enable_gui": False, "fullscreen": False, "dry_run": False,
+        "write_all": False, "save_sections": False, "log_to_file": False,
+        "notify_outdated_version": False, "disable_caching": True,
+        "from_animation_number": 0, "upto_animation_number": -1,
+        "progress_bar": "none", "assets_dir": (assets or Path.cwd()).absolute(),
+    }
+    configs = {str(p): digest(p) if p.is_file() else None for p in (project, user)}
+    # Reuse Manim's own content-addressed typesetting cache, not animation/media
+    # caches. Configuration and Python/package environment changes get new roots.
+    from importlib.metadata import PackageNotFoundError, version
+    versions = {}
+    for package in ("manim", "manimpango", "typst", "pycairo"):
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = None
+    identity = json.dumps([configs, versions, str(Path(manim.__file__).resolve()), manim.__version__,
+                           request["fps"], width, height, config.frame_width, config.frame_height, seed], sort_keys=True)
+    assets_cache = Path(request.get("cache", run / "cache")) / hashlib.sha256(identity.encode()).hexdigest()
+    for key in ("media_dir", "video_dir", "images_dir", "sections_dir", "partial_movie_dir", "tex_dir", "text_dir", "log_dir"):
+        overrides[key] = (assets_cache if key in ("tex_dir", "text_dir") else run / "work") / key
+    for key, value in overrides.items():
+        parser.set("CLI", key, str(value).replace("%", "%%"))
+    # Reset codec-specific user options instead of applying (say) VP9 options to H.264.
+    for section in ("video_encoder", "video_encoder.options"):
+        if parser.has_section(section):
+            parser.remove_section(section)
+        parser.add_section(section)
+    parser.set("video_encoder", "codec", "libx264")
+    parser.set("video_encoder", "pixel_format", "yuv420p")
+    parser.set("video_encoder.options", "crf", "28")
+    parser.set("video_encoder.options", "preset", "veryfast")
+    with (run / "cue.cfg").open("w", encoding="utf-8") as stream:
+        parser.write(stream)
+    return {
+        "version": manim.__version__, "module": str(Path(manim.__file__).resolve()),
+        "fps": request["fps"], "width": width, "height": height, "seed": seed,
+        "frameWidth": config.frame_width, "frameHeight": config.frame_height,
+        "configs": configs,
+    }
+
+
+def verify(path):
+    path = Path(path)
+    if path.stat().st_size > LIMIT:
+        raise ValueError("Timeline exceeds the 16 MiB viewer limit.")
+    def reject_constant(value):
+        raise ValueError(f"Non-finite JSON value: {value}")
+    data = json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
+    if not isinstance(data, dict) or data.get("schema") != "manim.execution-timeline" or type(data.get("version")) is not int or data["version"] != 1 or data.get("complete") is not True:
+        raise ValueError("Unsupported or incomplete timeline.")
+    revision = data.pop("revision", None)
+    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    if revision != hashlib.sha256(canonical.encode("utf-8")).hexdigest():
+        raise ValueError("Timeline content revision does not match its document.")
+    return {"revision": revision, "source": data.get("source")}
+
+
+def probe(path):
+    import av
+    with av.open(path) as container:
+        if not container.streams.video:
+            raise ValueError("Preview has no video stream.")
+        stream = container.streams.video[0]
+        # Average rate is frames / container duration, not necessarily the encoder
+        # cadence: sub-millisecond segment/mux timing can make 30 fps report 30.001.
+        rate = float(stream.guessed_rate or stream.base_rate or stream.average_rate or 0)
+        average_rate = float(stream.average_rate or 0)
+        duration = float(stream.duration * stream.time_base) if stream.duration is not None else 0
+        if not math.isfinite(duration) or duration <= 0 or not math.isfinite(rate) or rate <= 0:
+            raise ValueError("Preview has no playable video time axis.")
+        if stream.codec_context.name != "h264":
+            raise ValueError("Preview is not the expected H.264 video.")
+        # Decode in presentation order (packet order can differ for B-frames).
+        # Retain only the worst offset; this checks the WHOLE video with bounded
+        # memory, without assigning any frame to an event or changing timestamps.
+        frames = 0
+        max_error = 0.0
+        previous = None
+        for frame in container.decode(stream):
+            if frame.pts is None or frame.time_base is None:
+                raise ValueError("Preview has a frame without a presentation timestamp.")
+            timestamp = float(frame.pts * frame.time_base)
+            if not math.isfinite(timestamp) or (previous is not None and timestamp <= previous):
+                raise ValueError("Preview has invalid or non-increasing presentation timestamps.")
+            max_error = max(max_error, abs(timestamp - frames / rate))
+            previous = timestamp
+            frames += 1
+        if not frames:
+            raise ValueError("Preview has no decoded video frames.")
+        return {"duration": duration, "rate": rate, "averageRate": average_rate,
+                "frames": frames, "maxFrameTimeError": max_error,
+                "width": stream.width, "height": stream.height,
+                "hasAudio": bool(container.streams.audio)}
+
+
+if __name__ == "__main__":
+    command, source, destination = sys.argv[1:]
+    if command == "evaluate":
+        import runpy
+        request = json.loads(Path(source).read_text(encoding="utf-8"))
+        profile = prepare(request)
+        write_json(Path(request["run"]) / "profile.json", profile)
+        print("[Cue phase] Evaluating scene", flush=True)
+        # Public CLI, same import-time CWD/config as a normal invocation. No custom
+        # Scene runner, persistent interpreter or private recorder hooks.
+        sys.path.insert(0, os.getcwd())
+        sys.argv = ["manim", "--config_file", str(Path(request["run"]) / "cue.cfg"),
+                    "--silent", "--progress_bar", "none", "--timeline-output", destination,
+                    request["source"], request["scene"]]
+        runpy.run_module("manim", run_name="__main__", alter_sys=True)
+        sys.exit(0)
+    elif command == "prepare":
+        result = prepare(json.loads(Path(source).read_text(encoding="utf-8")))
+    elif command == "verify":
+        result = verify(source)
+    elif command == "probe":
+        result = probe(source)
+    elif command == "diagnose":
+        result = diagnose()
+    else:
+        raise ValueError("Unknown helper command")
+    write_json(destination, result)
