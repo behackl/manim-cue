@@ -1,8 +1,8 @@
 {
   "name": "manim-cue",
   "displayName": "Manim Cue",
-  "description": "Inspect Manim's executed timeline, source locations and sound cues.",
-  "version": "0.1.5",
+  "description": "Preview the current Manim frame, then explore the executed timeline and movie.",
+  "version": "0.1.7",
   "publisher": "manim-cue-local",
   "private": true,
   "license": "MIT",
@@ -41,8 +41,12 @@
       },
       {
         "command": "manimCue.refresh",
-        "title": "Manim Cue: Refresh Timeline",
+        "title": "Manim Cue: Refresh Scene",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "manimCue.refreshTimeline",
+        "title": "Manim Cue: Refresh Timeline Only"
       },
       {
         "command": "manimCue.cancel",
@@ -127,12 +131,12 @@
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Refresh the active Scene after saving its source (500 ms debounce). External saved changes also refresh. Unsaved edits mark results stale and cancel work; helper/config changes require manual refresh."
+          "description": "Update the selected frame and timeline after saving (500 ms debounce). Unsaved edits pause the preview and cancel outdated work; helper/config changes require manual refresh."
         },
         "manimCue.autoPreview": {
           "type": "boolean",
           "default": true,
-          "description": "Render a separate, muted video after timeline evaluation. Event/video alignment is not verified."
+          "description": "Automatically render a complete muted video after frame/timeline refresh and 1.5 seconds idle. Current-frame previews also update when this is off."
         },
         "manimCue.frameRate": {
           "type": "number",

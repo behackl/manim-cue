@@ -7,6 +7,7 @@ export interface PythonDiagnostic {
   status: 'ready' | 'missing-manim' | 'import-error' | 'unsupported-manim';
   python: string; python_version: string; prefix: string; base_prefix: string; cwd: string;
   manim_module: string | null; manim_version: string | null; error: string | null;
+  capture_frame?: boolean; timeline?: boolean;
 }
 
 /** Same executable, flags, environment and CWD as profile preparation. No scene import. */
@@ -35,6 +36,7 @@ export function formatDiagnostic(result: PythonDiagnostic): string {
     `Environment prefix: ${result.prefix}`, `Base prefix: ${result.base_prefix}`,
     `Working directory: ${result.cwd}`, `Manim module: ${result.manim_module ?? '(not imported)'}`,
     `Manim version: ${result.manim_version ?? '(unknown)'}`,
-    result.error ?? 'The required timeline evaluation API is available. This is not a full scene/dependency check.',
+    `Current-frame capture: ${result.capture_frame ? 'available' : 'requires Manager.capture_frame_at; full preview remains available with timeline support'}`,
+    result.error ?? 'Timeline evaluation API available.',
   ].join('\n');
 }

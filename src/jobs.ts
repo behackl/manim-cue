@@ -1,13 +1,17 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import * as path from 'node:path';
 import { runProcess } from './process';
 import { MAX_REPORT_BYTES, parseTimeline, type Timeline } from './timeline';
 
-export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null> }
+export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; captureFrame?: boolean; timeline?: boolean }
 export interface Media { path: string; kind: 'video' | 'image'; duration: number; rate: number; hasAudio: boolean;
-  averageRate: number; frames: number; maxFrameTimeError: number }
-export interface RunResult { timeline: Timeline; directory: string; source: string; sourceHash: string; profile: Profile; media?: Media }
+  averageRate: number; frames: number; maxFrameTimeError: number; frameTimes?: number[] | null;
+  capture?: { requestedTime: number; time: number | null; frameIndex: number | null } }
+export interface Observation { directory: string; source: string; sourceHash: string; profile: Profile }
+export interface PreviewResult extends Observation { media: Media }
+export interface RunResult extends Observation { timeline: Timeline; media?: Media }
 export interface JobOptions {
   source: string; scene: string; python: string; env: NodeJS.ProcessEnv; cwd: string;
   fps: number; width: number; timeout: number; preview: boolean;
@@ -15,23 +19,19 @@ export interface JobOptions {
   log: (s: string) => void; phase: (s: string) => void;
   timelineReady: (result: RunResult) => void;
 }
+export interface SceneJob { options: JobOptions; directory: string; sourceHash: string; cache: string; prefix: string[]; request: string; profile?: Profile }
+export class InputsChanged extends Error {}
 export async function fileHash(file: string): Promise<string> { return createHash('sha256').update(await fs.readFile(file)).digest('hex'); }
 async function maybeHash(file: string): Promise<string | null> {
   try { return await fileHash(file); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
 }
-export async function checkInputs(result: RunResult): Promise<void> {
-  if (await maybeHash(result.source) !== result.sourceHash) throw new Error('Primary source changed during the run. Save and refresh.');
+export async function checkInputs(result: Observation): Promise<void> {
+  if (await maybeHash(result.source) !== result.sourceHash) throw new InputsChanged('Primary source changed during the run. Save and refresh.');
   for (const [file, hash] of Object.entries(result.profile.configs)) {
-    if (await maybeHash(file) !== hash) throw new Error('Manim configuration changed during the run. Refresh.');
+    if (await maybeHash(file) !== hash) throw new InputsChanged('Manim configuration changed during the run. Refresh.');
   }
 }
-export async function executeJob(o: JobOptions): Promise<RunResult> {
-  const started = performance.now();
-  const timed = async <T>(label: string, action: () => Promise<T>): Promise<T> => {
-    const start = performance.now();
-    try { return await action(); }
-    finally { o.log(`\n[Cue timing] ${label}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`); }
-  };
+export async function createJob(o: JobOptions): Promise<SceneJob> {
   await fs.mkdir(o.scratch, { recursive: true });
   const directory = await fs.mkdtemp(path.join(o.scratch, 'run-'));
   await fs.mkdir(path.join(directory, 'media'));
@@ -41,58 +41,124 @@ export async function executeJob(o: JobOptions): Promise<RunResult> {
   const cache = path.join(o.scratch, 'cache-v1', cacheKey);
   const prefix = ['-B', '--check-hash-based-pycs', 'always', '-X', `pycache_prefix=${path.join(cache, 'bytecode')}`,
     path.join(o.helpers, 'cache_runner.py')];
-  const invoke = async (args: string[]) => {
-    try {
-      return await runProcess(o.python, [...prefix, ...args], {
-        cwd: o.cwd, env: { ...o.env, PYTHONIOENCODING: 'utf-8' }, signal: o.signal, timeout: o.timeout, log: o.log,
-      });
-    } catch (error) {
-      // Typesetters can leave a partial SVG when interrupted. Do not reuse it on
-      // the next refresh. Checked-hash bytecode is atomic and remains reusable.
-      await fs.rm(path.join(cache, 'typesetting'), { recursive: true, force: true }).catch(() => {
-        o.log('\n[Cue cache] Could not clear interrupted typesetting output; use Clear Caches before retrying.\n');
-      });
-      throw error;
-    }
-  };
-  const helper = path.join(o.helpers, 'support.py');
-  const request = path.join(directory, 'request.json'), profileFile = path.join(directory, 'profile.json');
-  await fs.writeFile(request, JSON.stringify({ run: directory, cache: path.join(cache, 'typesetting'), source: o.source, scene: o.scene, fps: o.fps, width: o.width }));
-  const report = path.join(directory, 'timeline.json');
-  o.phase('Checking environment and evaluating scene — no raster or video…');
-  await timed('Profile preparation + no-raster evaluation', () => invoke([helper, 'evaluate', request, report]));
-  const profile: Profile = JSON.parse(await fs.readFile(profileFile, 'utf8'));
-  if (![profile.frameWidth, profile.frameHeight].every(n => Number.isFinite(n) && n > 0)) throw new Error('Invalid configured scene dimensions.');
-  const base = ['-m', 'manim', '--config_file', path.join(directory, 'cue.cfg'), '--silent', '--progress_bar', 'none'];
-  await timed('Timeline integrity verification', () => invoke([helper, 'verify', report, path.join(directory, 'verified.json')]));
+  const request = path.join(directory, 'request.json');
+  await fs.writeFile(request, JSON.stringify({ run: directory, cache: path.join(cache, 'typesetting'), source: o.source,
+    sourceHash, scene: o.scene, fps: o.fps, width: o.width }));
+  return { options: o, directory, sourceHash, cache, prefix, request };
+}
+async function invoke(job: SceneJob, args: string[], signal: AbortSignal, label: string): Promise<void> {
+  const o = job.options, start = performance.now();
+  signal.throwIfAborted();
+  if (await maybeHash(o.source) !== job.sourceHash) throw new InputsChanged('Primary source changed. Save and refresh.');
+  if (job.profile) await checkInputs({ source: o.source, sourceHash: job.sourceHash, directory: job.directory, profile: job.profile });
+  try {
+    await runProcess(o.python, [...job.prefix, ...args], {
+      cwd: o.cwd, env: { ...o.env, PYTHONIOENCODING: 'utf-8' }, signal, timeout: o.timeout, log: o.log,
+    });
+  } catch (error) {
+    // Workers are serialized; clear partial typesetting output before the next job.
+    await fs.rm(path.join(job.cache, 'typesetting'), { recursive: true, force: true }).catch(() => {
+      o.log('\n[Cue cache] Could not clear interrupted typesetting output; use Clear Caches before retrying.\n');
+    });
+    if (await maybeHash(o.source) !== job.sourceHash) throw new InputsChanged('Primary source changed during the run. Save and refresh.');
+    if (job.profile) await checkInputs({ source: o.source, sourceHash: job.sourceHash, directory: job.directory, profile: job.profile });
+    throw error;
+  } finally { o.log(`\n[Cue timing] ${label}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`); }
+}
+async function observation(job: SceneJob, signal: AbortSignal): Promise<Observation> {
+  const file = path.join(job.directory, 'profile.json');
+  if ((await fs.stat(file)).size > 65536) throw new Error('Invalid profile size.');
+  const profile: Profile = JSON.parse(await fs.readFile(file, 'utf8'));
+  if (![profile.frameWidth, profile.frameHeight, profile.fps, profile.width, profile.height].every(n => Number.isFinite(n) && n > 0) ||
+    profile.fps !== job.options.fps || profile.width !== Math.floor(job.options.width / 2) * 2 || profile.width * profile.height > 32_000_000) {
+    throw new Error('Invalid capture profile.');
+  }
+  if (job.profile && JSON.stringify(profile) !== JSON.stringify(job.profile)) throw new InputsChanged('Prepared profile changed. Refresh.');
+  job.profile = profile;
+  const result = { directory: job.directory, source: job.options.source, sourceHash: job.sourceHash, profile };
+  await checkInputs(result); signal.throwIfAborted();
+  return result;
+}
+async function checkPng(file: string, profile: Profile): Promise<void> {
+  if ((await fs.stat(file)).size > 64 * 1024 * 1024) throw new Error('Preview image exceeds the 64 MiB limit.');
+  const bytes = await fs.readFile(file);
+  if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+    bytes.readUInt32BE(16) !== profile.width || bytes.readUInt32BE(20) !== profile.height) throw new Error('Invalid preview PNG or pixel dimensions.');
+}
+export async function captureFrame(job: SceneJob, time: number, signal = job.options.signal): Promise<PreviewResult | undefined> {
+  if (!Number.isFinite(time) || time < 0) throw new Error('Choose a finite, nonnegative time.');
+  const token = randomUUID(), request = path.join(job.directory, `capture-${token}.json`);
+  const output = path.join(job.directory, 'media', `frame-${token}.json`);
+  await fs.writeFile(request, JSON.stringify({ ...JSON.parse(await fs.readFile(job.request, 'utf8')), time }));
+  try {
+    await invoke(job, [path.join(job.options.helpers, 'support.py'), 'capture', request, output], signal, 'Current-frame capture');
+    const result = await observation(job, signal);
+    if ((await fs.stat(output)).size > 16384) throw new Error('Invalid capture response size.');
+    const data = JSON.parse(await fs.readFile(output, 'utf8'));
+    if (data.kind === 'unsupported' && result.profile.captureFrame === false) return undefined;
+    if (!['frame', 'snapshot'].includes(data.kind) || data.requestedTime !== time || data.width !== result.profile.width || data.height !== result.profile.height) throw new Error('Capture does not match the request.');
+    if (data.kind === 'frame') {
+      if (!Number.isSafeInteger(data.frameIndex) || data.frameIndex < 0 || !Number.isFinite(data.time) ||
+        Math.abs(data.time - data.frameIndex / result.profile.fps) > 1e-8 || time < data.time || time >= (data.frameIndex + 1) / result.profile.fps) throw new Error('Invalid captured frame timing.');
+    } else if (data.time !== null || data.frameIndex !== null) throw new Error('An end-state snapshot must have no frame timestamp.');
+    const image = output.replace(/\.json$/, '.png');
+    await checkPng(image, result.profile);
+    await checkInputs(result); signal.throwIfAborted();
+    return { ...result, media: { path: image, kind: 'image', duration: 0, rate: result.profile.fps, hasAudio: false,
+      averageRate: 0, frames: 0, maxFrameTimeError: 0, capture: { requestedTime: time, time: data.time, frameIndex: data.frameIndex } } };
+  } finally { await Promise.all([request, output].map(p => fs.rm(p, { force: true }))); }
+}
+export async function evaluateTimeline(job: SceneJob, signal = job.options.signal): Promise<RunResult> {
+  const helper = path.join(job.options.helpers, 'support.py'), report = path.join(job.directory, 'timeline.json');
+  await invoke(job, [helper, 'evaluate', job.request, report], signal, 'Timeline evaluation');
+  const result = await observation(job, signal);
+  await invoke(job, [helper, 'verify', report, path.join(job.directory, 'verified.json')], signal, 'Timeline integrity verification');
   if ((await fs.stat(report)).size > MAX_REPORT_BYTES) throw new Error('Timeline exceeds the 16 MiB viewer limit.');
   const timeline = parseTimeline(await fs.readFile(report, 'utf8'));
-  if (timeline.source.sha256 !== sourceHash || timeline.scene.name !== o.scene || timeline.backend !== 'CairoRenderer' || timeline.frame_rate !== o.fps) {
+  if (timeline.source.sha256 !== job.sourceHash || timeline.scene.name !== job.options.scene || timeline.backend !== 'CairoRenderer' || timeline.frame_rate !== result.profile.fps) {
     throw new Error('Timeline source, scene or evaluation profile does not match the requested run.');
   }
-  const result: RunResult = { timeline, directory, source: o.source, sourceHash, profile };
+  await checkInputs(result); signal.throwIfAborted();
+  return { ...result, timeline };
+}
+export async function renderPreview(job: SceneJob, result: RunResult, signal = job.options.signal): Promise<PreviewResult> {
   await checkInputs(result);
-  o.signal.throwIfAborted();
-  o.log(`\n[Cue timing] Timeline available: ${((performance.now() - started) / 1000).toFixed(3)} s\n`);
-  o.timelineReady(result);
-  if (!o.preview) return result;
-  const still = timeline.events.length === 0 || timeline.end === timeline.start;
-  const output = path.join(directory, 'media', still ? 'preview.png' : 'preview.mp4');
-  o.phase(still ? 'Rendering separate still preview…' : 'Rendering separate, uncached preview…');
-  await timed('Preview render', () => invoke([...base, '--format', still ? 'png' : 'mp4', '-o', output, o.source, o.scene]));
+  const still = result.timeline.end === result.timeline.start;
+  const output = path.join(job.directory, 'media', `preview-${randomUUID()}.${still ? 'png' : 'mp4'}`);
+  await invoke(job, ['-m', 'manim', '--config_file', path.join(job.directory, 'cue.cfg'), '--silent', '--progress_bar', 'none',
+    '--format', still ? 'png' : 'mp4', '-o', output, job.options.source, job.options.scene], signal, 'Preview render');
   let media: Media;
   if (still) {
-    const bytes = await fs.readFile(output);
-    if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error('Expected a completed PNG preview.');
+    await checkPng(output, result.profile);
     media = { path: output, kind: 'image', duration: 0, rate: 0, hasAudio: false, averageRate: 0, frames: 0, maxFrameTimeError: 0 };
   } else {
-    o.phase('Verifying finalized video…');
-    const meta = path.join(directory, 'video.json');
-    await timed('Video verification', () => invoke([helper, 'probe', output, meta]));
-    media = { ...JSON.parse(await fs.readFile(meta, 'utf8')), path: output, kind: 'video' };
-    o.log(`\n[Cue video] ${media.rate} fps nominal, ${media.averageRate} fps average; ${media.frames} decoded frames; maximum timestamp deviation ${media.maxFrameTimeError.toFixed(6)} s; duration ${media.duration.toFixed(6)} s\n`);
+    const metadata = path.join(job.directory, 'video.json');
+    await invoke(job, [path.join(job.options.helpers, 'support.py'), 'probe', output, metadata], signal, 'Video verification');
+    if ((await fs.stat(metadata)).size > MAX_REPORT_BYTES) throw new Error('Video timing metadata exceeds the viewer limit.');
+    const data = JSON.parse(await fs.readFile(metadata, 'utf8'));
+    if (![data.rate, data.duration, data.frames].every(n => Number.isFinite(n) && n > 0) || !Number.isSafeInteger(data.frames) || data.width !== result.profile.width || data.height !== result.profile.height) throw new Error('Invalid video profile.');
+    if (data.frameTimes !== null && (!Array.isArray(data.frameTimes) || data.frameTimes.length !== data.frames || data.frameTimes.length > 500_000 ||
+      data.frameTimes.some((t: number, i: number, a: number[]) => !Number.isFinite(t) || t < 0 || (i > 0 && t <= a[i - 1])))) throw new Error('Invalid video frame timestamps.');
+    media = { ...data, path: output, kind: 'video' };
+    job.options.log(`\n[Cue video] ${media.rate} fps nominal, ${media.averageRate} fps average; ${media.frames} frames; maximum PTS deviation ${media.maxFrameTimeError.toFixed(6)} s\n`);
   }
-  await checkInputs(result);
-  o.signal.throwIfAborted();
+  await checkInputs(result); signal.throwIfAborted();
   return { ...result, media };
+}
+// Only completed media enters this stable webview root; profiles, source and caches stay private.
+export async function publishPreview(result: PreviewResult, root: string): Promise<PreviewResult> {
+  await fs.mkdir(root, { recursive: true });
+  const file = path.join(root, path.basename(result.media.path));
+  await fs.copyFile(result.media.path, file, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+  return { ...result, media: { ...result.media, path: file } };
+}
+// Timeline-only/full-render entry point, also used by integration consumers.
+export async function executeJob(o: JobOptions): Promise<RunResult> {
+  const job = await createJob(o);
+  o.phase('Checking environment and evaluating scene…');
+  const result = await evaluateTimeline(job);
+  o.timelineReady(result);
+  if (!o.preview) return result;
+  o.phase('Rendering preview…');
+  return { ...result, media: (await renderPreview(job, result)).media };
 }

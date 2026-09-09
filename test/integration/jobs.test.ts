@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { executeJob, type JobOptions, type RunResult } from '../../src/jobs';
+import { createJob, captureFrame, publishPreview, executeJob, type JobOptions, type RunResult } from '../../src/jobs';
 import { pairingReason } from '../../src/timeline';
 import { runProcess } from '../../src/process';
 import { checkPython } from '../../src/diagnostics';
@@ -67,7 +67,7 @@ test('controlled profile redirects output, disables inherited preview/skip and a
     await fs.writeFile(path.join(root, 'manim.cfg'), `[CLI]\nformat=png\ndry_run=True\npreview=True\nlive_preview=True\nwrite_all=True\nfrom_animation_number=3\nvideo_dir=${outside}\npartial_movie_dir=${outside}\noutput_file=${outside}/bad\nseed=19\nframe_width=12\nframe_height=6\n`);
     const r = await executeJob(options(source, path.join(root, 'runs')));
     assert.equal(r.timeline.end, 2); assert.equal(r.media?.duration, 2); assert.equal(r.profile.seed, 19);
-    assert.equal(r.profile.frameWidth, 12); assert.equal(r.profile.frameHeight, 6);
+    assert.equal(r.profile.frameWidth, 12); assert.equal(r.profile.frameHeight, 6.75, 'Cairo derives the reference height from frame width and pixel aspect');
     await assert.rejects(fs.stat(outside), /ENOENT/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
@@ -134,6 +134,34 @@ test('doctor reports the actual runtime in another folder without executing scen
     const missing = JSON.parse(await fs.readFile(output, 'utf8'));
     assert.equal(missing.status, 'missing-manim');
     assert.ok(missing.python); assert.match(missing.error, /No module named 'manim'/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('public frame capture publishes before a timeline and checks fresh source and misses', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-capture-'));
+  try {
+    const source = path.join(root, 'scene.py');
+    await fs.writeFile(source, 'from manim import Scene, Square, RIGHT\nclass Demo(Scene):\n    def construct(self):\n        s = Square()\n        self.add(s)\n        self.play(s.animate.shift(RIGHT))\n');
+    const job = await createJob(options(source, path.join(root, 'runs')));
+    const frame = await captureFrame(job, .3);
+    assert.equal(frame?.media.kind, 'image');
+    assert.deepEqual(frame?.media.capture, { requestedTime: .3, time: .25, frameIndex: 1 });
+    await assert.rejects(fs.stat(path.join(job.directory, 'timeline.json')), /ENOENT/);
+    const miss = await captureFrame(job, 10);
+    assert.deepEqual(miss?.media.capture, { requestedTime: 10, time: null, frameIndex: null });
+    const stat = await fs.stat(source);
+    await fs.writeFile(source, (await fs.readFile(source, 'utf8')).replace('RIGHT))', 'RIGHT), run_time=2)'));
+    await fs.utimes(source, stat.atime, stat.mtime);
+    await assert.rejects(captureFrame(job, .3), /Primary source changed/);
+    const updated = await captureFrame(await createJob(options(source, path.join(root, 'runs'))), 1.25);
+    assert.equal(updated?.media.capture?.time, 1.25);
+    const mediaRoot = path.join(root, 'preview-media');
+    const published = await publishPreview(frame!, mediaRoot);
+    const bytes = await fs.readFile(frame!.media.path);
+    await fs.writeFile(frame!.media.path, 'obsolete worker output');
+    await fs.rm(job.directory, { recursive: true });
+    assert.deepEqual(await fs.readFile(published.media.path), bytes, 'published pixels outlive worker output');
+    assert.deepEqual(await fs.readdir(mediaRoot), [path.basename(published.media.path)], 'only media is exposed to the webview');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 

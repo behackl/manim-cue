@@ -9,10 +9,10 @@ const sceneName = el('span', 'scene-name');
 const status = el('span', 'status');
 const refresh = button('↻ Refresh', () => post({ kind: 'refresh' }));
 const cancel = button('■ Cancel', () => post({ kind: 'cancel' }));
-const preview = button('Preview', () => post({ kind: 'preview' }), 'Evaluate and render a separate, muted preview');
+const preview = button('Video', () => post({ kind: 'preview' }), 'Render a complete, muted preview');
 const python = button('Python', () => post({ kind: 'doctor' }), 'Check the Python environment used for this Scene');
 const auto = el('input'); auto.type = 'checkbox'; auto.id = 'auto-preview';
-const autoLabel = el('label', 'toggle', 'Auto preview'); autoLabel.htmlFor = auto.id; autoLabel.prepend(auto);
+const autoLabel = el('label', 'toggle', 'Auto video'); autoLabel.htmlFor = auto.id; autoLabel.prepend(auto);
 auto.onchange = () => post({ kind: 'autoPreview', value: auto.checked });
 header.append(brand, sceneName, refresh, cancel, preview, autoLabel, python, button('Logs', () => post({ kind: 'logs' })), button('Export', () => post({ kind: 'export' })), status);
 const banner = el('div', 'banner');
@@ -63,7 +63,7 @@ function seek(time: number): void {
 function moveCursor(time: number): void {
   cursor = time;
   marker?.setAttribute('x1', String(x(time))); marker?.setAttribute('x2', String(x(time)));
-  position.textContent = `${model?.linked ? 'Video' : 'Inspect'} ${seconds(time)}`;
+  position.textContent = `${model?.linked ? 'Video' : 'Selected'} ${seconds(time)}`;
 }
 function siteLabel(site: Site | null): string {
   if (!site) return 'Source unavailable';
@@ -210,7 +210,11 @@ viewport.addEventListener('pointermove', e => {
   nextSeek = timeAt(e.clientX);
   if (!scheduled) { scheduled = true; requestAnimationFrame(() => { scheduled = false; if (nextSeek !== undefined) seek(nextSeek); }); }
 });
-viewport.addEventListener('pointerup', () => { dragging = false; });
+viewport.addEventListener('pointerup', e => {
+  if (!dragging) return;
+  dragging = false; nextSeek = undefined;
+  if (model?.timeline) post({ kind: 'seek', generation: model.generation, time: timeAt(e.clientX), immediate: true });
+});
 viewport.addEventListener('pointercancel', () => { dragging = false; });
 viewport.addEventListener('keydown', e => {
   if (!model?.timeline || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
@@ -225,7 +229,7 @@ listen(message => {
   if (message.kind === 'state') {
     model = message.model;
     cursor = model.position?.time ?? model.playbackTime ?? model.timeline?.start ?? 0;
-    if (model.linked && !model.busy && model.playbackTime !== undefined) cursor = model.playbackTime;
+    if (model.linked && model.mediaReady !== false && model.playbackTime !== undefined) cursor = model.playbackTime;
     render();
   } else if (message.kind === 'position' && message.generation === model?.generation && model.linked) {
     moveCursor(message.time); ghost?.setAttribute('visibility', 'hidden');

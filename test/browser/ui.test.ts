@@ -55,7 +55,7 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     assert.equal(await page.locator('.banner').isVisible(), true, 'actionable stale warnings remain');
     await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, linked: false, busy: true,
       position: { time: 1.25, request: 3 }, timeline: { ...model.timeline!, revision: 'a'.repeat(64) } } }, '*'), model);
-    await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Inspect 1.25 s');
+    await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Selected 1.25 s');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

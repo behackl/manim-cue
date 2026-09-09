@@ -1,23 +1,23 @@
 # Manim Cue — experimental preview
 
-A runtime timeline for normal Manim Python scenes. Click **▶ Open Manim Cue** above a
-Scene class to open a bottom timeline and a preview beside your editor.
-
-**The timeline is the primary result.** It displays observed play/wait spans, sections,
-caption intervals, and sound cues from Manim's completed no-raster evaluation. It does
-not estimate timing from Python source or animation run-time arguments.
+Current-frame previews and a runtime timeline for Manim Python scenes. Click
+**▶ Open Manim Cue** above a Scene class to open a timeline and a preview beside your
+editor. Saving updates the selected frame first; the timeline and a complete movie
+follow. The timeline displays the play/wait spans, sections, captions, and sound cues
+observed while executing the scene.
 
 ## Try it
 
 Requirements: desktop VS Code 1.96+, the Microsoft Python extension, and a Python
-environment containing the **experimental Manim timeline-export implementation**.
-This version was tested against Manim commit `a57eaaff`; a normal PyPI installation
-without `Manager.evaluate(capture_timeline=True)` is not sufficient.
+environment with Manim's public `Manager.capture_frame_at(timestamp)` and
+`Manager.evaluate(capture_timeline=True)` APIs. This version was tested against Manim
+commit `0fc4f752`. Older timeline-capable builds retain the complete-preview route;
+Cue's environment check reports whether current-frame capture is available.
 
 1. Install the locally built VSIX: **Extensions → … → Install from VSIX…**, choosing
-   `manim-cue-0.1.5.vsix`. Or run:
+   `manim-cue-0.1.7.vsix`. Or run:
    ```sh
-   code --install-extension ./manim-cue-0.1.5.vsix
+   code --install-extension ./manim-cue-0.1.7.vsix
    ```
 2. Open your scene folder in a **trusted** VS Code window.
 3. Use **Python: Select Interpreter** to select the environment with the new Manim build.
@@ -98,38 +98,41 @@ guided dependency repair and managed environments remain future work.
 - **Export** writes the original, verified JSON, retaining its numeric representation
   and canonical revision. UI numeric labels are rounded for readability; data is not.
 
-## Video is secondary — and honestly limited
+## Current frame first, movie afterward
 
-Auto preview runs the Python scene **a second time**, with animation-segment caching
-disabled, after publishing the timeline. Uncheck it for timeline-only work. Rendering is not required for a timeline.
-Static scenes get a labeled PNG preview instead of a fabricated movie.
+On an edit, Cue keeps the last picture—still or paused movie—visible with an **OLD
+PREVIEW** marker until its replacement is decoded. After saving, it
+executes a fresh scene up to your selected time and shows the captured frame as soon as
+it is decoded. The timeline refresh runs next. A successful frame remains usable even
+if later timeline evaluation fails.
 
-The video drives the marker through presented-frame timestamps. Click/drag the timeline
-to seek; seeking pauses playback. There are **no Python jobs while scrubbing**.
+**Auto video** renders a complete muted movie after the frame and timeline are ready
+and you have been idle for 1.5 seconds. Uncheck it for frame-and-timeline updates only.
+Use **Manim Cue: Refresh Timeline Only** for evaluation alone, or **Render video** to
+request a complete movie explicitly.
 
-Refresh preserves the selected **absolute timestamp** and pauses the old movie. The
-replacement loads and seeks offscreen, then replaces the old preview only once data for
-that position is decoded. It stays paused. A newer selection made during rendering wins.
-Timeline-only refreshes and failed/cancelled runs also retain the position. A shorter
-scene clamps it to the new end (shown in status); opening a different Scene resets it.
-This is time preservation, not automatic identification of the same animation after edits.
+- Enter a time beneath the preview, or click/drag the timeline. A current movie seeks
+  directly. Otherwise Cue captures the latest requested time after a short settle delay;
+  releasing the timeline pointer requests that time immediately.
+- **Play** requests a movie if needed, then starts it when ready. Seeking or editing
+  clears that playback request. Automatic refreshes remain paused.
+- Replacement images decode offscreen. Replacement movies load and seek before the
+  swap, so the same preview area stays filled throughout. A newer time selection wins.
+- The time entry preserves your requested seconds; the frame readout shows the selected
+  frame's start. At 4 fps, requesting 0.3 s selects the frame at 0.25 s.
+- An unavailable frame produces a labeled **end-state snapshot**. When a shortened movie
+  is ready, Cue adjusts the position to its last verified frame and reports the change.
+  Switching Scene resets the position to zero.
 
-The event/video pairing is **approximate, not verified**: timeline v1 has no encoded
-frame associations. Randomness, external state, draw-dependent code or custom execution
-can differ between the two runs even if their durations match. Obvious rate, duration,
-section-skip or logical-gap mismatches disable linked seeking instead of stretching the
-timeline. Both independent results remain inspectable.
+Frame, timeline, and movie are separate executions under the same checked source and
+profile. Movie timing checks include nominal rate, decoded presentation timestamps,
+duration and section skips. An incompatible movie leaves the current frame visible with
+a concrete warning. For a compatible movie, Cue uses its actual frame timestamps to
+seek the selected frame. These checks establish timing compatibility, not identical
+content across arbitrary Python executions.
 
-Video checks distinguish nominal FPS from the container's average-rate metadata, which
-can differ slightly due to segment/mux timestamps. Every decoded frame's presentation
-time is checked against the nominal cadence; deviations exceeding half a frame disable
-linking, even if the total duration matches. This does not establish event/frame
-associations. No timeline or movie timestamps are rewritten or stretched. Diagnostic logs
-show nominal/average rates, decoded frame count and maximum timing deviation.
-
-Preview is deliberately **muted** in this first version. Manim's default MP4 sound uses
-AAC, which VS Code webviews do not reliably support. Cue markers still work, and normal
-rendering still validates/mixes sound assets. Browser-safe audio conversion is deferred.
+Playback is **muted**. Sound cues remain visible on the timeline, and ordinary movie
+rendering validates/mixes the scene's sound assets.
 
 ## Measuring scene units
 
@@ -147,8 +150,8 @@ rulers and a pointer crosshair. Works on videos and still images:
   are not part of the measurement surface. Pointer movement never invokes Python.
 
 **This is an explicit fixed-camera assumption, not camera tracking.** The mapping uses
-that preview's **configured** frame width/height and assumes the camera is centred at
-`(0, 0)`, unrotated and fixed throughout a 2D scene. Runtime camera overrides, pan/zoom,
+that preview's **configured** frame width and pixel aspect ratio to obtain the reference
+height. It assumes the camera is centred at `(0, 0)`, unrotated and fixed throughout a 2D scene. Runtime camera overrides, pan/zoom,
 rotation, 3D projection and custom output cropping are not tracked. Measurements are
 reference coordinates in this assumed frame, not certified world coordinates or an
 `Axes` object's own data coordinates. Old/loading previews have measurement disabled;
@@ -171,9 +174,10 @@ new timeline dimensions are never applied to an old video.
 - Project configuration is preserved with explicit Cue overrides for headless full
   execution, opaque H.264 output and private output/cache directories. Your config files
   are not edited. Existing primary bytecode caches are not reused by the launch profile.
-- Successive saves supersede obsolete runs. The timeline appears first; video follows
-  when Auto preview is enabled. Previous results stay visible, explicitly stale/unlinked,
-  while new work runs. Automatic failures stay in the panel instead of modal dialogs.
+- Successive saves supersede obsolete runs. The selected frame appears first, followed
+  by the timeline and optional movie. Source and position changes take priority over
+  background work. Previous results stay visible with their freshness status; failures
+  appear in the panel instead of modal dialogs.
 - Possible Python/config dependency changes and environment/profile changes also mark
   results stale and cancel work, but require **manual refresh**: automatic refresh is
   scoped to the active primary scene file, not every Python file in the workspace.
@@ -181,9 +185,9 @@ new timeline dimensions are never applied to an old video.
   they remain visibly **unlinked**.
 - One active scene session; fresh processes, bounded cancellation/timeout, no daemon or
   renderer reuse. Default timeout is 600 seconds per process.
-- Scratch data lives in VS Code extension storage, retaining the current observation and
-  prior preview. Old abandoned runs are cleaned on subsequent jobs. No workspace media
-  output is intentionally produced by the extension.
+- Scratch data lives in VS Code extension storage. The displayed preview and its pending
+  replacement stay available until the webview acknowledges the swap. Abandoned media
+  and run directories are cleaned after jobs settle.
 
 This is **not a sandbox**. Trusted scene code and plugins can execute arbitrary Python,
 access the network, write files or start other processes. Cancellation cannot undo those
@@ -191,9 +195,10 @@ side effects. Reports do not fingerprint every import, asset or external input.
 
 ## Faster refreshes and caches
 
-Cue prepares the profile and invokes the public timeline CLI in **one fresh process**,
-so Manim is imported once rather than twice before a timeline appears. No animation
-steps, updaters or stop checks are skipped, and no Scene/interpreter state is retained.
+Cue prepares the profile and captures the selected frame in **one fresh process**.
+Timeline evaluation and movie rendering use that profile in separate processes. One
+Python job runs at a time; frame requests preempt background work. Capturing a late
+frame runs the preceding animation and drawing steps, so its cost depends on the scene.
 
 - Private bytecode caches use **checked source hashes**, not file size/mtime. Standard
   Python source loaders revalidate bytes even for imported helpers and editable packages.
@@ -208,7 +213,7 @@ steps, updaters or stop checks are skipped, and no Scene/interpreter state is re
 - Caches live in extension storage alongside run directories; use Clear Caches to reclaim
   space. A cold cache still pays import/compilation and layout costs.
 
-On the tested `OpeningManim` scene at 30 fps/960-pixel width, timeline publication changed
+Earlier timeline-only measurements on `OpeningManim` at 30 fps/960-pixel width changed
 from about **6.4 s** to **5.33 s cold / 1.13–1.21 s warm**, with the same timeline revision.
 These measurements exclude VS Code startup/interpreter discovery and the save debounce;
 other scenes may spend more time in actual user code or animation evaluation.
@@ -240,14 +245,14 @@ for arbitrary complex scenes or a video-rendering benchmark.
 
 Cairo-first, desktop/local files, read-only timeline. Explicit GPU/image/writer requests
 during evaluation are unsupported by the current core. No nested animation schedule,
-mobject inspector, waveforms, audible playback, unsaved-buffer execution, targeted frame
-regeneration, automatic source remapping, or exact event/frame mapping.
+mobject inspector, waveforms, audible playback, unsaved-buffer execution, automatic
+source remapping, or exact event/frame mapping.
 
 Tested on macOS with VS Code 1.135 and Chrome. Windows tree termination and remote/web
 workspaces are not validated support claims. Large or unusual timelines may hit the
 explicit viewer limit (16 MiB; 20,000 events/declarations). Errors retain prior data and
 are available in **Manim Cue: Show Logs**. Logs also include wall-clock phase timings
-for environment preparation, evaluation, verification and preview rendering.
+for capture, evaluation, verification, movie rendering, and browser frame load/swap.
 
 ## Development and validation
 

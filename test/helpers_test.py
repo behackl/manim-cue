@@ -80,6 +80,7 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["rate"], 30)
         self.assertEqual(result["averageRate"], 30.001244)
         self.assertEqual(result["frames"], 3)
+        self.assertEqual(result["frameTimes"], [0, 1000 / 30000, 1980 / 30000])
         self.assertAlmostEqual(result["maxFrameTimeError"], 20 / 30000)
 
     def test_full_frame_sequence_measures_interior_drift(self):
@@ -95,13 +96,16 @@ class ProbeTests(unittest.TestCase):
 class DiagnosticTests(unittest.TestCase):
     def test_supported_api_reports_module_and_actual_runtime(self):
         module = SimpleNamespace(__file__="/environment/manim/__init__.py", __version__="test",
-                                 Manager=SimpleNamespace(evaluate=lambda self, capture_timeline=False: None))
+                                 Manager=SimpleNamespace(evaluate=lambda self, capture_timeline=False: None,
+                                                         capture_frame_at=lambda self, timestamp: None))
         with patch.dict("sys.modules", {"manim": module}):
             result = support.diagnose()
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["python"], support.sys.executable)
         self.assertEqual(result["prefix"], support.sys.prefix)
         self.assertEqual(result["manim_module"], module.__file__)
+        self.assertTrue(result["capture_frame"])
+        self.assertTrue(result["timeline"])
 
     def test_old_or_shadowing_module_is_not_reported_as_missing_manim(self):
         with patch.dict("sys.modules", {"manim": SimpleNamespace(__file__="/project/manim.py")}):
