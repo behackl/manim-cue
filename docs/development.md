@@ -30,8 +30,12 @@ stale-state gating, save-triggered refresh, superseding saves, failure recovery 
 cancellation, timestamp restoration/clamping and cache clearing. Unit/UI tests consume
 the public v1 fixture and a small generated seek-test movie, and do not require Manim.
 Measurement UI checks cover letterboxing, resizing at device scale 2, Y orientation,
-copy requests, stills, missing dimensions and stale/replacement media. Integration tests
-explicitly require the supported environment.
+copy requests, stills, missing dimensions and stale/replacement media. Comparison browser
+checks cover wipe/opacity pixels, keyboard/drag controls, high-DPI resizing, stale/current
+and reference decode races, view reconstruction, and entry from a playing movie. The
+native smoke also checks explicit movie-frame capture, pending-pin cancellation, reference
+retention across saves/profile changes, movie suppression and Scene-switch cleanup.
+Integration tests explicitly require the supported environment.
 
 See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for the public Manim fixture and bundled Python-extension
 API helper attribution. The generated demo WAV is original to this project.

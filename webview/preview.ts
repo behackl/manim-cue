@@ -1,6 +1,7 @@
 import type { Model } from '../src/protocol';
 import { button, el, listen, post } from './shared';
 import { Measurement } from './measurement';
+import { Comparison } from './comparison';
 const app = document.getElementById('app')!; app.classList.add('preview-app');
 const header = el('header', 'preview-header');
 const title = el('strong', 'scene-name', 'Manim Cue');
@@ -50,14 +51,15 @@ app.append(header, message, stage, scrubber, controls);
 type Media = NonNullable<Model['media']>;
 interface Item {
   element: HTMLVideoElement | HTMLImageElement; media: Media; generation: number;
-  request: number; target: number; restoring: boolean; disposed: boolean;
+  request: number; target: number; restoring: boolean; disposed: boolean; acknowledged?: boolean;
   callback?: number; lastTime?: number; decodedTime?: number; playIntent?: number; freshSeek?: boolean; timeout?: ReturnType<typeof setTimeout>;
   loopTimer?: ReturnType<typeof setTimeout>; repeating?: boolean;
 }
 let model: Model | undefined, active: Item | undefined, pending: Item | undefined;
 let sequence = Date.now() * 1000;
 const frameCallbacks = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
-const measurement = new Measurement(stage, controls, syncMeasurement);
+const measurement = new Measurement(stage, controls, syncMeasurement, () => comparison.disable());
+const comparison = new Comparison(stage, controls, () => { if (measurement.enabled) measurement.setEnabled(false); });
 const settings = iconButton('Cue settings', 'M8 1H12L13 4L16 3L18 6L16 9L19 10L18 14L15 14L14 17L10 19L8 16L5 17L2 14L4 11L1 9L3 5L6 5ZM10 6A4 4 0 1 0 10 14A4 4 0 1 0 10 6Z', () => post({ kind: 'settings' }));
 settings.querySelector('path')!.setAttribute('fill-rule', 'evenodd'); controls.append(settings);
 function ready(): boolean { return model?.mediaReady ?? (!!model?.media && !model.busy && !model.stale && !model.media.old); }
@@ -67,7 +69,7 @@ function syncMeasurement(): void {
   if (element instanceof HTMLVideoElement) element.controls = false;
   saveFrame.disabled = !(element instanceof HTMLImageElement) || !!item?.restoring;
   previous.disabled = next.disabled = !model?.canSeek || model.canPlay === false || !!model?.media?.old;
-  render.hidden = model?.autoPreview !== false || model?.hasMovie === true || model?.canPlay === false;
+  render.hidden = model?.comparison?.enabled === true || model?.autoPreview !== false || model?.hasMovie === true || model?.canPlay === false;
   render.disabled = !model?.scene;
   measurement.setTarget(usable && element && item?.media.frame ? { element, frame: item.media.frame, token: item.media.token } : undefined);
   play.disabled = !model?.scene || model.canPlay === false || !!model.media?.old;
@@ -75,6 +77,7 @@ function syncMeasurement(): void {
   play.setAttribute('aria-label', pausing ? 'Pause' : 'Play'); play.title = pausing ? 'Pause (Space)' : 'Play (Space)';
   play.querySelector('path')!.setAttribute('d', pausing ? icons.pause : icons.play);
   play.setAttribute('aria-busy', String(model?.playIntent !== undefined && !(usable && element instanceof HTMLVideoElement)));
+  comparison.update(model, item ? { element: item.element, media: item.media, restoring: item.restoring || !item.acknowledged, get time() { return item.lastTime; } } : undefined);
   syncTime(); if (item) checkLoop(item);
 }
 function discard(item?: Item): void {
@@ -161,6 +164,7 @@ function displayed(item: Item): void {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (active === item && !item.disposed) {
       post({ kind: 'displayed', token: item.media.token, request, sequence: tick() });
+      item.acknowledged = true; syncMeasurement();
     }
   }));
   syncWatermark(); syncMeasurement(); applyPlay(item);
@@ -252,8 +256,9 @@ function syncWatermark(): void {
 document.addEventListener('visibilitychange', () => { if (document.hidden && active?.element instanceof HTMLVideoElement) active.element.pause(); });
 listen(m => {
   if (m.kind !== 'state') return;
-  const previousIntent = model?.playIntent;
+  const previousIntent = model?.playIntent, wasComparing = model?.comparison?.enabled;
   model = m.model;
+  if (model.comparison?.enabled && !wasComparing && measurement.enabled) measurement.setEnabled(false);
   title.textContent = model.scene || 'Manim Cue'; status.textContent = model.status;
   message.textContent = model.error ?? model.pairing; message.hidden = !message.textContent;
   message.classList.toggle('warning', !!message.textContent);

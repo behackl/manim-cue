@@ -27,8 +27,12 @@
 - One active scene session; fresh processes, bounded cancellation/timeout, no daemon or
   renderer reuse. Default timeout is 600 seconds per process.
 - Scratch data lives in VS Code extension storage. The displayed preview and its pending
-  replacement stay available until the webview acknowledges the swap. Abandoned media
-  and run directories are cleaned after jobs settle.
+  replacement stay available until the webview acknowledges the swap. Pinned comparison
+  references have independent ownership; their files survive current-preview replacement
+  and source changes. Superseded reference files are retained through reference decode
+  acknowledgement, with only the displayed and latest candidate references kept.
+  Abandoned media and run directories are cleaned after jobs settle. Resource roots stay
+  stable; only completed media, not source/profile/cache files, is exposed to the webview.
 
 This is **not a sandbox**. Trusted scene code and plugins can execute arbitrary Python,
 access the network, write files or start other processes. Cancellation cannot undo those

@@ -5,6 +5,10 @@ Timeline evaluation and movie rendering use that profile in separate processes. 
 Python job runs at a time; frame requests preempt background work. Capturing a late
 frame runs the preceding animation and drawing steps, so its cost depends on the scene.
 
+In **Compare**, seeks capture stills even when a compatible movie is cached; automatic
+movie work is suspended. Moving the wipe divider or opacity slider only composites the
+two decoded images in the webview and never invokes Python.
+
 - Private bytecode caches use **checked source hashes**, not file size/mtime. Standard
   Python source loaders revalidate bytes even for imported helpers and editable packages.
   Existing project timestamp pycs are not used. Damaged caches fall back to source.

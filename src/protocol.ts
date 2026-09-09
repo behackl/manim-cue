@@ -8,7 +8,8 @@ export interface Model {
   canSeek?: boolean; canPlay?: boolean; mediaReady?: boolean; playIntent?: number;
   duration?: number; fps?: number; previewWidth?: number; hasMovie?: boolean;
   position?: { time: number; request: number };
-  media?: { uri: string; kind: 'video' | 'image'; token: string; old: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; loop?: TimeRange;
+  comparison?: { enabled: boolean; pending: boolean; reference?: Model['media'] };
+  media?: { uri: string; kind: 'video' | 'image'; token: string; old: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; sourceHash?: string; loop?: TimeRange;
     capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; frame?: { width: number; height: number } };
 }
 export type HostMessage =
@@ -20,6 +21,9 @@ export type ViewMessage =
   | { kind: 'loopSelection'; generation: number; enabled: boolean }
   | { kind: 'step'; generation: number; direction: -1 | 1 }
   | { kind: 'saveFrame'; token: string }
+  | { kind: 'compare'; generation: number; enabled: boolean; token?: string; time?: number; replace?: boolean }
+  | { kind: 'referenceDisplayed'; token: string }
+  | { kind: 'referenceError'; token: string; message: string }
   | { kind: 'select' | 'navigate'; generation: number; key: string; mode?: SelectionMode }
   | { kind: 'seek'; generation: number; time: number; immediate?: boolean }
   | { kind: 'play' | 'pause'; generation: number; request: number; token?: string }

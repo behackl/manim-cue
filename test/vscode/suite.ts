@@ -10,7 +10,7 @@ import { PythonExtension } from '@vscode/python-extension';
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension('manim-cue-local.manim-cue');
   assert.ok(extension, 'development extension registered');
-  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void };
+  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void; setComparison(enabled: boolean, token?: string, time?: number, replace?: boolean): void };
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const uri = vscode.Uri.file(path.join(root, 'cue_demo.py'));
   const doc = await vscode.workspace.openTextDocument(uri); await vscode.window.showTextDocument(doc);
@@ -40,15 +40,27 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('manimCue.saveFrame');
     assert.deepEqual(await fs.readFile(png.fsPath), await fs.readFile(api.getSnapshot().media!.token), 'PNG export copies displayed pixels');
   } finally { Object.assign(vscode.window, { showSaveDialog: saveDialog }); }
+  const firstFrame = api.getSnapshot().media!.token, firstBytes = await fs.readFile(firstFrame);
+  api.setComparison(true);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'activation pins the displayed still without rerendering');
+  assert.equal(api.getSnapshot().comparison?.enabled, true);
+  assert.equal(api.getSnapshot().comparison?.pending, false);
+  api.setComparison(false); api.setComparison(true);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'toggle keeps reference');
+  api.setComparison(true, '/not/a/displayed/file', undefined, true);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'unowned tokens cannot be pinned');
   await vscode.workspace.getConfiguration('manimCue', uri).update('previewWidth', 480, vscode.ConfigurationTarget.WorkspaceFolder);
   await vscode.commands.executeCommand('manimCue.refresh'); await api.whenIdle();
   assert.equal(api.getSnapshot().previewWidth, 480);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame);
+  assert.deepEqual(await fs.readFile(firstFrame), firstBytes, 'profile refresh retains original reference pixels');
   assert.equal(api.getSnapshot().fps, 4, 'preview width setting does not change execution FPS');
   await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
   for (let attempt = 0; attempt < 100 && api.getSnapshot().playbackTime === undefined; attempt++) await new Promise(resolve => setTimeout(resolve, 100));
   state = api.getSnapshot();
   assert.ok(state.playbackTime !== undefined, `Webview must present a decoded frame: ${JSON.stringify(state)}`);
   assert.equal(state.media?.kind, 'video', JSON.stringify(state));
+  assert.equal(state.comparison?.enabled, false, 'explicit movie rendering exits still comparison');
   assert.equal(state.media?.frame?.height, 8);
   assert.ok(Math.abs(state.media!.frame!.width - 128 / 9) < 1e-8, 'preview carries configured scene units');
   assert.equal(state.linked, true); assert.equal(state.pairing, '', 'no permanent alignment disclaimer');
@@ -70,6 +82,30 @@ export async function run(): Promise<void> {
   api.select(`event:${events[5].id}`, 'range');
   assert.equal(api.getSnapshot().selectedEvents?.length, 4);
   api.seek(1.25);
+  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  const movieToken = api.getSnapshot().media!.token;
+  api.setComparison(true, movieToken, 1.25, true);
+  assert.equal(api.getSnapshot().comparison?.pending, true);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'movie entry does not substitute an older capture');
+  await api.whenIdle();
+  for (let i = 0; i < 100 && api.getSnapshot().comparison?.pending; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  const pinned = api.getSnapshot().comparison!.reference!, pinnedBytes = await fs.readFile(pinned.token);
+  assert.equal(api.getSnapshot().media?.kind, 'image');
+  assert.equal(pinned.token, api.getSnapshot().media?.token, 'pin follows the decoded fresh capture acknowledgement');
+  assert.equal(pinned.capture?.time, 1.25);
+  assert.notEqual(pinned.token, firstFrame); assert.notEqual(pinned.token, movieToken);
+  assert.equal(pinned.sourceHash, api.getSnapshot().timeline?.source.sha256);
+  await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
+  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  api.setComparison(true, api.getSnapshot().media!.token, 1.25, true);
+  api.seek(1.5); // Superseding selection cancels pin intent, not the existing reference.
+  await api.whenIdle();
+  assert.equal(api.getSnapshot().comparison?.pending, false);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
+  api.seek(1.25); await api.whenIdle();
+  await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', true, vscode.ConfigurationTarget.Workspace);
+  await api.whenIdle();
+  assert.equal(api.getSnapshot().media?.kind, 'image', 'Auto video cannot replace a comparison still');
   const edit = new vscode.WorkspaceEdit(); edit.insert(uri, new vscode.Position(0, 0), '# changed\n');
   const waitCall = 'self.wait(0.35, frozen_frame=False)';
   const offset = doc.getText().indexOf(waitCall); assert.ok(offset >= 0);
@@ -120,6 +156,13 @@ export async function run(): Promise<void> {
   const afterSave = api.getSnapshot().generation;
   await pause(900);
   assert.equal(api.getSnapshot().generation, afterSave, 'duplicate watcher notification must not restart a completed run');
+  assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
+  assert.deepEqual(await fs.readFile(pinned.token), pinnedBytes, 'reference survives saves, cancellation and acknowledged current-media cleanup');
+  assert.equal(api.getSnapshot().hasMovie, false, 'saving in Compare suppresses movie work without changing Auto video');
+  assert.equal(api.getSnapshot().autoPreview, true);
+  await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', false, vscode.ConfigurationTarget.Workspace);
+  api.setComparison(false);
+  assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
 
   // An external saved write also refreshes, even though onDidSaveTextDocument does not fire.
   await fs.appendFile(uri.fsPath, '\n# external save\n');
@@ -241,6 +284,8 @@ export async function run(): Promise<void> {
   assert.match(api.getSnapshot().status, /clamped/);
   await vscode.commands.executeCommand('manimCue.open', uri, 'Other'); await api.whenIdle();
   assert.equal(api.getSnapshot().position?.time, 0, 'switching Scene resets selection');
+  assert.equal(api.getSnapshot().comparison?.reference, undefined, 'switching Scene releases its reference');
+  assert.equal(api.getSnapshot().comparison?.enabled, false);
   assert.equal(api.getSnapshot().canPlay, false, 'static scenes keep an untimed snapshot');
   assert.equal(api.getSnapshot().media?.capture?.time, null);
   await vscode.commands.executeCommand('manimCue.clearCaches');

@@ -26,7 +26,7 @@ export class Measurement {
     const p = this.end ?? this.anchor ?? this.cursor;
     if (p && this.target) post({ kind: 'copyPoint', token: this.target.token, ...p });
   }, 'Copy pinned point or drag endpoint (otherwise pointer) as [x, y, 0], rounded to six significant digits');
-  constructor(private stage: HTMLElement, controls: HTMLElement, private changed: () => void) {
+  constructor(private stage: HTMLElement, controls: HTMLElement, private changed: () => void, private onEnable: () => void = () => {}) {
     this.toggle = button('Measure', () => this.setEnabled(!this.enabled), 'Use configured dimensions, assuming a fixed, centred, unrotated 2D camera. Pauses playback; no camera tracking.');
     this.toggle.classList.add('measure-toggle');
     this.toggle.setAttribute('aria-pressed', String(this.enabled)); controls.append(this.toggle);
@@ -57,6 +57,7 @@ export class Measurement {
     this.hit.addEventListener('keydown', event => { if (event.key === 'Escape') { this.clear(); this.draw(); } });
   }
   setEnabled(enabled: boolean): void {
+    if (enabled) this.onEnable();
     this.enabled = enabled; save({ measure: enabled }); this.toggle.setAttribute('aria-pressed', String(enabled));
     this.bar.hidden = !enabled; this.stage.classList.toggle('measuring', enabled);
     if (!enabled) this.clear();

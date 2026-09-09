@@ -26,6 +26,11 @@ class Cue implements vscode.Disposable {
   private job?: SceneJob;
   private retained = new Map<string, PreviewResult>();
   private displayed?: string;
+  private comparing = false;
+  private reference?: PreviewResult;
+  private references = new Map<string, PreviewResult>();
+  private displayedReference?: string;
+  private pinRequest?: { sequence: number; token?: string };
   private displaySequence = -1;
   private frameSequence = -1;
   private lastInteraction = 0;
@@ -78,6 +83,7 @@ class Cue implements vscode.Disposable {
       (m, origin) => { void this.message(m, origin).catch(e => this.failAction(e)); }, webview => this.snapshot(webview), () => {
         this.queue.remove('frame'); this.queue.remove('movie'); this.playIntent = undefined;
         this.preview = undefined; this.displayed = undefined; this.retained.clear();
+        this.clearComparison(); this.views.update(); void this.cleanup();
       });
   }
   snapshot(webview?: vscode.Webview): Model {
@@ -104,13 +110,19 @@ class Cue implements vscode.Disposable {
       selection: range ? { ...range, enabled: this.loopEnabled && !this.stale, available: !this.stale && (!hasMovie || !!loop) } : undefined,
       linked, pairing: reason, playbackTime: this.playbackTime,
       position: { time: this.desiredTime, request: this.seekSequence }, playIntent: this.playIntent,
+      comparison: { enabled: this.comparing, pending: !!this.pinRequest, reference: this.reference ? {
+        uri: webview ? webview.asWebviewUri(vscode.Uri.file(this.reference.media.path)).toString() : '',
+        token: this.reference.media.path, kind: 'image', old: false, duration: 0, rate: this.reference.media.rate,
+        capture: this.reference.media.capture, sourceId: this.reference.directory, sourceHash: this.reference.sourceHash,
+        frame: { width: this.reference.profile.frameWidth, height: this.reference.profile.frameHeight },
+      } : undefined },
       duration: hasMovie ? this.movie!.media.duration : !this.stale ? this.result?.timeline.end : undefined,
       fps: this.job?.options.fps ?? cfg.get<number>('frameRate', 30), previewWidth: cfg.get<number>('previewWidth', 960), hasMovie,
       canSeek: !!this.target, canPlay: this.stale || !this.result || this.result.timeline.end > this.result.timeline.start, mediaReady: !!media && !!fresh && positioned && !this.mediaError,
       profile: this.result ? `Cairo · ${this.result.profile.fps} fps · ${this.result.profile.width}×${this.result.profile.height} · seed ${this.result.profile.seed}` : undefined,
       media: media ? { uri: webview ? webview.asWebviewUri(vscode.Uri.file(media.path)).toString() : '',
         kind: media.kind, token: media.path, old: !fresh, duration: media.duration, rate: media.rate,
-        capture: media.capture, seekTime, loop: linked && this.loopEnabled ? loop : undefined, sourceId: this.preview!.directory, frame: { width: this.preview!.profile.frameWidth, height: this.preview!.profile.frameHeight } } : undefined,
+        capture: media.capture, seekTime, loop: linked && this.loopEnabled ? loop : undefined, sourceId: this.preview!.directory, sourceHash: this.preview!.sourceHash, frame: { width: this.preview!.profile.frameWidth, height: this.preview!.profile.frameHeight } } : undefined,
     };
   }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
@@ -139,7 +151,7 @@ class Cue implements vscode.Disposable {
     if (!/^[\p{ID_Start}_][\p{ID_Continue}]*$/u.test(scene)) throw new Error('Enter a Python class name, not a command or expression.');
     const different = !this.target || this.target.uri.toString() !== document.uri.toString() || this.target.scene !== scene;
     this.cancel(false);
-    if (different) { this.selectedEvents = []; this.selectionAnchor = undefined; this.displayed = undefined; this.retained.clear(); this.result = undefined; this.preview = undefined; this.movie = undefined; this.selected = undefined; this.diskHash = undefined; this.sourceEdited = false; this.desiredTime = 0; this.playbackTime = undefined; this.positionClamped = false; }
+    if (different) { this.clearComparison(); this.selectedEvents = []; this.selectionAnchor = undefined; this.displayed = undefined; this.retained.clear(); this.result = undefined; this.preview = undefined; this.movie = undefined; this.selected = undefined; this.diskHash = undefined; this.sourceEdited = false; this.desiredTime = 0; this.playbackTime = undefined; this.positionClamped = false; }
     if (different && remembered?.uri === document.uri.toString() && remembered.scene === scene && Number.isFinite(remembered.time) && remembered.time >= 0) this.desiredTime = remembered.time;
     this.target = { uri: document.uri, scene, column: vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString())?.viewColumn };
     this.remember();
@@ -210,6 +222,7 @@ class Cue implements vscode.Disposable {
     if (error instanceof InputsChanged) this.invalidate('Inputs changed — save or refresh');
     this.phaseError(phase, error);
     if (phase === 'Movie' || phase === 'Timeline') this.playIntent = undefined;
+    if (phase === 'Frame capture') this.pinRequest = undefined;
     this.status = `${phase} failed — completed results retained`;
     this.output.appendLine(`\n${this.status}: ${this.error}`); this.views.update();
   }
@@ -233,11 +246,12 @@ class Cue implements vscode.Disposable {
         this.phaseError('Frame capture');
         if (result) {
           this.displayTiming = { token: result.media.path, started, produced: performance.now() };
+          if (this.pinRequest?.sequence === sequence) this.pinRequest.token = result.media.path;
           this.frameSequence = sequence; this.offer(result);
           this.status = result.media.capture?.time === null ? 'End-state snapshot ready' : 'Current frame ready';
         } else {
-          this.captureUnsupported = true;
-          this.status = 'Current-frame capture requires Manager.capture_frame_at — using full preview';
+          this.captureUnsupported = true; this.pinRequest = undefined;
+          this.status = this.comparing ? 'Comparison requires Manager.capture_frame_at — no reference captured' : 'Current-frame capture requires Manager.capture_frame_at — using full preview';
         }
         if (this.autoPreview || this.playIntent !== undefined) this.requestMovie(this.playIntent !== undefined);
       } catch (e) { this.jobFailed(job, signal, 'Frame capture', e); }
@@ -248,6 +262,7 @@ class Cue implements vscode.Disposable {
     return frameIndex(time, fps, frames);
   }
   private showMovie(movie: PreviewResult): void {
+    if (this.comparing) return;
     if (movie.media.kind === 'video' && this.desiredTime >= movie.media.frames / movie.profile.fps) {
       this.desiredTime = (movie.media.frames - 1) / movie.profile.fps;
       ++this.seekSequence; this.positionClamped = true;
@@ -255,12 +270,13 @@ class Cue implements vscode.Disposable {
     this.offer(movie);
   }
   async renderVideo(): Promise<void> {
+    this.comparing = false; this.pinRequest = undefined;
     if (!this.views.previewOpen) await this.views.open();
     if (!this.job || this.sourceEdited || this.result?.directory !== this.job.directory || this.stale) await this.refresh();
     this.requestMovie(true); await this.whenIdle();
   }
   private requestMovie(immediate = false): void {
-    if (!this.views.previewOpen || this.queue.running('movie')) return;
+    if (this.comparing || !this.views.previewOpen || this.queue.running('movie')) return;
     const job = this.job, result = this.result;
     if (!job || this.sourceEdited || !result || result.directory !== job.directory || this.stale) return;
     if (!immediate && !this.captureUnsupported && this.preview?.directory !== job.directory) return;
@@ -293,11 +309,11 @@ class Cue implements vscode.Disposable {
   }
   seek(time: number, immediate = false): void {
     if (!this.target || !Number.isFinite(time) || this.disposed) return;
-    this.desiredTime = Math.max(0, time); this.playIntent = undefined;
+    this.desiredTime = Math.max(0, time); this.playIntent = undefined; this.pinRequest = undefined;
     this.positionClamped = false; ++this.seekSequence; this.lastInteraction = Date.now(); this.frameStarted = performance.now();
     this.remember();
     if (!this.autoPreview) this.queue.remove('movie');
-    if (this.movie?.directory === this.job?.directory && this.movie && !this.sourceEdited) this.showMovie(this.movie);
+    if (!this.comparing && this.movie?.directory === this.job?.directory && this.movie && !this.sourceEdited) this.showMovie(this.movie);
     else if (!this.captureUnsupported) this.requestFrame(immediate ? 0 : 150);
     this.views.update();
   }
@@ -352,6 +368,42 @@ class Cue implements vscode.Disposable {
     if (!this.snapshot().selection?.available) return;
     this.loopEnabled = enabled; this.playIntent = undefined; this.views.update();
   }
+  private clearComparison(): void {
+    this.comparing = false; this.reference = undefined; this.references.clear(); this.displayedReference = undefined; this.pinRequest = undefined;
+  }
+  private pin(result: PreviewResult): void {
+    this.phaseError('Comparison reference');
+    this.reference = result; this.references.set(result.media.path, result); this.pinRequest = undefined;
+    for (const token of this.references.keys()) if (token !== result.media.path && token !== this.displayedReference) this.references.delete(token);
+  }
+  setComparison(enabled: boolean, token = this.displayed, time?: number, replace = false): void {
+    if (!enabled) {
+      this.comparing = false; this.pinRequest = undefined;
+      if (this.autoPreview) this.requestMovie();
+      this.views.update(); return;
+    }
+    const result = token === this.displayed && token ? this.retained.get(token) : undefined;
+    if (!result) return;
+    if (time !== undefined && (!Number.isFinite(time) || time < 0 || result.media.kind === 'video' && time > result.media.duration)) return;
+    this.comparing = true; this.playIntent = undefined; this.pinRequest = undefined;
+    this.queue.remove('movie');
+    const needsPin = replace || !this.reference;
+    if (result.media.kind === 'image') {
+      if (needsPin) this.pin(result); // Deliberately retain the displayed pixels, even if stale.
+    } else {
+      // A movie is never substituted with a prior capture. Request a new still at its
+      // presented frame; independent execution is explicit in the UI, not pixel extraction.
+      if (this.snapshot().mediaReady && result.media.path === this.preview?.media.path && this.job) {
+        const pts = result.media.frameTimes;
+        const value = time ?? this.playbackTime ?? this.desiredTime;
+        if (!Number.isFinite(value) || value < 0 || value > result.media.duration) return;
+        const index = pts ? indexAt(value + 1e-7, pts.length, i => pts[i]) : this.movieIndex(value, result.media.frames);
+        this.seek(index / result.profile.fps, true);
+        if (needsPin && !this.captureUnsupported) this.pinRequest = { sequence: this.seekSequence };
+      }
+    }
+    this.views.update();
+  }
   async saveFrame(token = this.displayed): Promise<void> {
     const result = token && token === this.displayed ? this.retained.get(token) : undefined;
     if (!result || result.media.kind !== 'image') return;
@@ -379,7 +431,7 @@ class Cue implements vscode.Disposable {
   }
   cancel(preserve = true): void {
     this.clearAutoRefresh();
-    ++this.generation; ++this.seekSequence; this.abort?.abort(); this.playIntent = undefined; this.loopEnabled = false;
+    ++this.generation; ++this.seekSequence; this.abort?.abort(); this.playIntent = undefined; this.loopEnabled = false; this.pinRequest = undefined;
     if (!preserve) this.job = undefined;
     else if (this.preview?.media.capture?.requestedTime === this.desiredTime && this.preview.directory === this.job?.directory) this.frameSequence = this.seekSequence;
     this.preparing = false; this.queue.clear(); this.busy = this.queue.busy;
@@ -530,12 +582,31 @@ class Cue implements vscode.Disposable {
     if (m.kind === 'settings') { await vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${this.context.extension.id}`); return; }
     if (origin === 'timeline' && m.kind === 'loopSelection' && m.generation === this.generation && typeof m.enabled === 'boolean') { this.setLoop(m.enabled); return; }
     if (origin === 'preview' && m.kind === 'saveFrame' && typeof m.token === 'string') { await this.saveFrame(m.token); return; }
+    if (origin === 'preview' && m.kind === 'referenceError' && typeof m.token === 'string' && m.token === this.reference?.media.path && typeof m.message === 'string') {
+      const previous = this.displayedReference ? this.references.get(this.displayedReference) : undefined;
+      this.reference = previous?.media.path !== m.token ? previous : undefined;
+      this.references.delete(m.token);
+      this.phaseError('Comparison reference', m.message.slice(0, 300)); this.views.update();
+      if (!this.queue.busy) await this.cleanup();
+      return;
+    }
+    if (origin === 'preview' && m.kind === 'referenceDisplayed' && typeof m.token === 'string' && m.token === this.reference?.media.path) {
+      this.displayedReference = m.token;
+      for (const token of this.references.keys()) if (token !== m.token) this.references.delete(token);
+      if (!this.queue.busy) await this.cleanup();
+      return;
+    }
     if (origin === 'preview' && m.generation === this.generation) {
+      if (m.kind === 'compare' && typeof m.enabled === 'boolean' && (m.token === undefined || typeof m.token === 'string') &&
+        (m.time === undefined || typeof m.time === 'number' && Number.isFinite(m.time))) {
+        this.setComparison(m.enabled, m.token as string | undefined, m.time as number | undefined, m.replace === true); return;
+      }
       if (m.kind === 'step' && (m.direction === -1 || m.direction === 1)) { this.step(m.direction); return; }
     }
     if ((m.kind === 'play' || m.kind === 'pause') && (m.generation !== this.generation || m.request !== this.seekSequence ||
       (m.token !== undefined && m.token !== this.preview?.media.path))) return;
     if (origin === 'preview' && m.kind === 'play') {
+      this.comparing = false; this.pinRequest = undefined;
       const range = this.loopEnabled ? this.snapshot().selection : undefined;
       if (range?.available && (this.desiredTime < range.start || this.desiredTime >= range.end)) this.seek(range.start);
       this.playIntent = ++this.playSequence; this.requestMovie(true); this.views.update(); return;
@@ -546,6 +617,10 @@ class Cue implements vscode.Disposable {
     if (origin === 'preview' && m.kind === 'displayed' && typeof m.token === 'string' && this.retained.has(m.token) &&
       typeof m.sequence === 'number' && Number.isFinite(m.sequence) && m.sequence > this.displaySequence) {
       this.displaySequence = m.sequence; this.displayed = m.token;
+      if (this.comparing && this.pinRequest?.sequence === this.seekSequence && this.pinRequest.token === m.token &&
+        m.request === this.seekSequence && this.snapshot().mediaReady) {
+        this.pin(this.retained.get(m.token)!); this.views.update();
+      }
       if (m.token === this.preview?.media.path) {
         for (const token of this.retained.keys()) if (token !== m.token) this.retained.delete(token);
         if (m.request === this.seekSequence && this.preview.media.capture && this.snapshot().mediaReady) this.playbackTime = this.preview.media.capture.time ?? undefined;
@@ -572,6 +647,7 @@ class Cue implements vscode.Disposable {
     }
     if (origin === 'preview' && m.kind === 'mediaError' && m.token === this.preview?.media.path && typeof m.message === 'string') {
       this.playIntent = undefined;
+      if (this.pinRequest?.token === m.token) this.pinRequest = undefined;
       const previous = this.displayed ? this.retained.get(this.displayed) : undefined;
       if (this.movie?.media.path === m.token) this.movie = undefined;
       if (previous && previous.media.path !== m.token) {
@@ -600,23 +676,25 @@ class Cue implements vscode.Disposable {
   }
   private async cleanup(): Promise<void> {
     if (this.queue.busy || this.preparing) return;
-    const keep = new Set([this.job?.directory, this.result?.directory, this.movie?.directory, ...[...this.retained.values()].map(r => r.directory)]);
-    const media = new Set([this.preview?.media.path, this.movie?.media.path, ...this.retained.keys()]);
+    // Recheck ownership after filesystem awaits: a display/pin acknowledgement or
+    // completed job may have changed the live set while directory listing yielded.
+    const keep = () => new Set([this.job?.directory, this.result?.directory, this.movie?.directory, ...[...this.retained.values(), ...this.references.values()].map(r => r.directory)]);
+    const media = () => new Set([this.preview?.media.path, this.movie?.media.path, ...this.retained.keys(), ...this.references.keys()]);
     try {
       for (const file of await fs.readdir(this.mediaRoot).catch(() => [] as string[])) {
         if (this.queue.busy || this.preparing) return;
         const full = path.join(this.mediaRoot, file);
-        if (!media.has(full)) await fs.rm(full, { force: true });
+        if (!media().has(full)) await fs.rm(full, { force: true });
       }
       for (const entry of await fs.readdir(this.scratch, { withFileTypes: true })) {
         if (this.queue.busy || this.preparing) return;
         const dir = path.join(this.scratch, entry.name);
         if (!entry.isDirectory() || !entry.name.startsWith('run-')) continue;
-        if (!keep.has(dir)) await fs.rm(dir, { recursive: true, force: true });
+        if (!keep().has(dir)) await fs.rm(dir, { recursive: true, force: true });
         else for (const file of await fs.readdir(path.join(dir, 'media'))) {
           if (this.queue.busy || this.preparing) return;
           const full = path.join(dir, 'media', file);
-          if (!media.has(full)) await fs.rm(full, { force: true });
+          if (!media().has(full)) await fs.rm(full, { force: true });
         }
       }
     } catch { /* Best effort (e.g. a media handle is still being released). */ }
@@ -655,5 +733,6 @@ export function activate(context: vscode.ExtensionContext) {
   }).catch(() => {});
   // Small diagnostic API for integration tests/consumers; no mutable scene or renderer objects.
   return { getSnapshot: () => cue.snapshot(), whenIdle: () => cue.whenIdle(), seek: (time: number) => cue.seek(time),
-    select: (key: string, mode?: SelectionMode) => cue.select(key, mode), setLoop: (enabled: boolean) => cue.setLoop(enabled) };
+    select: (key: string, mode?: SelectionMode) => cue.select(key, mode), setLoop: (enabled: boolean) => cue.setLoop(enabled),
+    setComparison: (enabled: boolean, token?: string, time?: number, replace?: boolean) => cue.setComparison(enabled, token, time, replace) };
 }

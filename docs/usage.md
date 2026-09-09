@@ -66,7 +66,7 @@ Cue's controls replace the browser's native video controls:
   still uses Left/Right to select timed calls. Frame stepping pauses playback.
 - **Render video** appears when Auto video is off and no current movie is ready. It
   prepares playback without starting it; Play requests a movie and starts when ready.
-- The **settings cog**, just after Measure, opens VS Code Settings filtered to Cue.
+- The **settings cog**, after Measure and Compare, opens VS Code Settings filtered to Cue.
   Set `manimCue.previewWidth` there (for example 480, 960 or 1920); changing width does
   not change FPS. Refresh after changing the rendering profile. Auto video changes take
   effect immediately without invalidating current results.
@@ -103,6 +103,43 @@ observations remain inspectable, with stale selection clearly marked, until refr
 The timeline toolbar contains Scene, Refresh, Cancel (while busy), Loop selection,
 range and status. Environment checks, logs and timeline JSON export remain in the
 Command Palette; errors offer relevant diagnostic actions in the pane.
+
+## Comparing before and after
+
+Click **Compare**, beside Measure, to pin the displayed still as a reference. Edit and
+save normally: only the current image updates, while the reference retains its pixels.
+
+- **Wipe** (default) shows the reference on the left and current image on the right.
+  Drag the vertical divider or use the slider. With the divider focused, Left/Right
+  adjust it; Home/End show current-only/reference-only without seeking the scene.
+- **Overlay** blends both images, initially at 50%. Its slider controls the current
+  image's opacity: 0% is reference-only, 100% is current-only. Each mode remembers its
+  slider position while the webview remains open.
+- **Replace reference** pins the displayed current still. Turning Compare off hides the
+  comparison but keeps the reference; turning it on again does not silently repin.
+- Labels identify each actual capture time and the primary-source SHA-256 prefix.
+  These are source identifiers, not full dependency revisions. Untimed snapshots say
+  **End state**; old/loading current images remain explicitly marked. A stale still can
+  deliberately be pinned, without executing an older source revision.
+- Entering from a current movie pauses it and **captures a new still at its presented
+  frame** using the public capture API. This is a fresh execution, not extraction of
+  the movie's pixels; arbitrary scene code can produce a different result. The new
+  reference is pinned only after that capture is decoded. Failed/cancelled captures or
+  a superseding seek/edit never substitute an older still or replace an existing pin.
+- Seeking and stepping in Compare capture new stills, even if a movie exists. Automatic
+  movie rendering/handoff is suspended without changing **Auto video**. Play or the
+  explicit Render Preview command exits Compare; normal movie behavior then resumes.
+  Compare and Measure are mutually exclusive so their drag gestures cannot conflict.
+- Both images are centred and fitted into the current image area without stretching.
+  Aspect/frame-geometry changes are flagged; there is no automatic registration or
+  camera alignment. Transparent pixels use a neutral dark background for comparison.
+- The reference survives refreshes and webview reconstruction within the current panel
+  session. Switching Scene, closing the preview panel, or restarting VS Code clears it.
+  Reference replacements decode before swapping; a failed decode keeps the previous
+  reference visible.
+
+**Save PNG** still saves the current captured image, not the wipe/overlay composition.
+There is no comparison export, reference gallery or synchronized movie comparison.
 
 ## Measuring scene units
 
