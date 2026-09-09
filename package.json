@@ -2,10 +2,11 @@
   "name": "manim-cue",
   "displayName": "Manim Cue",
   "description": "Preview the current Manim frame, then explore the executed timeline and movie.",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "publisher": "manim-cue-local",
   "private": true,
   "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/behackl/manim-cue.git" },
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -77,7 +78,10 @@
       {
         "command": "manimCue.export",
         "title": "Manim Cue: Export Timeline JSON"
-      }
+      },
+      { "command": "manimCue.saveFrame", "title": "Manim Cue: Save Captured Frame as PNG" },
+      { "command": "manimCue.previousFrame", "title": "Manim Cue: Previous Frame" },
+      { "command": "manimCue.nextFrame", "title": "Manim Cue: Next Frame" }
     ],
     "viewsContainers": {
       "panel": [
@@ -135,6 +139,7 @@
         },
         "manimCue.autoPreview": {
           "type": "boolean",
+          "scope": "resource",
           "default": true,
           "description": "Automatically render a complete muted video after frame/timeline refresh and 1.5 seconds idle. Current-frame previews also update when this is off."
         },
@@ -147,6 +152,7 @@
         },
         "manimCue.previewWidth": {
           "type": "integer",
+          "scope": "resource",
           "default": 960,
           "minimum": 64,
           "maximum": 3840,

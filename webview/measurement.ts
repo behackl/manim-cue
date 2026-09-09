@@ -26,13 +26,9 @@ export class Measurement {
     const p = this.end ?? this.anchor ?? this.cursor;
     if (p && this.target) post({ kind: 'copyPoint', token: this.target.token, ...p });
   }, 'Copy pinned point or drag endpoint (otherwise pointer) as [x, y, 0], rounded to six significant digits');
-  constructor(private stage: HTMLElement, controls: HTMLElement, changed: () => void) {
-    this.toggle = button('Measure (fixed 2D)', () => {
-      this.enabled = !this.enabled; save({ measure: this.enabled }); this.toggle.setAttribute('aria-pressed', String(this.enabled));
-      this.bar.hidden = !this.enabled; stage.classList.toggle('measuring', this.enabled);
-      if (!this.enabled) this.clear();
-      changed(); this.draw();
-    }, 'Use configured dimensions, assuming a fixed, centred, unrotated 2D camera. Pauses playback; no camera tracking.');
+  constructor(private stage: HTMLElement, controls: HTMLElement, private changed: () => void) {
+    this.toggle = button('Measure', () => this.setEnabled(!this.enabled), 'Use configured dimensions, assuming a fixed, centred, unrotated 2D camera. Pauses playback; no camera tracking.');
+    this.toggle.classList.add('measure-toggle');
     this.toggle.setAttribute('aria-pressed', String(this.enabled)); controls.append(this.toggle);
     stage.classList.toggle('measuring', this.enabled);
     this.bar.append(this.info, this.readout, this.copy, button('Clear', () => { this.clear(); this.draw(); }));
@@ -59,6 +55,12 @@ export class Measurement {
     this.hit.addEventListener('lostpointercapture', event => { if (this.drag === event.pointerId) { this.drag = undefined; this.draw(); } });
     this.hit.addEventListener('pointerleave', () => { if (this.drag === undefined) { this.cursor = undefined; this.draw(); } });
     this.hit.addEventListener('keydown', event => { if (event.key === 'Escape') { this.clear(); this.draw(); } });
+  }
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled; save({ measure: enabled }); this.toggle.setAttribute('aria-pressed', String(enabled));
+    this.bar.hidden = !enabled; this.stage.classList.toggle('measuring', enabled);
+    if (!enabled) this.clear();
+    this.changed(); this.draw();
   }
   setTarget(target?: Target): void {
     if (target && !validSize(target.frame)) target = undefined;

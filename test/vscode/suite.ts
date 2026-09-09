@@ -10,7 +10,7 @@ import { PythonExtension } from '@vscode/python-extension';
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension('manim-cue-local.manim-cue');
   assert.ok(extension, 'development extension registered');
-  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void };
+  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void };
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const uri = vscode.Uri.file(path.join(root, 'cue_demo.py'));
   const doc = await vscode.workspace.openTextDocument(uri); await vscode.window.showTextDocument(doc);
@@ -33,6 +33,17 @@ export async function run(): Promise<void> {
   assert.equal(state.busy, false); assert.equal(state.stale, false);
   assert.equal(state.media?.kind, 'image'); assert.equal(state.media?.capture?.time, 0);
   assert.equal(state.mediaReady, true);
+  for (let i = 0; i < 100 && api.getSnapshot().playbackTime === undefined; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  const saveDialog = vscode.window.showSaveDialog, png = vscode.Uri.file(path.join(root, 'captured.png'));
+  try {
+    Object.assign(vscode.window, { showSaveDialog: async () => png });
+    await vscode.commands.executeCommand('manimCue.saveFrame');
+    assert.deepEqual(await fs.readFile(png.fsPath), await fs.readFile(api.getSnapshot().media!.token), 'PNG export copies displayed pixels');
+  } finally { Object.assign(vscode.window, { showSaveDialog: saveDialog }); }
+  await vscode.workspace.getConfiguration('manimCue', uri).update('previewWidth', 480, vscode.ConfigurationTarget.WorkspaceFolder);
+  await vscode.commands.executeCommand('manimCue.refresh'); await api.whenIdle();
+  assert.equal(api.getSnapshot().previewWidth, 480);
+  assert.equal(api.getSnapshot().fps, 4, 'preview width setting does not change execution FPS');
   await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
   for (let attempt = 0; attempt < 100 && api.getSnapshot().playbackTime === undefined; attempt++) await new Promise(resolve => setTimeout(resolve, 100));
   state = api.getSnapshot();
@@ -44,12 +55,29 @@ export async function run(): Promise<void> {
   api.seek(1.25);
   for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(api.getSnapshot().playbackTime, 1.25, 'seek presents the selected frame');
+  await vscode.commands.executeCommand('manimCue.nextFrame');
+  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.5; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(api.getSnapshot().playbackTime, 1.5);
+  await vscode.commands.executeCommand('manimCue.previousFrame');
+  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(api.getSnapshot().playbackTime, 1.25);
+  const events = state.timeline!.events;
+  api.select(`event:${events[1].id}`); api.select(`event:${events[2].id}`, 'toggle'); api.setLoop(true);
+  assert.deepEqual(api.getSnapshot().selectedEvents, [events[1].id, events[2].id]);
+  assert.equal(api.getSnapshot().selection?.start, 1); assert.equal(api.getSnapshot().selection?.end, 2);
+  assert.deepEqual(api.getSnapshot().media?.loop, { start: 1, end: 2 });
+  assert.equal(api.getSnapshot().playIntent, undefined, 'selection and loop toggle do not start playback');
+  api.select(`event:${events[5].id}`, 'range');
+  assert.equal(api.getSnapshot().selectedEvents?.length, 4);
+  api.seek(1.25);
   const edit = new vscode.WorkspaceEdit(); edit.insert(uri, new vscode.Position(0, 0), '# changed\n');
   const waitCall = 'self.wait(0.35, frozen_frame=False)';
   const offset = doc.getText().indexOf(waitCall); assert.ok(offset >= 0);
   edit.replace(uri, new vscode.Range(doc.positionAt(offset), doc.positionAt(offset + waitCall.length)), 'self.wait(0.85, frozen_frame=False)');
   assert.equal(await vscode.workspace.applyEdit(edit), true);
   assert.equal(api.getSnapshot().stale, true); assert.equal(api.getSnapshot().linked, false);
+  assert.equal(api.getSnapshot().selection?.enabled, false, 'source changes disarm the old loop');
+  assert.equal(api.getSnapshot().media?.loop, undefined);
   const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
   const until = async (predicate: () => boolean, reason: string) => {
     for (let i = 0; i < 600 && !predicate(); i++) await pause(100);
@@ -128,10 +156,12 @@ export async function run(): Promise<void> {
   assert.equal(await vscode.workspace.applyEdit(fix), true); await doc.save();
   await savedTimeline(); assert.equal(api.getSnapshot().error, undefined);
 
-  // Auto preview regenerates media after the new observation, without retaining a
-  // silently linked old movie. Reopening applies the configured preview preference.
+  // Auto video settings take effect immediately without reopening or staling current data.
+  const settingsGeneration = api.getSnapshot().generation;
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', true, vscode.ConfigurationTarget.Workspace);
-  await vscode.commands.executeCommand('manimCue.open', uri, 'CueDemo'); await api.whenIdle();
+  await until(() => api.getSnapshot().autoPreview && api.getSnapshot().linked, 'Auto video setting prepares the current movie');
+  await api.whenIdle();
+  assert.equal(api.getSnapshot().generation, settingsGeneration, 'Auto video is not an execution-profile change');
   const oldMedia = api.getSnapshot().media?.token;
   assert.equal(api.getSnapshot().linked, true);
   await until(() => api.getSnapshot().playbackTime === 1.25, 'replacement video restores selected frame');

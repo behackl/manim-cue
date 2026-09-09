@@ -4,17 +4,13 @@ import { button, el, listen, post, saved, save, seconds } from './shared';
 
 const app = document.getElementById('app')!; app.classList.add('timeline-app');
 const header = el('header', 'toolbar');
-const brand = el('strong', 'brand', 'MANIM CUE');
 const sceneName = el('span', 'scene-name');
 const status = el('span', 'status');
 const refresh = button('↻ Refresh', () => post({ kind: 'refresh' }));
 const cancel = button('■ Cancel', () => post({ kind: 'cancel' }));
-const preview = button('Video', () => post({ kind: 'preview' }), 'Render a complete, muted preview');
-const python = button('Python', () => post({ kind: 'doctor' }), 'Check the Python environment used for this Scene');
-const auto = el('input'); auto.type = 'checkbox'; auto.id = 'auto-preview';
-const autoLabel = el('label', 'toggle', 'Auto video'); autoLabel.htmlFor = auto.id; autoLabel.prepend(auto);
-auto.onchange = () => post({ kind: 'autoPreview', value: auto.checked });
-header.append(brand, sceneName, refresh, cancel, preview, autoLabel, python, button('Logs', () => post({ kind: 'logs' })), button('Export', () => post({ kind: 'export' })), status);
+const loop = button('Loop selection', () => { if (model) post({ kind: 'loopSelection', generation: model.generation, enabled: !model.selection?.enabled }); });
+const rangeLabel = el('span', 'selection-range');
+header.append(sceneName, refresh, cancel, loop, rangeLabel, status);
 const banner = el('div', 'banner');
 const workspace = el('div', 'workspace');
 const chart = el('section', 'chart');
@@ -30,7 +26,10 @@ chart.append(controls, viewport, legend);
 const inspector = el('aside', 'inspector');
 workspace.append(chart, inspector);
 const error = el('pre', 'error');
-app.append(header, banner, workspace, error);
+const errorActions = el('div', 'error-actions');
+const checkPython = button('Check Python', () => post({ kind: 'doctor' }));
+errorActions.append(button('Show logs', () => post({ kind: 'logs' })), checkPython);
+app.append(header, banner, workspace, error, errorActions);
 let model: Model | undefined;
 let zoom = Math.max(1, Math.min(128, Number((saved() as { zoom?: number } | undefined)?.zoom) || 1));
 let scale = 1, lo = 0, width = 1, cursor = 0;
@@ -49,9 +48,10 @@ function changeZoom(value: number): void {
   zoom = Math.max(1, Math.min(128, value)); save({ zoom }); render();
   viewport.scrollLeft = Math.max(0, x(center) - viewport.clientWidth / 2);
 }
-function select(key: string, time: number): void {
+function select(key: string, event?: MouseEvent | KeyboardEvent): void {
   if (!model) return;
-  post({ kind: 'select', generation: model.generation, key }); seek(time);
+  const mode = key.startsWith('event:') ? event?.shiftKey ? 'range' : event?.metaKey || event?.ctrlKey ? 'toggle' : 'replace' : 'replace';
+  post({ kind: 'select', generation: model.generation, key, mode });
 }
 function seek(time: number): void {
   if (!model?.timeline) return;
@@ -77,26 +77,32 @@ function eventName(e: Event): string {
 function row(title: string, y: number): void {
   svg.append(node('line', { x1: 0, x2: width, y1: y + 31, y2: y + 31, class: 'lane-rule' }), node('text', { x: 10, y: y + 20, class: 'lane-label' }, title));
 }
-function selectable(g: SVGGElement, key: string, start: number, title: string): void {
-  g.classList.add('selectable'); if (model?.selected === key) g.classList.add('selected');
+function selectable(g: SVGGElement, key: string, title: string): void {
+  const selected = key.startsWith('event:') ? model?.selectedEvents?.includes(key.slice(6)) : model?.selected === key;
+  g.classList.add('selectable'); if (selected) g.classList.add('selected');
+  g.setAttribute('aria-pressed', String(!!selected));
   g.setAttribute('role', 'button'); g.setAttribute('tabindex', '0'); g.setAttribute('aria-label', title);
   g.append(node('title', {}, title));
-  g.addEventListener('click', e => { e.stopPropagation(); select(key, start); });
+  g.addEventListener('click', e => { e.stopPropagation(); select(key, e); });
   g.addEventListener('dblclick', () => { if (model) post({ kind: 'navigate', generation: model.generation, key }); });
-  g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); select(key, start); } });
+  g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); select(key, e); } });
 }
 function render(): void {
   if (!model) return;
   const t = model.timeline;
   sceneName.textContent = model.scene;
   status.textContent = model.status; status.classList.toggle('busy', model.busy);
-  refresh.disabled = !model.scene; cancel.disabled = !model.busy; preview.disabled = model.busy || !model.scene;
-  python.title = model.python ? `Last scene interpreter: ${model.python}\nClick to check the current environment.` : 'Check the Python environment used for this Scene';
-  auto.checked = model.autoPreview; profile.textContent = model.profile ?? 'Timeline-first · saved source';
+  refresh.disabled = !model.scene; cancel.hidden = !model.busy;
+  loop.disabled = !model.selection?.available; loop.setAttribute('aria-pressed', String(!!model.selection?.enabled));
+  loop.title = model.stale ? 'Refresh before looping this selection' : model.selection && !model.selection.available ? 'This selection cannot be mapped to the current movie frames' : 'Select events (Cmd/Ctrl-click to toggle, Shift-click for a range). Loop includes intervening events. Press Play to start.';
+  rangeLabel.textContent = model.selection ? `${model.selection.start.toFixed(3)}–${model.selection.end.toFixed(3)} s${model.stale ? ' · stale' : ''}` : 'Select events to loop';
+  profile.textContent = model.profile ?? 'Saved source';
   banner.textContent = `${model.stale ? 'STALE OBSERVATION — ' : ''}${model.pairing}`;
   banner.hidden = !model.stale && !model.pairing;
   banner.classList.toggle('warning', model.stale || (!!model.media && !model.linked));
   error.textContent = model.error ?? ''; error.hidden = !model.error;
+  errorActions.hidden = !model.error;
+  checkPython.hidden = !/python|import|module|environment|executable/i.test(model.error ?? '');
   svg.replaceChildren();
   if (!t) {
     svg.setAttribute('width', '100%'); svg.setAttribute('height', '140');
@@ -130,6 +136,11 @@ function render(): void {
     if (x(tick) > viewport.scrollLeft + viewport.clientWidth + 100) break;
     svg.append(node('line', { x1: x(tick), x2: x(tick), y1: 23, y2: height, class: 'grid-line' }), node('text', { x: x(tick) + 4, y: 17, class: 'tick-label' }, seconds(tick)));
   }
+  if (model.selection) {
+    const r = model.selection;
+    svg.append(node('rect', { x: x(r.start), y: 24, width: Math.max(0, x(r.end) - x(r.start)), height: height - 24,
+      class: `loop-region${r.enabled ? ' enabled' : ''}${model.stale ? ' stale' : ''}`, 'aria-label': `Selected interval ${seconds(r.start)} to ${seconds(r.end)}` }));
+  }
   row('Sections', sectionY); row('Events', eventY);
   for (let lane = 0; lane < Math.max(1, ends.caption.length); lane++) row(lane ? '' : 'Captions', captionY + lane * 32);
   for (let lane = 0; lane < Math.max(1, ends.sound.length); lane++) row(lane ? '' : 'Sounds', soundY + lane * 32);
@@ -137,7 +148,7 @@ function render(): void {
     const g = node('g', { class: `event ${e.kind}` }); const w = Math.max(3, (e.end - e.start) * scale);
     g.append(node('rect', { x: x(e.start), y: eventY + 3, width: w, height: 25, rx: 4 }));
     if (w > 34) { const label = eventName(e); const chars = Math.max(1, Math.floor((w - 12) / 7)); g.append(node('text', { x: x(e.start) + 6, y: eventY + 20 }, label.length > chars ? `${label.slice(0, Math.max(0, chars - 1))}…` : label)); }
-    selectable(g, `event:${e.id}`, e.start, `${eventName(e)} · ${seconds(e.start)} → ${seconds(e.end)} · nominal ${seconds(e.nominal_duration)} · ${siteLabel(e.source)}`);
+    selectable(g, `event:${e.id}`,  `${eventName(e)} · ${seconds(e.start)} → ${seconds(e.end)} · nominal ${seconds(e.nominal_duration)} · ${siteLabel(e.source)}`);
     svg.append(g);
   }
   for (const d of t.declarations) {
@@ -159,7 +170,7 @@ function render(): void {
         g.append(node('path', { d: `M${x(start)},${y + 8}l7,8 -7,8 -7,-8z` }));
       }
     }
-    selectable(g, `declaration:${d.order}`, start, `${label} · placed ${seconds(start)} · declared ${seconds(d.at)} · ${siteLabel(d.source)}`);
+    selectable(g, `declaration:${d.order}`,  `${label} · placed ${seconds(start)} · declared ${seconds(d.at)} · ${siteLabel(d.source)}`);
     svg.append(g);
   }
   marker = node('line', { x1: x(cursor), x2: x(cursor), y1: 0, y2: height, class: model.linked ? 'playhead video-playhead' : 'playhead' });
@@ -220,7 +231,7 @@ viewport.addEventListener('keydown', e => {
   if (!model?.timeline || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
   e.preventDefault(); const events = model.timeline.events; if (!events.length) return;
   const current = events.findIndex(event => `event:${event.id}` === model!.selected);
-  const entry = events[Math.max(0, Math.min(events.length - 1, current + (e.key === 'ArrowRight' ? 1 : -1)))]; select(`event:${entry.id}`, entry.start);
+  const entry = events[Math.max(0, Math.min(events.length - 1, current + (e.key === 'ArrowRight' ? 1 : -1)))]; select(`event:${entry.id}`, e);
 });
 let scrollFrame = false;
 viewport.addEventListener('scroll', () => { if (!scrollFrame) { scrollFrame = true; requestAnimationFrame(() => { scrollFrame = false; render(); }); } });

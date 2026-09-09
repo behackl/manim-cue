@@ -28,8 +28,23 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     });
     assert.equal(await page.locator('g.event').count(), 5);
     assert.equal(await page.locator('.banner').isVisible(), false, 'no alignment banner during normal linked playback');
-    await page.getByRole('button', { name: 'Python', exact: true }).click();
-    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'doctor');
+    assert.deepEqual(await page.locator('.toolbar button:visible').allTextContents(), ['↻ Refresh', 'Loop selection']);
+    assert.equal(await page.locator('.toolbar input').count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Loop selection', exact: true }).isDisabled(), true);
+    await page.locator('g.event').nth(0).click();
+    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).mode), 'replace');
+    await page.locator('g.event').nth(2).click({ modifiers: ['Meta'] });
+    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).mode), 'toggle');
+    await page.locator('g.event').nth(4).click({ modifiers: ['Shift'] });
+    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).mode), 'range');
+    const selection = { start: timeline.events[0].start, end: timeline.events[2].end, enabled: false, available: true };
+    await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), { ...model,
+      selectedEvents: [timeline.events[0].id, timeline.events[2].id], selection });
+    await page.waitForFunction(() => document.querySelectorAll('g.event.selected').length === 2);
+    assert.equal(await page.locator('g.event.selected').count(), 2);
+    assert.equal(await page.locator('.loop-region').count(), 1, 'one continuous region includes intervening events');
+    await page.getByRole('button', { name: 'Loop selection', exact: true }).click();
+    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).enabled), true);
     assert.equal(await page.locator('.tick-label').first().evaluate(n => getComputedStyle(n).userSelect), 'none');
     const tick = (await page.locator('.tick-label').first().boundingBox())!;
     await page.mouse.move(tick.x + 2, tick.y + 4); await page.mouse.down();
@@ -49,13 +64,18 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     assert.notEqual(await page.locator('.playhead').getAttribute('x1'), before);
     await page.evaluate(() => window.postMessage({ kind: 'position', generation: 0, time: 99 }, '*'));
     assert.equal(await page.locator('.position').innerText(), 'Video 1 s', 'stale generation cannot move the playhead');
-    await page.screenshot({ path: '/tmp/manim-cue-timeline.png' });
-    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, stale: true, linked: false, pairing: 'Old preview — unlinked from the displayed timeline' } }, '*'), model);
+    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, stale: true, linked: false, selection: { start: 0, end: 1, enabled: false, available: false }, pairing: 'Old preview — unlinked from the displayed timeline' } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('STALE OBSERVATION'));
     assert.equal(await page.locator('.banner').isVisible(), true, 'actionable stale warnings remain');
+    assert.equal(await page.getByRole('button', { name: 'Loop selection', exact: true }).isDisabled(), true);
+    assert.equal(await page.locator('.loop-region.stale').count(), 1);
     await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, linked: false, busy: true,
       position: { time: 1.25, request: 3 }, timeline: { ...model.timeline!, revision: 'a'.repeat(64) } } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Selected 1.25 s');
+    assert.equal(await page.getByRole('button', { name: '■ Cancel', exact: true }).isVisible(), true);
+    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, error: 'Python import failed' } }, '*'), model);
+    await page.getByRole('button', { name: 'Check Python', exact: true }).click();
+    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'doctor');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
