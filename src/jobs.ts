@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import * as path from 'node:path';
 import { runProcess } from './process';
+import { renderSettings, encoderOptions, type RenderSettings } from './export-settings';
 import { MAX_REPORT_BYTES, parseTimeline, type Timeline } from './timeline';
 
 export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; captureFrame?: boolean; timeline?: boolean }
@@ -15,7 +16,7 @@ export interface RunResult extends Observation { timeline: Timeline; media?: Med
 export interface JobOptions {
   source: string; scene: string; python: string; env: NodeJS.ProcessEnv; cwd: string;
   fps: number; width: number; timeout: number; preview: boolean;
-  scratch: string; helpers: string; signal: AbortSignal;
+  scratch: string; helpers: string; signal: AbortSignal; exportSettings?: RenderSettings;
   log: (s: string) => void; phase: (s: string) => void;
   timelineReady: (result: RunResult) => void;
 }
@@ -43,7 +44,8 @@ export async function createJob(o: JobOptions): Promise<SceneJob> {
     path.join(o.helpers, 'cache_runner.py')];
   const request = path.join(directory, 'request.json');
   await fs.writeFile(request, JSON.stringify({ run: directory, cache: path.join(cache, 'typesetting'), source: o.source,
-    sourceHash, scene: o.scene, fps: o.fps, width: o.width }));
+    sourceHash, scene: o.scene, fps: o.fps, width: o.width,
+    export: o.exportSettings ? { ...renderSettings(o.exportSettings), encoderOptions: encoderOptions(o.exportSettings.options) } : undefined }));
   return { options: o, directory, sourceHash, cache, prefix, request };
 }
 async function invoke(job: SceneJob, args: string[], signal: AbortSignal, label: string): Promise<void> {
@@ -144,6 +146,29 @@ export async function renderPreview(job: SceneJob, result: RunResult, signal = j
   }
   await checkInputs(result); signal.throwIfAborted();
   return { ...result, media };
+}
+/** Independent production render: no timeline evaluation or preview pairing/publication. */
+export async function renderExport(job: SceneJob, signal: AbortSignal): Promise<PreviewResult> {
+  const settings = renderSettings(job.options.exportSettings);
+  const helper = path.join(job.options.helpers, 'support.py');
+  await invoke(job, [helper, 'prepare', job.request, path.join(job.directory, 'profile.json')], signal, 'Export profile');
+  const result = await observation(job, signal);
+  const output = path.join(job.directory, 'media', `export-${randomUUID()}.mp4`);
+  await invoke(job, ['-m', 'manim', '--config_file', path.join(job.directory, 'cue.cfg'), '--silent', '--progress_bar', 'none',
+    '--format', 'mp4', '-o', output, job.options.source, job.options.scene], signal, 'Full Scene export');
+  if (!await fs.stat(output).then(s => s.size > 0, (e: NodeJS.ErrnoException) => { if (e.code !== 'ENOENT') throw e; return false; })) {
+    throw new Error('Scene produced no video. Save the current frame as PNG instead.');
+  }
+  const metadata = path.join(job.directory, 'export-video.json');
+  await invoke(job, [helper, 'probe-export', output, metadata], signal, 'Export verification');
+  if ((await fs.stat(metadata)).size > 16384) throw new Error('Invalid export metadata size.');
+  const data = JSON.parse(await fs.readFile(metadata, 'utf8'));
+  if (data.width !== settings.width || data.height !== settings.height || !Number.isFinite(data.rate) || Math.abs(data.rate - settings.fps) > .0001 ||
+    !Number.isSafeInteger(data.frames) || data.frames < 1 || !Number.isFinite(data.duration) || data.duration <= 0 || data.codec !== 'h264' || data.pixelFormat !== 'yuv420p') {
+    throw new Error('Rendered video does not match the requested dimensions, FPS or H.264/yuv420p profile.');
+  }
+  await checkInputs(result); signal.throwIfAborted();
+  return { ...result, media: { ...data, path: output, kind: 'video' } };
 }
 // Only completed media enters this stable webview root; profiles, source and caches stay private.
 export async function publishPreview(result: PreviewResult, root: string): Promise<PreviewResult> {

@@ -97,4 +97,24 @@ button[aria-pressed=true] { border-color: var(--cue-teal); }
 .compare-divider::before { content: ''; position: absolute; left: 6px; height: 100%; width: 2px; background: var(--cue-teal); box-shadow: 0 0 2px #000; }
 .compare-divider::after { content: '↔'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 3px; border-radius: 3px; color: #181818; background: var(--cue-teal); }
 .compare-divider:focus-visible { outline: 1px solid var(--vscode-focusBorder, #70bfff); }
+.export-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; border: 1px solid var(--line); border-radius: 6px; color: var(--vscode-foreground); background: var(--vscode-editor-background, #202020); }
+.export-dialog::backdrop { background: #0008; }
+.export-dialog form { display: flex; flex-direction: column; max-height: calc(100vh - 28px); }
+.export-dialog h2 { margin: 0; padding: 16px; font-size: 16px; }
+.export-body { padding: 0 16px 12px; overflow-y: auto; min-height: 0; }
+.export-dialog footer { display: flex; flex-shrink: 0; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.export-modes, .export-methods { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.export-summary, .export-note, .export-error { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.export-note { color: var(--vscode-descriptionForeground); }
+.export-error { color: var(--vscode-errorForeground, #f88); }
+.export-thumbnail { display: block; max-width: 160px; max-height: 100px; object-fit: contain; margin-bottom: 12px; }
+.export-fields { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-width: 0; }
+.export-fields label { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; }
+.export-fields input, .export-fields select, .export-fields textarea { font: inherit; color: var(--vscode-input-foreground, #ddd); background: var(--vscode-input-background, #333); border: 1px solid var(--vscode-input-border, #555); border-radius: 2px; padding: 5px; min-width: 0; width: 100%; }
+.export-fields input[type=checkbox] { width: auto; align-self: flex-start; }
+.export-fields details, .export-fields > p { grid-column: 1 / -1; }
+.export-fields textarea { resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
+.export-dialog :focus-visible { outline: 1px solid var(--vscode-focusBorder, #70bfff); outline-offset: 1px; }
+.export-submit { background: var(--vscode-button-background, #166b8d); color: var(--vscode-button-foreground, #fff); }
+.export-status { padding: 0 12px 8px; font-size: 11px; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .inspector { width: 210px; flex-basis: 210px; } .toolbar { gap: 5px; } }

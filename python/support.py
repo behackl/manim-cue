@@ -70,7 +70,13 @@ def prepare(request):
     if not parser.has_section("CLI"):
         parser.add_section("CLI")
     width = max(64, int(request["width"]) // 2 * 2)
-    height = max(2, round(width * config.pixel_height / config.pixel_width / 2) * 2)
+    export = request.get("export")
+    if export and not all(hasattr(config, key) for key in ("video_codec", "pixel_format", "video_encoder_options")):
+        raise RuntimeError("New video exports require Manim's public video encoder profile support.")
+    height = export["height"] if export else max(2, round(width * config.pixel_height / config.pixel_width / 2) * 2)
+    if export and (width != export["width"] or request["fps"] != export["fps"] or
+                   not isinstance(height, int) or height < 64 or height > 8192 or height % 2):
+        raise ValueError("Invalid export dimensions or frame rate.")
     if width * height > 32_000_000:
         raise ValueError("Preview exceeds the 32 megapixel limit.")
     assets = config.get_dir("assets_dir", module_name=source.stem, scene_name=request["scene"])
@@ -88,6 +94,8 @@ def prepare(request):
         "from_animation_number": 0, "upto_animation_number": -1,
         "progress_bar": "none", "assets_dir": (assets or Path.cwd()).absolute(),
     }
+    if export:
+        overrides["frame_height"] = config.frame_width * height / width
     configs = {str(p): digest(p) if p.is_file() else None for p in (project, user)}
     # Reuse Manim's own content-addressed typesetting cache, not animation/media
     # caches. Configuration and Python/package environment changes get new roots.
@@ -112,8 +120,9 @@ def prepare(request):
         parser.add_section(section)
     parser.set("video_encoder", "codec", "libx264")
     parser.set("video_encoder", "pixel_format", "yuv420p")
-    parser.set("video_encoder.options", "crf", "28")
-    parser.set("video_encoder.options", "preset", "veryfast")
+    options = {"crf": str(export["crf"]), "preset": export["preset"], **export["encoderOptions"]} if export else {"crf": "28", "preset": "veryfast"}
+    for key, value in options.items():
+        parser.set("video_encoder.options", key, value.replace("%", "%%"))
     with (run / "cue.cfg").open("w", encoding="utf-8") as stream:
         parser.write(stream)
     return {
@@ -191,9 +200,11 @@ def verify(path):
     return {"revision": revision, "source": data.get("source")}
 
 
-def probe(path):
+def probe(path, collect_times=True):
     import av
     with av.open(path) as container:
+        if not collect_times and "mp4" not in container.format.name.split(","):
+            raise ValueError("Export is not an MP4 container.")
         if not container.streams.video:
             raise ValueError("Preview has no video stream.")
         stream = container.streams.video[0]
@@ -212,7 +223,7 @@ def probe(path):
         frames = 0
         max_error = 0.0
         previous = None
-        frame_times = []
+        frame_times = [] if collect_times else None
         for frame in container.decode(stream):
             if frame.pts is None or frame.time_base is None:
                 raise ValueError("Preview has a frame without a presentation timestamp.")
@@ -232,7 +243,8 @@ def probe(path):
         return {"duration": duration, "rate": rate, "averageRate": average_rate,
                 "frames": frames, "maxFrameTimeError": max_error,
                 "width": stream.width, "height": stream.height,
-                "hasAudio": bool(container.streams.audio), "frameTimes": frame_times}
+                "hasAudio": bool(container.streams.audio), "frameTimes": frame_times,
+                "codec": stream.codec_context.name, "pixelFormat": stream.codec_context.format.name}
 
 
 if __name__ == "__main__":
@@ -258,8 +270,8 @@ if __name__ == "__main__":
         result = prepared(json.loads(Path(source).read_text(encoding="utf-8")))
     elif command == "verify":
         result = verify(source)
-    elif command == "probe":
-        result = probe(source)
+    elif command in ("probe", "probe-export"):
+        result = probe(source, collect_times=command == "probe")
     elif command == "diagnose":
         result = diagnose()
     else:

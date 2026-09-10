@@ -26,6 +26,28 @@ test('latest frame preempts movie, joins it, then resumes background work', asyn
   assert.deepEqual(errors, []);
 });
 
+test('explicit export joins background work and defers coalesced seeks until release', async () => {
+  const trace: string[] = [], joined = deferred();
+  const queue = new PreviewQueue(() => {}, error => { throw error; });
+  let attempts = 0;
+  queue.enqueue('movie', async signal => {
+    trace.push(`movie${++attempts}`);
+    if (attempts === 1) {
+      await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+      await joined.promise; trace.push('purged');
+    }
+  });
+  const held = queue.suspend();
+  queue.enqueue('frame', async () => { trace.push('obsolete'); });
+  queue.enqueue('frame', async () => { trace.push('latest'); });
+  assert.deepEqual(trace, ['movie1']);
+  joined.resolve(); const release = await held;
+  trace.push('export');
+  assert.deepEqual(trace, ['movie1', 'purged', 'export']);
+  release(); await queue.whenIdle();
+  assert.deepEqual(trace, ['movie1', 'purged', 'export', 'latest', 'movie2']);
+});
+
 test('completed frame survives a later task error; cancellation clears deferred work', async () => {
   const completed: string[] = [], errors: unknown[] = [];
   const queue = new PreviewQueue(() => {}, error => errors.push(error));

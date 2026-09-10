@@ -10,6 +10,8 @@ visible while you work.
   jump back to their source lines.
 - **Visual checks:** pin a still for wipe/overlay comparison, measure reference
   coordinates and distances, or save a captured still as PNG.
+- **Export:** save PNG, preview video or timeline JSON; render a new MP4 with independent
+  resolution, FPS and encoding settings.
 - **Adjustable preview resolution:** choose smaller previews without changing FPS.
 
 ## Get started
@@ -36,8 +38,8 @@ Automatic updates stay paused.
 Select timeline events, then enable **Loop selection** to repeat their interval.
 Cmd/Ctrl-click toggles events; Shift-click selects a range. Press Play to start.
 
-**Save PNG** saves the displayed captured still; **Measure** enables rulers and a
-crosshair. The **settings cog** beside Measure opens Cue's settings, including preview
+**Export…** saves a frame, video or timeline, or renders a new video. **Measure** enables
+rulers and a crosshair. The **settings cog** beside Measure opens Cue's settings, including preview
 width and **Auto video** (on by default). Turn Auto video off to work with stills and
 the timeline; **Render video** can then prepare a movie without starting playback.
 

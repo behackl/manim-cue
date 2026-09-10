@@ -2,6 +2,7 @@ import type { Model } from '../src/protocol';
 import { button, el, listen, post } from './shared';
 import { Measurement } from './measurement';
 import { Comparison } from './comparison';
+import { ExportDialog } from './export-dialog';
 const app = document.getElementById('app')!; app.classList.add('preview-app');
 const header = el('header', 'preview-header');
 const title = el('strong', 'scene-name', 'Manim Cue');
@@ -44,8 +45,12 @@ const play = iconButton('Play', icons.play, () => {
 const step = (direction: -1 | 1) => { if (model) post({ kind: 'step', generation: model.generation, direction }); };
 const previous = iconButton('Previous frame', icons.previous, () => step(-1)); previous.title += ' (Left)';
 const next = iconButton('Next frame', icons.next, () => step(1)); next.title += ' (Right)';
-const saveFrame = button('Save PNG', () => { if (active) post({ kind: 'saveFrame', token: active.media.token }); }, 'Save the displayed captured still without rendering again');
-controls.append(render, play, time, previous, next, saveFrame);
+function openExport(): void {
+  if (active?.element instanceof HTMLVideoElement) active.element.pause();
+  post({ kind: 'openExport', token: active?.media.token, time: active?.lastTime ?? model?.position?.time ?? 0 });
+}
+const exportButton = button('Export…', openExport, 'Save a frame, video or timeline; or render a new video');
+controls.append(render, play, time, previous, next, exportButton);
 app.append(header, message, stage, scrubber, controls);
 
 type Media = NonNullable<Model['media']>;
@@ -60,6 +65,7 @@ let sequence = Date.now() * 1000;
 const frameCallbacks = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
 const measurement = new Measurement(stage, controls, syncMeasurement, () => comparison.disable());
 const comparison = new Comparison(stage, controls, () => { if (measurement.enabled) measurement.setEnabled(false); });
+const exportDialog = new ExportDialog(openExport, controls);
 const settings = iconButton('Cue settings', 'M8 1H12L13 4L16 3L18 6L16 9L19 10L18 14L15 14L14 17L10 19L8 16L5 17L2 14L4 11L1 9L3 5L6 5ZM10 6A4 4 0 1 0 10 14A4 4 0 1 0 10 6Z', () => post({ kind: 'settings' }));
 settings.querySelector('path')!.setAttribute('fill-rule', 'evenodd'); controls.append(settings);
 function ready(): boolean { return model?.mediaReady ?? (!!model?.media && !model.busy && !model.stale && !model.media.old); }
@@ -67,7 +73,7 @@ function syncMeasurement(): void {
   const item = active, element = item?.element;
   const usable = ready() && item?.media.token === model?.media?.token && !item?.restoring && !(element instanceof HTMLVideoElement && element.seeking);
   if (element instanceof HTMLVideoElement) element.controls = false;
-  saveFrame.disabled = !(element instanceof HTMLImageElement) || !!item?.restoring;
+  exportButton.disabled = !model?.scene || !!model?.exportState?.busy || !!item && (!item.acknowledged || item.restoring);
   previous.disabled = next.disabled = !model?.canSeek || model.canPlay === false || !!model?.media?.old;
   render.hidden = model?.comparison?.enabled === true || model?.autoPreview !== false || model?.hasMovie === true || model?.canPlay === false;
   render.disabled = !model?.scene;
@@ -241,7 +247,7 @@ function syncTime(): void {
   scrubber.setAttribute('aria-valuetext', time.textContent);
 }
 document.addEventListener('keydown', event => {
-  if (event.ctrlKey || event.metaKey || event.altKey || (event.target as Element).closest('input, select, button, [contenteditable]')) return;
+  if (event.ctrlKey || event.metaKey || event.altKey || (event.target as Element).closest('dialog, input, select, textarea, button, [contenteditable]')) return;
   if (event.key === ' ' && !play.disabled) { event.preventDefault(); if (!event.repeat) play.click(); }
   if (event.key === 'ArrowLeft' && !previous.disabled) { event.preventDefault(); previous.click(); }
   if (event.key === 'ArrowRight' && !next.disabled) { event.preventDefault(); next.click(); }
@@ -274,6 +280,6 @@ listen(m => {
     if (item?.element instanceof HTMLVideoElement) seek(item);
     if ((!ready() || (previousIntent !== undefined && model.playIntent === undefined)) && active?.element instanceof HTMLVideoElement) active.element.pause();
   }
-  syncWatermark(); syncMeasurement();
+  syncWatermark(); syncMeasurement(); exportDialog.update(model);
 });
 post({ kind: 'ready' });

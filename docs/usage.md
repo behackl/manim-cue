@@ -70,10 +70,8 @@ Cue's controls replace the browser's native video controls:
   Set `manimCue.previewWidth` there (for example 480, 960 or 1920); changing width does
   not change FPS. Refresh after changing the rendering profile. Auto video changes take
   effect immediately without invalidating current results.
-- **Save PNG** opens a Save As dialog for the displayed captured still, using its existing
-  pixels. A stale still can be saved too; its suggested filename includes `old`.
-  This button is disabled for movies. Timeline JSON export is a separately named
-  Command Palette action, not a movie export.
+- **Export…** opens the frame/video/timeline dialog described below. Direct **Save Captured
+  Frame as PNG** and **Export Timeline JSON** palette commands remain available.
 
 Cue remembers the last Scene and requested time per workspace, including a paused movie's
 position. Reopening that Scene restores its selection; no Python runs merely on activation.
@@ -82,6 +80,59 @@ reopen the remembered file and class.
 
 Playback is **muted**. Sound cues remain visible on the timeline, and ordinary movie
 rendering validates/mixes the scene's sound assets.
+
+## Exporting and rendering
+
+Click **Export…** in the preview controls, or run **Manim Cue: Export…**. Opening the
+dialog pauses playback and holds the artifacts/time it describes. New previews do not
+silently replace that selection; **Use latest preview** explicitly picks newer results.
+
+- **Current frame → Save PNG…** copies the captured still's pixels, including a visibly
+  marked old still. From a current movie, **Capture and save PNG…** executes a fresh
+  capture at the held frame using the preview profile, without replacing the preview.
+  This is not movie pixel extraction; arbitrary Python can produce different content.
+  Unavailable captures fail rather than saving an unrelated or untimed frame.
+- **Video → Save existing preview** copies the completed MP4 with its actual resolution,
+  FPS and audio. An older movie is explicitly marked **OLD**, even if a newer still is
+  already visible. No render settings apply to this copy.
+- **Video → New render** executes the whole saved Scene with independent export settings.
+  Dirty source requires explicit **Save and Render** confirmation. Preview timeline
+  selection/looping does not restrict the export; normal source-defined section skips
+  still apply. The exported movie does not replace Cue's preview or comparison pin.
+- **Timeline JSON → Save JSON…** copies the original verified observation, preserving
+  its canonical numeric representation. It does not reevaluate or apply video settings.
+
+New-render controls use opaque **MP4/H.264, Cairo, yuv420p**:
+
+- Resolution presets specify the short edge and preserve orientation/aspect; exact width
+  and height are always visible. Custom dimensions can unlock aspect, changing framing.
+  Dimensions must be even, 64–8192 pixels per axis, and no more than 32 megapixels.
+- FPS is independent of resolution (1–120, including fractional values). Changing FPS
+  re-executes animation/updater semantics, not just playback speed.
+- **CRF** defaults to 18: lower means higher quality/larger files. Encoding effort is
+  Fast / Balanced / Slow, mapped to `veryfast` / `medium` / `slow` (default Balanced).
+- Advanced codec options accept one `key=value` per line, not command-line flags.
+  CRF/preset use the visible controls; duplicates and invalid syntax are rejected.
+  Cue supplies a complete encoder-option map, replacing inherited project codec options;
+  it does not modify project configuration. Encoder failures are reported with logs,
+  without a silent codec fallback. Other formats/renderers/custom configuration overrides
+  remain CLI workflows for now.
+
+The native Save As picker chooses a local destination. Existing artifacts are retained
+through the picker; cancelling it starts no Python work. Accepted render preferences
+are remembered per workspace, separately from preview settings.
+
+One native export runs at a time. It interrupts and joins background preview work, then
+holds that process slot; queued preview requests coalesce until it finishes. Local movie
+scrubbing remains available and does not cancel the export. Source/config/environment
+changes or Scene reopening cancel an in-progress render, without automatically restarting
+it. Use **Cancel export** or the cancellable progress notification; closing the dialog or
+preview panel does not cancel an already accepted job.
+
+Output is prepared privately and copied to a destination-side temporary file before
+replacement. Failure/cancellation preserves any previous destination. Success offers
+**Reveal file / Open file**. Exports include Scene audio if present, even though Cue's
+player is muted. Selected-interval export and comparison-composition export are not built.
 
 ## Selecting and looping timeline events
 
@@ -138,7 +189,7 @@ save normally: only the current image updates, while the reference retains its p
   Reference replacements decode before swapping; a failed decode keeps the previous
   reference visible.
 
-**Save PNG** still saves the current captured image, not the wipe/overlay composition.
+**Export… → Current frame** saves the current captured image, not the wipe/overlay composition.
 There is no comparison export, reference gallery or synchronized movie comparison.
 
 ## Measuring scene units

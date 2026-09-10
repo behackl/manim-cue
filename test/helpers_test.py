@@ -62,18 +62,19 @@ class VerificationTests(unittest.TestCase):
 
 
 class ProbeTests(unittest.TestCase):
-    def probe_frames(self, pts):
+    def probe_frames(self, pts, collect_times=True):
         stream = SimpleNamespace(guessed_rate=30, base_rate=30, average_rate=30.001244,
                                  duration=3000, time_base=Fraction(1, 30000),
-                                 width=64, height=64, codec_context=SimpleNamespace(name="h264"))
+                                 width=64, height=64, codec_context=SimpleNamespace(name="h264", format=SimpleNamespace(name="yuv420p")))
         class Container:
+            format = SimpleNamespace(name="mov,mp4,m4a,3gp,3g2,mj2")
             streams = SimpleNamespace(video=[stream], audio=[])
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def decode(self, stream):
                 return (SimpleNamespace(pts=p, time_base=Fraction(1, 30000)) for p in pts)
         with patch.dict("sys.modules", {"av": SimpleNamespace(open=lambda _: Container())}):
-            return support.probe("unused.mp4")
+            return support.probe("unused.mp4", collect_times=collect_times)
 
     def test_nominal_cadence_is_separate_from_average_rate(self):
         result = self.probe_frames([0, 1000, 1980])
@@ -82,6 +83,15 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["frames"], 3)
         self.assertEqual(result["frameTimes"], [0, 1000 / 30000, 1980 / 30000])
         self.assertAlmostEqual(result["maxFrameTimeError"], 20 / 30000)
+
+    def test_export_checks_frames_without_collecting_a_pts_table(self):
+        result = self.probe_frames([0, 1000, 2000], collect_times=False)
+        self.assertEqual(result["frames"], 3)
+        self.assertIsNone(result["frameTimes"])
+        self.assertEqual(result["codec"], "h264")
+        self.assertEqual(result["pixelFormat"], "yuv420p")
+        with self.assertRaises(ValueError):
+            self.probe_frames([0, 0], collect_times=False)
 
     def test_full_frame_sequence_measures_interior_drift(self):
         result = self.probe_frames([0, 1800, 2000])

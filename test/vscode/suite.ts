@@ -10,7 +10,7 @@ import { PythonExtension } from '@vscode/python-extension';
 export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension('manim-cue-local.manim-cue');
   assert.ok(extension, 'development extension registered');
-  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void; setComparison(enabled: boolean, token?: string, time?: number, replace?: boolean): void };
+  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void; setComparison(enabled: boolean, token?: string, time?: number, replace?: boolean): void; submitExport(id: string, choice: unknown): Promise<void> };
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const uri = vscode.Uri.file(path.join(root, 'cue_demo.py'));
   const doc = await vscode.workspace.openTextDocument(uri); await vscode.window.showTextDocument(doc);
@@ -163,6 +163,93 @@ export async function run(): Promise<void> {
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', false, vscode.ConfigurationTarget.Workspace);
   api.setComparison(false);
   assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
+
+  // Export holds exact artifacts across a native Save As dialog and unrelated seeks.
+  const exportDialog = async () => {
+    await vscode.commands.executeCommand('manimCue.openExport');
+    await until(() => !!api.getSnapshot().exportState?.dialog, 'export dialog receives its held artifacts');
+    return api.getSnapshot().exportState!.dialog!;
+  };
+  const originalSave = vscode.window.showSaveDialog;
+  const output = vscode.Uri.file(path.join(root, 'export.png'));
+  try {
+    const held = api.getSnapshot().media!.token, bytes = await fs.readFile(held);
+    let release!: () => void, entered = false;
+    const picker = new Promise<void>(resolve => { release = resolve; });
+    Object.assign(vscode.window, { showSaveDialog: async () => { entered = true; await picker; return output; } });
+    let dialog = await exportDialog();
+    const saving = api.submitExport(dialog.id, { ...dialog.choice, kind: 'frame', method: 'copy' });
+    await until(() => entered, 'native Save As opened');
+    api.seek(1.5);
+    await until(() => api.getSnapshot().playbackTime === 1.5, 'copy export does not block preview updates');
+    assert.deepEqual(await fs.readFile(held), bytes, 'held frame survives preview replacement while Save As is open');
+    release(); await saving;
+    assert.deepEqual(await fs.readFile(output.fsPath), bytes, 'PNG copies the held pixels, not the replacement');
+    api.seek(1.25); await api.whenIdle();
+    await until(() => api.getSnapshot().playbackTime === 1.25, 'restore selected frame');
+    Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(path.join(root, 'export.json')) });
+    dialog = await exportDialog();
+    const timelineBytes = await fs.readFile(path.join(api.getSnapshot().media!.sourceId!, 'timeline.json'));
+    await api.submitExport(dialog.id, { ...dialog.choice, kind: 'timeline', method: 'copy' });
+    assert.deepEqual(await fs.readFile(path.join(root, 'export.json')), timelineBytes, 'JSON retains original verified bytes');
+    await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
+    await until(() => api.getSnapshot().media?.kind === 'video' && api.getSnapshot().playbackTime === 1.25, 'movie ready for export');
+    const movieBytes = await fs.readFile(api.getSnapshot().media!.token);
+    Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(path.join(root, 'export.mp4')) });
+    dialog = await exportDialog();
+    await api.submitExport(dialog.id, { ...dialog.choice, kind: 'video', method: 'copy' });
+    assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), movieBytes, 'existing video copies without rerendering');
+    Object.assign(vscode.window, { showSaveDialog: async () => output });
+    dialog = await exportDialog();
+    assert.equal(dialog.canCapture, true);
+    await api.submitExport(dialog.id, { ...dialog.choice, kind: 'frame', method: 'copy' });
+    const capturedPng = await fs.readFile(output.fsPath);
+    assert.equal(capturedPng.readUInt32BE(16), 480); assert.equal(capturedPng.readUInt32BE(20), 270);
+    assert.equal(api.getSnapshot().media?.kind, 'video', 'capture-and-save does not replace the displayed movie');
+    Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(path.join(root, 'export.mp4')) });
+    dialog = await exportDialog();
+    const settings = { width: 320, height: 180, fps: 8, crf: 18, preset: 'medium', options: 'threads=1' };
+    const rendering = api.submitExport(dialog.id, { kind: 'video', method: 'render', settings });
+    await until(() => api.getSnapshot().exportState?.nativeBusy === true, 'explicit export owns the serial process slot');
+    api.seek(2.25); // Local scrubbing must not cancel an accepted export.
+    await rendering; await api.whenIdle();
+    assert.match(api.getSnapshot().exportState?.status ?? '', /Export saved/);
+    assert.notDeepEqual(await fs.readFile(path.join(root, 'export.mp4')), movieBytes, 'new render has independent output');
+    assert.equal(api.getSnapshot().fps, 4); assert.equal(api.getSnapshot().previewWidth, 480);
+    assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
+    assert.equal(api.getSnapshot().media?.kind, 'video', 'export output does not replace the preview');
+    const validExport = await fs.readFile(path.join(root, 'export.mp4'));
+    dialog = await exportDialog();
+    await api.submitExport(dialog.id, { kind: 'video', method: 'render', settings: { ...settings, options: 'profile=not-a-profile' } });
+    assert.doesNotMatch(api.getSnapshot().exportState?.status ?? '', /Export saved/);
+    assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), validExport, 'encoder failure preserves the prior destination');
+    dialog = await exportDialog();
+    const cancelledExport = api.submitExport(dialog.id, { kind: 'video', method: 'render', settings });
+    await until(() => api.getSnapshot().exportState?.nativeBusy === true, 'cancel target export starts');
+    await vscode.commands.executeCommand('manimCue.cancel'); await cancelledExport; await api.whenIdle();
+    assert.match(api.getSnapshot().exportState?.status ?? '', /cancel/i);
+    assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), validExport);
+    dialog = await exportDialog();
+    const editedExport = api.submitExport(dialog.id, { kind: 'video', method: 'render', settings });
+    await until(() => api.getSnapshot().exportState?.nativeBusy === true, 'source mutation target export starts');
+    await insert('# source edit cancels an export\n');
+    await editedExport; await api.whenIdle();
+    assert.match(api.getSnapshot().exportState?.status ?? '', /Source changed/);
+    assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), validExport, 'source invalidation preserves the destination');
+    const warningDialog = vscode.window.showWarningMessage;
+    let saveConsent = false;
+    try {
+      Object.assign(vscode.window, { showWarningMessage: async (message: string) => {
+        assert.match(message, /Save the source and render/); saveConsent = true; return 'Save and Render';
+      } });
+      dialog = await exportDialog(); assert.equal(dialog.dirty, true);
+      await api.submitExport(dialog.id, { kind: 'video', method: 'render', settings });
+      assert.equal(saveConsent, true, 'dirty source requires explicit save-and-render consent');
+      assert.match(api.getSnapshot().exportState?.status ?? '', /Export saved/, 'the accepted save notification does not cancel its own export');
+      await savedTimeline();
+    } finally { Object.assign(vscode.window, { showWarningMessage: warningDialog }); }
+    api.seek(1.25); await api.whenIdle();
+  } finally { Object.assign(vscode.window, { showSaveDialog: originalSave }); }
 
   // An external saved write also refreshes, even though onDidSaveTextDocument does not fire.
   await fs.appendFile(uri.fsPath, '\n# external save\n');

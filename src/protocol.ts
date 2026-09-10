@@ -1,3 +1,4 @@
+import type { ExportChoice, ExportModel } from './export-settings';
 import type { Timeline } from './timeline';
 import type { SelectionMode, TimeRange } from './selection';
 export interface Model {
@@ -8,6 +9,7 @@ export interface Model {
   canSeek?: boolean; canPlay?: boolean; mediaReady?: boolean; playIntent?: number;
   duration?: number; fps?: number; previewWidth?: number; hasMovie?: boolean;
   position?: { time: number; request: number };
+  exportState?: ExportModel;
   comparison?: { enabled: boolean; pending: boolean; reference?: Model['media'] };
   media?: { uri: string; kind: 'video' | 'image'; token: string; old: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; sourceHash?: string; loop?: TimeRange;
     capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; frame?: { width: number; height: number } };
@@ -21,6 +23,10 @@ export type ViewMessage =
   | { kind: 'loopSelection'; generation: number; enabled: boolean }
   | { kind: 'step'; generation: number; direction: -1 | 1 }
   | { kind: 'saveFrame'; token: string }
+  | { kind: 'openExport'; token?: string; time?: number }
+  | { kind: 'closeExport'; id: string }
+  | { kind: 'submitExport'; id: string; choice: ExportChoice }
+  | { kind: 'cancelExport' }
   | { kind: 'compare'; generation: number; enabled: boolean; token?: string; time?: number; replace?: boolean }
   | { kind: 'referenceDisplayed'; token: string }
   | { kind: 'referenceError'; token: string; message: string }

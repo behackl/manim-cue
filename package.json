@@ -80,6 +80,7 @@
         "title": "Manim Cue: Export Timeline JSON"
       },
       { "command": "manimCue.saveFrame", "title": "Manim Cue: Save Captured Frame as PNG" },
+      { "command": "manimCue.openExport", "title": "Manim Cue: Export…" },
       { "command": "manimCue.previousFrame", "title": "Manim Cue: Previous Frame" },
       { "command": "manimCue.nextFrame", "title": "Manim Cue: Next Frame" }
     ],

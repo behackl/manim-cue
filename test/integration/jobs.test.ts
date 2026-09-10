@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createJob, captureFrame, publishPreview, executeJob, type JobOptions, type RunResult } from '../../src/jobs';
+import { createJob, captureFrame, publishPreview, executeJob, renderExport, type JobOptions, type RunResult } from '../../src/jobs';
 import { pairingReason } from '../../src/timeline';
 import { runProcess } from '../../src/process';
 import { checkPython } from '../../src/diagnostics';
@@ -13,6 +13,28 @@ const options = (source: string, scratch: string): JobOptions => ({
   python: python!, source, scene: 'Demo', cwd: path.dirname(source), fps: 4, width: 128,
   timeout: 60000, preview: true, env: process.env, helpers: path.resolve('python'), scratch,
   signal: new AbortController().signal, log: () => {}, phase: () => {}, timelineReady: () => {},
+});
+
+test('independent export renders requested dimensions/FPS/audio and replaces inherited encoder options without a timeline', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-export-native-'));
+  try {
+    const source = path.join(root, 'scene.py');
+    await fs.copyFile('examples/cue.wav', path.join(root, 'cue.wav'));
+    await fs.writeFile(source, 'from manim import Scene, Square, config\nclass Demo(Scene):\n    def construct(self):\n        assert config.frame_rate == 12\n        self.add(Square())\n        self.add_sound("cue.wav")\n        self.wait(1)\n');
+    await fs.writeFile(path.join(root, 'manim.cfg'), '[CLI]\npixel_width=640\npixel_height=480\nframe_rate=4\npreview=True\nformat=png\nseed=42\n[video_encoder]\ncodec=libvpx-vp9\n[video_encoder.options]\ncrf=40\ndeadline=realtime\n');
+    const settings = { width: 320, height: 192, fps: 12, crf: 18, preset: 'medium' as const, options: 'threads=1' };
+    const job = await createJob({ ...options(source, path.join(root, 'runs')), width: settings.width, fps: settings.fps, exportSettings: settings });
+    const result = await renderExport(job, job.options.signal);
+    assert.equal(result.profile.width, 320); assert.equal(result.profile.height, 192); assert.equal(result.profile.seed, 42);
+    assert.equal(result.media.rate, 12); assert.equal(result.media.frames, 12); assert.equal(result.media.hasAudio, true);
+    assert.equal(result.media.frameTimes, null, 'production exports do not retain a bounded preview PTS table');
+    await assert.rejects(fs.stat(path.join(job.directory, 'timeline.json')), /ENOENT/);
+    const cfg = await fs.readFile(path.join(job.directory, 'cue.cfg'), 'utf8');
+    assert.match(cfg, /crf = 18/); assert.match(cfg, /preset = medium/); assert.match(cfg, /threads = 1/); assert.doesNotMatch(cfg, /deadline/);
+    assert.match(await fs.readFile(path.join(root, 'manim.cfg'), 'utf8'), /codec=libvpx-vp9/, 'project config is untouched');
+    const broken = await createJob({ ...job.options, exportSettings: { ...settings, options: 'profile=not-a-profile' } });
+    await assert.rejects(renderExport(broken, broken.options.signal), /Python exited/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
 test('real evaluation + encoded preview preserves reached spans, source occurrences and cue placement', async () => {

@@ -13,6 +13,7 @@ import { selectEvents, selectionRange, movieLoop, type SelectionMode } from './s
 import { pairingReason, safeRelativePath, type Site } from './timeline';
 import type { Model } from './protocol';
 import { Views } from './views';
+import { Exports, type ExportSource } from './exports';
 
 class Cue implements vscode.Disposable {
   private generation = 0;
@@ -75,15 +76,18 @@ class Cue implements vscode.Disposable {
   readonly scenes: Scenes;
   private readonly scratch: string;
   private readonly mediaRoot: string;
+  private readonly exports: Exports;
   constructor(private readonly context: vscode.ExtensionContext) {
     this.scratch = vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, 'runs').fsPath;
     this.mediaRoot = path.join(this.scratch, 'preview-media');
+    this.exports = new Exports(context, this.scratch, () => this.exportSource(), () => { this.views?.update(); void this.cleanup(); },
+      () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); });
     this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python', 'discover.py').fsPath);
     this.views = new Views(context.extensionUri, [vscode.Uri.file(this.mediaRoot)],
       (m, origin) => { void this.message(m, origin).catch(e => this.failAction(e)); }, webview => this.snapshot(webview), () => {
         this.queue.remove('frame'); this.queue.remove('movie'); this.playIntent = undefined;
         this.preview = undefined; this.displayed = undefined; this.retained.clear();
-        this.clearComparison(); this.views.update(); void this.cleanup();
+        this.exports.close(); this.clearComparison(); this.views.update(); void this.cleanup();
       });
   }
   snapshot(webview?: vscode.Webview): Model {
@@ -104,7 +108,8 @@ class Cue implements vscode.Disposable {
     const loop = range && movie?.media.frameTimes ? movieLoop(range, movie.profile.fps, movie.media.frameTimes, movie.media.duration) : undefined;
     const cfg = vscode.workspace.getConfiguration('manimCue', this.target?.uri);
     return {
-      generation: this.generation, scene: this.target?.scene ?? '', status: this.status + (this.positionClamped ? ' — position clamped to scene end' : ''),
+      exportState: this.exports.snapshot(webview),
+      generation: this.generation, scene: this.target?.scene ?? '', status: (this.exports.nativeBusy ? 'Export rendering — automatic previews paused' : this.status) + (this.positionClamped ? ' — position clamped to scene end' : ''),
       busy: this.busy, stale: this.stale, error: this.error, autoPreview: this.autoPreview, python: this.pythonInUse,
       timeline: this.result?.timeline, selected: this.selected, selectedEvents: this.selectedEvents,
       selection: range ? { ...range, enabled: this.loopEnabled && !this.stale, available: !this.stale && (!hasMovie || !!loop) } : undefined,
@@ -150,6 +155,7 @@ class Cue implements vscode.Disposable {
     if (!scene || opening !== this.opening) return;
     if (!/^[\p{ID_Start}_][\p{ID_Continue}]*$/u.test(scene)) throw new Error('Enter a Python class name, not a command or expression.');
     const different = !this.target || this.target.uri.toString() !== document.uri.toString() || this.target.scene !== scene;
+    this.exports.invalidate('Scene reopened — export cancelled.', true); this.exports.close();
     this.cancel(false);
     if (different) { this.clearComparison(); this.selectedEvents = []; this.selectionAnchor = undefined; this.displayed = undefined; this.retained.clear(); this.result = undefined; this.preview = undefined; this.movie = undefined; this.selected = undefined; this.diskHash = undefined; this.sourceEdited = false; this.desiredTime = 0; this.playbackTime = undefined; this.positionClamped = false; }
     if (different && remembered?.uri === document.uri.toString() && remembered.scene === scene && Number.isFinite(remembered.time) && remembered.time >= 0) this.desiredTime = remembered.time;
@@ -416,6 +422,7 @@ class Cue implements vscode.Disposable {
     if (uri) await vscode.workspace.fs.writeFile(uri, bytes);
   }
   async clearCaches(): Promise<void> {
+    if (this.exports.busy) throw new Error('Finish or cancel the export before clearing caches.');
     this.cancel(false); const generation = this.generation;
     this.stale = !!this.result; this.views.update();
     this.pending = this.pending.catch(() => {}).then(async () => {
@@ -430,6 +437,7 @@ class Cue implements vscode.Disposable {
     clearTimeout(this.saveTimer); this.saveTimer = undefined; ++this.saveCheck;
   }
   cancel(preserve = true): void {
+    if (preserve) this.exports.cancel();
     this.clearAutoRefresh();
     ++this.generation; ++this.seekSequence; this.abort?.abort(); this.playIntent = undefined; this.loopEnabled = false; this.pinRequest = undefined;
     if (!preserve) this.job = undefined;
@@ -438,7 +446,8 @@ class Cue implements vscode.Disposable {
     this.status = this.result ? 'Cancelled — completed observation retained' : 'Cancelled';
     this.views.update();
   }
-  invalidate(reason: string): void {
+  invalidate(reason: string, savedHash?: string): void {
+    this.exports.invalidate(reason + ' — export cancelled.', false, savedHash);
     if (!this.target) return;
     this.cancel(false); this.stale = !!this.result; this.status = reason; this.views.update();
   }
@@ -471,7 +480,7 @@ class Cue implements vscode.Disposable {
       if (hash === this.diskHash && !this.sourceEdited) return;
       this.diskHash = hash; this.sourceEdited = false;
       const automatic = vscode.workspace.isTrusted && vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true);
-      this.invalidate(automatic ? 'Source saved — refresh queued…' : 'Source changed — refresh');
+      this.invalidate(automatic ? 'Source saved — refresh queued…' : 'Source changed — refresh', hash);
       if (!automatic) return;
       const generation = this.generation;
       this.busy = true; this.error = undefined; this.views.update();
@@ -513,6 +522,16 @@ class Cue implements vscode.Disposable {
     if (generation !== this.generation) return;
     if (file !== await fs.realpath(result.source)) void vscode.window.showInformationMessage('Helper-file location is best effort: Manim only fingerprints the primary source.');
     await vscode.window.showTextDocument(doc, { viewColumn: target.column ?? vscode.ViewColumn.One, selection: new vscode.Range(site.line - 1, 0, site.line - 1, 0), preserveFocus: false });
+  }
+  private exportSource(): ExportSource | undefined {
+    if (!this.target) return;
+    return { uri: this.target.uri, scene: this.target.scene, frame: this.displayed ? this.retained.get(this.displayed) : undefined,
+      movie: this.movie, timeline: this.result, job: this.job, time: this.playbackTime ?? this.desiredTime, edited: this.sourceEdited };
+  }
+  async submitExport(id: string, choice: unknown): Promise<void> { await this.exports.submit(id, choice); }
+  async openExport(): Promise<void> {
+    if (!this.target) { void vscode.window.showInformationMessage('Open a Scene before exporting.'); return; }
+    this.exports.requestOpen = true; await this.views.open(); this.views.update();
   }
   async export(): Promise<void> {
     if (!this.result) throw new Error('No completed timeline to export.');
@@ -576,6 +595,14 @@ class Cue implements vscode.Disposable {
     if (!data || typeof data !== 'object' || this.disposed) return;
     const m = data as Record<string, unknown>;
     if (m.kind === 'ready') { this.views.update(); return; }
+    if (origin === 'preview') {
+      if (m.kind === 'openExport' && (m.token === undefined || typeof m.token === 'string') && (m.time === undefined || typeof m.time === 'number' && Number.isFinite(m.time))) {
+        this.playIntent = undefined; this.exports.open(m.token as string | undefined, m.time as number | undefined); return;
+      }
+      if (m.kind === 'closeExport' && typeof m.id === 'string') { this.exports.close(m.id); return; }
+      if (m.kind === 'submitExport' && typeof m.id === 'string') { await this.submitExport(m.id, m.choice); return; }
+      if (m.kind === 'cancelExport') { this.exports.cancel(); return; }
+    }
     if (m.kind === 'refresh') { await this.refresh(); return; }
     if (m.kind === 'cancel') { this.cancel(); return; }
     if (m.kind === 'preview') { await this.renderVideo(); return; }
@@ -675,32 +702,32 @@ class Cue implements vscode.Disposable {
 
   }
   private async cleanup(): Promise<void> {
-    if (this.queue.busy || this.preparing) return;
+    if (this.queue.busy || this.preparing || this.exports.busy) return;
     // Recheck ownership after filesystem awaits: a display/pin acknowledgement or
     // completed job may have changed the live set while directory listing yielded.
-    const keep = () => new Set([this.job?.directory, this.result?.directory, this.movie?.directory, ...[...this.retained.values(), ...this.references.values()].map(r => r.directory)]);
-    const media = () => new Set([this.preview?.media.path, this.movie?.media.path, ...this.retained.keys(), ...this.references.keys()]);
+    const keep = () => new Set([...this.exports.directories, this.job?.directory, this.result?.directory, this.movie?.directory, ...[...this.retained.values(), ...this.references.values()].map(r => r.directory)]);
+    const media = () => new Set([...this.exports.files, this.preview?.media.path, this.movie?.media.path, ...this.retained.keys(), ...this.references.keys()]);
     try {
       for (const file of await fs.readdir(this.mediaRoot).catch(() => [] as string[])) {
-        if (this.queue.busy || this.preparing) return;
+        if (this.queue.busy || this.preparing || this.exports.busy) return;
         const full = path.join(this.mediaRoot, file);
         if (!media().has(full)) await fs.rm(full, { force: true });
       }
       for (const entry of await fs.readdir(this.scratch, { withFileTypes: true })) {
-        if (this.queue.busy || this.preparing) return;
+        if (this.queue.busy || this.preparing || this.exports.busy) return;
         const dir = path.join(this.scratch, entry.name);
         if (!entry.isDirectory() || !entry.name.startsWith('run-')) continue;
         if (!keep().has(dir)) await fs.rm(dir, { recursive: true, force: true });
         else for (const file of await fs.readdir(path.join(dir, 'media'))) {
-          if (this.queue.busy || this.preparing) return;
+          if (this.queue.busy || this.preparing || this.exports.busy) return;
           const full = path.join(dir, 'media', file);
           if (!media().has(full)) await fs.rm(full, { force: true });
         }
       }
     } catch { /* Best effort (e.g. a media handle is still being released). */ }
   }
-  async whenIdle(): Promise<void> { await this.pending; await this.queue.whenIdle(); }
-  dispose(): void { clearTimeout(this.rememberTimer); if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.desiredTime }); this.clearAutoRefresh(); this.doctorAbort?.abort(); this.disposed = true; ++this.generation; this.abort?.abort(); this.queue.clear(); this.scenes.dispose(); this.views.dispose(); this.output.dispose(); }
+  async whenIdle(): Promise<void> { await this.pending; await this.queue.whenIdle(); await this.exports.whenIdle(); }
+  dispose(): void { clearTimeout(this.rememberTimer); if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.desiredTime }); this.clearAutoRefresh(); this.exports.dispose(); this.doctorAbort?.abort(); this.disposed = true; ++this.generation; this.abort?.abort(); this.queue.clear(); this.scenes.dispose(); this.views.dispose(); this.output.dispose(); }
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -714,7 +741,7 @@ export function activate(context: vscode.ExtensionContext) {
     command('manimCue.doctor', (uri?: vscode.Uri) => cue.doctor(uri)),
     command('manimCue.selectPython', (uri?: vscode.Uri) => cue.selectPython(uri)),
     command('manimCue.clearCaches', () => cue.clearCaches()),
-    command('manimCue.saveFrame', () => cue.saveFrame()),
+    command('manimCue.saveFrame', () => cue.saveFrame()), command('manimCue.openExport', () => cue.openExport()),
     command('manimCue.previousFrame', () => cue.step(-1)), command('manimCue.nextFrame', () => cue.step(1)),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (!e.contentChanges.length) return;
@@ -734,5 +761,6 @@ export function activate(context: vscode.ExtensionContext) {
   // Small diagnostic API for integration tests/consumers; no mutable scene or renderer objects.
   return { getSnapshot: () => cue.snapshot(), whenIdle: () => cue.whenIdle(), seek: (time: number) => cue.seek(time),
     select: (key: string, mode?: SelectionMode) => cue.select(key, mode), setLoop: (enabled: boolean) => cue.setLoop(enabled),
-    setComparison: (enabled: boolean, token?: string, time?: number, replace?: boolean) => cue.setComparison(enabled, token, time, replace) };
+    setComparison: (enabled: boolean, token?: string, time?: number, replace?: boolean) => cue.setComparison(enabled, token, time, replace),
+    submitExport: (id: string, choice: unknown) => cue.submitExport(id, choice) };
 }

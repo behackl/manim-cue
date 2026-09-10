@@ -32,14 +32,14 @@ test('preview swaps at the selected position, paused, without reporting initial 
       console.error(await page.evaluate(() => ({ messages: (window as any).messages, videos: [...document.querySelectorAll('video')].map(v => ({ time: v.currentTime, ready: v.readyState, seeking: v.seeking, style: v.getAttribute('style') })) })));
       throw e;
     });
-    assert.equal(await page.locator('input[type=number]').count(), 0);
+    assert.equal(await page.locator('.preview-controls input[type=number]').count(), 0);
     assert.equal(await page.locator('.preview-controls .position').innerText(), '1.250 s / 3.000 s');
     assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), false);
     await page.getByRole('button', { name: 'Next frame', exact: true }).click();
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).direction), 1);
     await page.locator('.media-stage').focus(); await page.keyboard.press('ArrowLeft');
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).direction), -1);
-    assert.equal(await page.locator('select').count(), 0);
+    assert.equal(await page.locator('.preview-controls select').count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Loop', exact: true }).count(), 0);
     await page.getByRole('button', { name: 'Cue settings', exact: true }).click();
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'settings');
@@ -90,7 +90,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     const oldFrame = { ...frameModel, generation: 3, mediaReady: false, position: { time: 1.25, request: 3 },
       media: { ...frameModel.media!, old: true } };
     await publish(oldFrame);
-    assert.equal(await page.locator('img').isVisible(), true, 'editing again retains the still');
+    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'editing again retains the still');
     assert.equal(await page.locator('.watermark').innerText(), 'OLD PREVIEW');
     // A hidden/recreated VS Code webview must also restore stale media, not wait for freshness.
     await page.reload();
@@ -100,17 +100,17 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     await publish(oldFrame);
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'displayed' && m.token === 'frame'), undefined, { timeout: 5000 });
-    assert.equal(await page.locator('img').isVisible(), true, 'stale still restored after view recreation');
+    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'stale still restored after view recreation');
     assert.equal(await page.locator('.watermark').isVisible(), true);
     assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).isDisabled(), true);
-    await page.getByRole('button', { name: 'Save PNG', exact: true }).click();
-    assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'saveFrame', token: 'frame' });
+    await page.getByRole('button', { name: 'Export…', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'openExport', token: 'frame', time: 1.25 });
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
     assert.equal(await page.locator('.measure-layer').isVisible(), false, 'stale image is display-only');
     const movieModel: Model = { ...model, generation: 3, mediaReady: true, position: { time: 1.25, request: 3 },
       media: { ...model.media!, uri: 'https://cue.test/b.mp4', token: 'b', sourceId: 'new', frame: { width: 12, height: 6 } } };
     await publish(movieModel);
-    assert.equal(await page.locator('img').isVisible(), true, 'still stays mounted while movie loads');
+    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'still stays mounted while movie loads');
     await publish({ ...movieModel, position: { time: 2.25, request: 4 } });
     releaseMovie();
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.token === 'b' && m.time === 2.25));
@@ -156,7 +156,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
       const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 200; return canvas.toDataURL();
     });
     await publish({ ...model, linked: false, media: { ...model.media!, kind: 'image', uri: still, token: 'still', frame: { width: 10, height: 5 } } });
-    await page.waitForFunction(() => !document.querySelector('img')?.hidden);
+    await page.waitForFunction(() => !document.querySelector<HTMLImageElement>('.media-stage img')?.hidden);
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.measure-layer')?.hasAttribute('hidden'));
     box = (await hit.boundingBox())!;

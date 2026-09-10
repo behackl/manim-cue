@@ -35,6 +35,10 @@ checks cover wipe/opacity pixels, keyboard/drag controls, high-DPI resizing, sta
 and reference decode races, view reconstruction, and entry from a playing movie. The
 native smoke also checks explicit movie-frame capture, pending-pin cancellation, reference
 retention across saves/profile changes, movie suppression and Scene-switch cleanup.
+Export checks cover codec-option validation, atomic file publication, serial-process holds,
+responsive dialog/focus behavior, artifact copies across a pending Save As, capture from a
+movie, independent rendering, encoder errors, cancellation/source invalidation and dirty
+source save consent. Real renders verify resolution/FPS/audio and configuration isolation.
 Integration tests explicitly require the supported environment.
 
 See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for the public Manim fixture and bundled Python-extension

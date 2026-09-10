@@ -24,6 +24,11 @@
   scoped to the active primary scene file, not every Python file in the workspace.
   Failed preview generation can leave a new valid timeline and an old preview, but
   they remain visibly **unlinked**.
+- Explicit exports use independent render profiles and hold the serial native-process
+  slot after background preview abort/join. Seeks coalesce without preempting an export;
+  source/config changes invalidate native exports, while exact artifact copies remain
+  independent of later edits. Dialog/active-export file ownership survives preview
+  replacement, with destination-side temporary copies published only on success.
 - One active scene session; fresh processes, bounded cancellation/timeout, no daemon or
   renderer reuse. Default timeout is 600 seconds per process.
 - Scratch data lives in VS Code extension storage. The displayed preview and its pending
