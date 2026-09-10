@@ -1,76 +1,117 @@
 # Python and troubleshooting
 
-1. A nonempty `manimCue.pythonPath` setting wins.
-2. Otherwise Cue waits for the Python extension to initialize and asks its API for the
-   selected environment **for the scene file's URI**. It does not use whichever `python`
-   happens to be in your terminal PATH.
+## Start with the environment check
 
-Following **Python: Select Interpreter** is the default. If you previously configured
-an explicit Cue path, choose **Default: follow Python: Select Interpreter** in Cue's
-picker (or set `manimCue.pythonPath` to an empty string) to restore that behavior. Cue
-does not silently replace an explicit override when the status-bar interpreter changes.
+Run **Manim Cue: Check Python Environment** from the Command Palette. It reports the
+Python executable, Python and Manim versions, project folder, and available Cue features.
+Errors in the timeline also offer a **Check Python** action.
 
-Selection is resource/workspace-scoped. Another folder, multi-root workspace or loose
-file can resolve differently from the interpreter shown for another editor. An explicit
-Cue override can also differ from the Python status bar. Keep a virtual environment's
-`.venv/bin/python` path intact; resolving its symlink to the base Python can lose the env.
+A **Ready** result means Cue found support for frame capture, the timeline, and MP4
+export. A **Limited** result lists the available features. Use **Manim Cue: Show Logs**
+for the full command output when a scene fails.
 
-Run **Manim Cue: Check Python Environment** from the Command Palette. Import/environment
-errors also offer a **Check Python** action in the timeline pane.
-The output channel shows the resource/workspace, selection rule, requested executable,
-actual `sys.executable`, Python version/prefix, CWD, and Manim module path/version.
-It distinguishes missing Manim, import/dependency failures, unsupported builds and
-limited feature support. Timeline, frame capture and export encoder configuration are
-reported separately. Failed subprocess messages also include the executable.
+## Choose the right Python environment
 
-**Manim Cue: Select Python for Manim Cue** offers the Python extension's known workspace
-environments, an explicit executable path, or following the Python extension's selection.
-It confirms the settings scope before writing a Cue-only override, then checks it.
-For files outside workspace folders it explicitly explains the broader workspace/User
-scope. No environment is created, no package is installed, and the Python extension's
-own interpreter selection is not changed. **Refresh** afterward to retry the Scene.
+By default, Cue uses the interpreter selected by **Python: Select Interpreter** for the
+current scene file. This matters in multi-folder workspaces, where each folder can use a
+different environment.
 
-The check uses the same selected Python, environment and CWD, with isolated cold
-bytecode lookup rather than the execution cache. It requests no
-scene evaluation/render, but importing Manim may execute package/plugin initialization;
-workspace trust is required. **Ready** means all three API checks passed, not that native
-encoders, optional dependencies, LaTeX tools or scene-specific imports work. **Limited**
-means at least one API is available; the output names the missing features.
-Installation, guided dependency repair and managed environments remain future work.
+To choose a Cue-specific interpreter, run **Manim Cue: Select Python for Manim Cue**.
+You can select a known environment, enter a Python executable, or return to the Python
+extension's selection. Run **Refresh** after changing it.
 
-## Manim capabilities
+If you enter a virtual-environment path manually, use the environment's own executable:
 
-Ordinary PyPI Manim **0.21.0** does not have Cue's required experimental APIs. Development
-builds may also report 0.21.0 while providing them; do not rely on a version comparison or
-assume reinstalling that release will fix an unsupported environment. Use the preview branch
-installation commands in the [README](../README.md#get-started), select that environment's
-Python in VS Code, and run the check before opening a Scene.
+- macOS/Linux: `/path/to/project/.venv/bin/python`
+- Windows: `C:\path\to\project\.venv\Scripts\python.exe`
 
-The branch moves. A uv project's lockfile retains its resolved commit: to test a newer branch
-revision, run `uv lock --upgrade-package manim`, then `uv sync`. With pip, rerun the README's
-`pip install --upgrade` command; if the unchanged version string leaves the old build installed,
-add `--force-reinstall`. After updating, run **Check Python Environment** and **Refresh**.
-CI logs the exact commit it tested; that is more useful than `0.21.0` alone in a bug report.
+Avoid replacing that path with the base Python executable, because packages installed
+in the virtual environment may then be missing.
 
-| Feature | Required public API |
-| --- | --- |
-| Timeline, full preview and looping | `Manager.evaluate(capture_timeline=True)` and CLI `--timeline-output` with `manim.execution-timeline` v1 |
-| Frame-first updates and still comparison | `Manager.capture_frame_at(timestamp)` |
-| New MP4 export with independent encoding | Configuration properties `video_codec`, `pixel_format`, `video_encoder_options` |
+## Install or update the Manim preview branch
 
-The environment check inspects the Manager API and encoder configuration without executing
-a Scene. Timeline CLI/schema compatibility and native encoding are validated when used.
-A timeline-only build can still render full previews; a frame-only build can show captured
-stills but has no timeline/full preview. New MP4 renders require the encoder API, not the
-timeline/capture APIs. Existing artifact copies do not need a new render.
-If neither timeline nor capture is available, Cue stops queued work and offers environment
-checks rather than trying to synthesize a timeline. Select a capable build, then **Refresh**.
+Follow the installation commands in the [README](../README.md#get-started). The regular
+PyPI Manim 0.21.0 package lacks the features Cue needs, while the preview branch may use
+the same version number.
 
-## Moving from local builds
+For a uv project, update to the branch's latest commit with:
 
-The Marketplace identity is `behackl.manim-cue`. If you previously installed
-`manim-cue-local.manim-cue`, disable or uninstall that extension before installing the new
-identity to avoid duplicate commands/CodeLens. This does not change the selected Python;
-Cue's extension-private remembered state is not migrated between identities.
+```sh
+uv lock --upgrade-package manim
+uv sync
+```
 
-See [usage](usage.md) for preview controls and [performance](performance.md) for cache troubleshooting.
+For a pip environment, activate it and rerun:
+
+```sh
+pip install --upgrade --force-reinstall "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
+```
+
+Then select that environment in VS Code and run **Manim Cue: Check Python Environment**.
+The diagnostic output includes the loaded Manim path, which helps confirm which copy is
+being used.
+
+## The preview stays old
+
+An **OLD PREVIEW** label means the visible image came from an earlier saved version or
+rendering profile.
+
+Try these steps:
+
+1. Save the main scene file.
+2. Press **Refresh** in the timeline toolbar.
+3. Check the timeline for an error and open **Manim Cue: Show Logs**.
+4. Run **Manim Cue: Check Python Environment** if imports or dependencies changed.
+
+Automatic refresh watches the main scene file. After editing an imported helper,
+`manim.cfg`, an asset, or the Python environment, press **Refresh** yourself.
+
+A timeline and video can occasionally show **UNLINKED** after one part of an update
+fails. Refreshing starts a complete update with the latest saved inputs.
+
+## Imports or assets cannot be found
+
+Cue normally runs the scene from its workspace folder. For a Python file outside a
+workspace, it uses the file's parent folder.
+
+If your project expects another current directory, set **Manim Cue: Working Directory**
+in VS Code Settings. The value can be an absolute path or a path relative to the
+workspace folder.
+
+Also confirm that:
+
+- the selected environment contains every imported package;
+- asset paths work from the chosen working directory;
+- the scene runs from the same environment in a terminal.
+
+## Rendering, text, or video fails
+
+Open **Manim Cue: Show Logs** first; it includes Manim's error output and the Python
+executable that was used.
+
+Common fixes include:
+
+- install Manim's system dependencies for Cairo, Pango, and FFmpeg;
+- install the fonts or TeX tools used by the scene;
+- increase **Manim Cue: Timeout Seconds** for a slow scene;
+- run **Manim Cue: Clear Caches** after changing fonts or typesetting tools;
+- reduce **Manim Cue: Preview Width** while editing a heavy scene.
+
+For export errors, check that custom dimensions are even and within the limits shown in
+the dialog. Advanced encoder settings use one `key=value` entry per line.
+
+## Duplicate Manim Cue commands appear
+
+Early local builds used the extension identity `manim-cue-local.manim-cue`. Disable or
+uninstall that build before installing `behackl.manim-cue`, then reload VS Code.
+
+## Report a useful problem
+
+Include these details when asking for help:
+
+- the output from **Manim Cue: Check Python Environment**;
+- the relevant part of **Manim Cue: Show Logs**;
+- your operating system and VS Code version;
+- a small scene that reproduces the problem, when possible.
+
+The Manim path and revision are more useful than the displayed `0.21.0` version alone.

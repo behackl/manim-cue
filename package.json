@@ -1,7 +1,7 @@
 {
   "name": "manim-cue",
   "displayName": "Manim Cue",
-  "description": "Preview the current Manim frame, then explore the executed timeline and movie.",
+  "description": "Preview, inspect, compare, and export Manim scenes in VS Code.",
   "version": "0.2.0",
   "publisher": "behackl",
   "private": true,
@@ -130,26 +130,26 @@
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "Optional absolute Python executable for Cue (preserve .venv/bin/python symlinks). Overrides the Python extension's selection for the scene file. Use Manim Cue: Check Python Environment to see the actual runtime."
+          "description": "Python executable used by Manim Cue. Leave empty to use Python: Select Interpreter for the scene file."
         },
         "manimCue.autoRefreshOnSave": {
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Update the selected frame and timeline after saving (500 ms debounce). Unsaved edits pause the preview and cancel outdated work; helper/config changes require manual refresh."
+          "description": "Update the selected frame and timeline after saving the main scene file. Refresh manually after changing imported helpers, assets, or configuration."
         },
         "manimCue.autoPreview": {
           "type": "boolean",
           "scope": "resource",
           "default": true,
-          "description": "Automatically render a complete muted video after frame/timeline refresh and 1.5 seconds idle. Current-frame previews also update when this is off."
+          "description": "Render a complete muted preview video after updating the selected frame and timeline."
         },
         "manimCue.frameRate": {
           "type": "number",
           "default": 30,
           "minimum": 1,
           "maximum": 120,
-          "description": "Evaluation AND preview FPS. This changes animation/updater semantics; it is not just playback quality."
+          "description": "Frames per second used to evaluate and preview the scene. Changing it can affect animation and updater behavior."
         },
         "manimCue.previewWidth": {
           "type": "integer",
@@ -157,20 +157,20 @@
           "default": 960,
           "minimum": 64,
           "maximum": 3840,
-          "description": "Approximate preview width; preserve the configured aspect ratio and use even dimensions."
+          "description": "Approximate preview width in pixels. Cue preserves the aspect ratio from the Manim configuration."
         },
         "manimCue.workingDirectory": {
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "Working directory, absolute or relative to the workspace. Empty uses the workspace folder, or the source parent."
+          "description": "Working directory for the scene, as an absolute path or relative to the workspace. Leave empty to use the workspace folder, or the scene's folder outside a workspace."
         },
         "manimCue.timeoutSeconds": {
           "type": "integer",
           "default": 600,
           "minimum": 5,
           "maximum": 7200,
-          "description": "Timeout per evaluation or preview process."
+          "description": "Maximum time in seconds for each frame capture, timeline evaluation, or render."
         }
       }
     }

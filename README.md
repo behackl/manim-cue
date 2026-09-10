@@ -1,84 +1,76 @@
 # Manim Cue
 
-Preview Manim scenes beside your Python source. Saving updates the selected frame
-first, then the execution timeline and a complete movie. The previous picture stays
-visible while you work.
+Manim Cue adds a live preview and execution timeline for Manim scenes to VS Code.
+It helps you inspect a scene while you edit instead of repeatedly switching to a
+terminal and video player.
 
-- **Frame-first previews:** inspect a moment without waiting for the whole movie.
-- **Playback controls:** scrub, step individual frames, or loop a selected timeline interval.
-- **Runtime timeline:** inspect animations, waits, sections, captions and sound cues;
-  jump back to their source lines.
-- **Visual checks:** pin a still for wipe/overlay comparison, measure reference
-  coordinates and distances, or save a captured still as PNG.
-- **Export:** save PNG, preview video or timeline JSON; render a new MP4 with independent
-  resolution, FPS and encoding settings.
-- **Adjustable preview resolution:** choose smaller previews without changing FPS.
+- See the selected frame soon after saving.
+- Scrub and play the finished preview.
+- Inspect animations, waits, sections, captions, and sound cues on a timeline.
+- Jump from a timeline event to its Python source.
+- Compare two captured frames with a wipe or opacity overlay.
+- Measure coordinates and distances in a fixed 2D camera frame.
+- Save frames, preview videos, timeline data, or a new MP4 render.
 
 ## Get started
 
-You need desktop VS Code 1.96+ and the Microsoft Python extension.
+You need desktop VS Code 1.96+, the Microsoft Python extension, Python 3.11+, and Git.
 
 > [!IMPORTANT]
-> **A preview version of Manim is required.** The ordinary PyPI 0.21.0 release lacks
-> the APIs Cue needs. Install the upstream `refactor/manager-targeted-frame` branch
-> into your project environment using either **uv**:
+> **Manim Cue requires a preview version of Manim.** Install the upstream
+> `refactor/manager-targeted-frame` branch in your project environment with **uv**:
 >
 > ```sh
 > uv add "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
 > ```
 >
-> or **pip**, with your virtual environment activated:
+> Or activate your virtual environment and use **pip**:
 >
 > ```sh
 > pip install --upgrade "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
 > ```
 >
-> This requires Python 3.11+, Git and Manim's [native installation prerequisites](https://docs.manim.community/en/stable/installation.html).
-> The branch is experimental and may still report version `0.21.0`; Cue checks actual
-> [capabilities](docs/troubleshooting.md#manim-capabilities), not just the version string.
+> Manim may also need [system packages](https://docs.manim.community/en/stable/installation.html)
+> for Cairo, text rendering, and video encoding. The preview branch may identify itself
+> as version `0.21.0`, so Cue checks its available features rather than its version number.
 
-1. Install a Manim Cue VSIX using **Extensions → … → Install from VSIX…**.
-2. Open your scene folder in a trusted VS Code window.
-3. Use **Python: Select Interpreter** to select the environment containing Manim.
-4. Run **Manim Cue: Check Python Environment** to see which features your build supports.
-5. Click **▶ Open Manim Cue** above a Scene class, or run **Manim Cue: Open Scene**.
+1. Install the Manim Cue VSIX with **Extensions → … → Install from VSIX…**.
+2. Open the folder containing your scene and trust the workspace.
+3. Run **Python: Select Interpreter** and choose the environment where you installed Manim.
+4. Run **Manim Cue: Check Python Environment**. The result should say **Ready**.
+5. Open a saved Python file containing a `Scene` class.
+6. Click **▶ Open Manim Cue** above the class, or run **Manim Cue: Open Scene**.
 
-Try `examples/cue_demo.py` for animations, captions and sound cues. Cue remembers the
-last Scene and selected time in the workspace; it runs only when you open or refresh it.
+You can try the included `examples/cue_demo.py` scene first.
 
-## Preview controls
+## Everyday use
 
-Use the scrubber or timeline to select a time. **Play** prepares a movie if needed;
-**Space** toggles playback and **Left/Right** step frames when the preview has focus.
-Automatic updates stay paused.
+Save your scene to update the selected frame and timeline. The previous image remains
+visible with an **OLD PREVIEW** label until the update is ready.
 
-Select timeline events, then enable **Loop selection** to repeat their interval.
-Cmd/Ctrl-click toggles events; Shift-click selects a range. Press Play to start.
+Use the scrubber or timeline to choose a time. Press **Space** to play or pause and
+**Left/Right** to step by one frame while the preview is focused. Select timeline events
+and turn on **Loop selection** to repeat that part of the scene.
 
-**Export…** saves a frame, video or timeline, or renders a new video. **Measure** enables
-rulers and a crosshair. The **settings cog** beside Measure opens Cue's settings, including preview
-width and **Auto video** (on by default). Turn Auto video off to work with stills and
-the timeline; **Render video** can then prepare a movie without starting playback.
+The controls above the preview provide the main tools:
 
-**Compare**, beside Measure, pins a reference still. Use **Wipe** or **Overlay** to compare
-it with new frames as you edit; **Replace reference** explicitly updates the pin.
+- **Export…** saves the current frame, preview video, timeline JSON, or a new MP4 render.
+- **Compare** pins a frame, then shows later frames with a wipe or opacity overlay.
+- **Measure** shows Manim coordinates and measures distances.
+- The **settings cog** opens preview width, frame rate, and automatic video settings.
 
-## A few things to know
+Preview playback is muted. Sound cues still appear on the timeline and exported renders
+include scene audio. Measurement is intended for a centred, unrotated 2D camera.
 
-- Cue executes **saved, trusted Python files**. It is not a sandbox.
-- Playback is currently muted. Sound cues remain visible on the timeline.
-- Measurement assumes a fixed, centred, unrotated 2D camera.
-- The current preview profile uses Cairo. Desktop macOS has native-render validation;
-  A Linux native CI job tracks the moving Manim preview branch.
-  Windows native rendering is not yet covered by that matrix.
-  Remote/web workspaces remain outside the supported scope.
+Your scene runs as normal Python code with your user account's file, network, and process
+access. Only run scenes and plugins you trust.
 
-## More information
+## Learn more
 
-- [Controls, timeline and measurement](docs/usage.md)
-- [Python selection and troubleshooting](docs/troubleshooting.md)
-- [Performance and caches](docs/performance.md)
-- [Execution, freshness and supported scope](docs/architecture.md)
-- [Development and validation](docs/development.md)
+- [Using the preview, timeline, export, comparison, and measurement tools](docs/usage.md)
+- [Choosing Python and solving common problems](docs/troubleshooting.md)
+- [Improving preview performance and clearing caches](docs/performance.md)
+- [How scene updates work](docs/architecture.md)
+- [Development and tests](docs/development.md)
 
 [Third-party notices](THIRD_PARTY_NOTICES.md) · [License](LICENSE)

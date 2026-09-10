@@ -1,57 +1,70 @@
-# Execution and freshness
+# How scene updates work
 
-- Saved local files only. After opening a Scene, saving its source automatically refreshes
-  it after a 500 ms debounce (including VS Code Auto Save and external disk edits).
-  Disable `manimCue.autoRefreshOnSave` to refresh manually. Unsaved edits immediately
-  cancel work and mark results stale; there is no execution on each keystroke or
-  buffer-to-temporary-file substitution. Cancel also clears a queued automatic refresh.
-- The visible default Cue profile is **Cairo, 30 fps, approximately 960 pixels wide**.
-  Adjust `manimCue.frameRate` and `manimCue.previewWidth`. FPS is used for BOTH evaluation
-  and rendering: changing it changes the observed schedule, not merely video quality.
-  The configured aspect ratio/camera dimensions are preserved. An unset scene seed is
-  set to 0 in this profile; an existing configured seed is retained and displayed.
-- CWD defaults to the workspace folder (source parent for a loose file). Override with
-  `manimCue.workingDirectory` when your project's imports/assets expect another CWD.
-- Project configuration is preserved with explicit Cue overrides for headless full
-  execution, opaque H.264 output and private output/cache directories. Your config files
-  are not edited. Existing primary bytecode caches are not reused by the launch profile.
-- Successive saves supersede obsolete runs. The selected frame appears first, followed
-  by the timeline and optional movie. Source and position changes take priority over
-  background work. Previous results stay visible with their freshness status; failures
-  appear in the panel instead of modal dialogs.
-- Possible Python/config dependency changes and environment/profile changes also mark
-  results stale and cancel work, but require **manual refresh**: automatic refresh is
-  scoped to the active primary scene file, not every Python file in the workspace.
-  Failed preview generation can leave a new valid timeline and an old preview, but
-  they remain visibly **unlinked**.
-- Explicit exports use independent render profiles and hold the serial native-process
-  slot after background preview abort/join. Seeks coalesce without preempting an export;
-  source/config changes invalidate native exports, while exact artifact copies remain
-  independent of later edits. Dialog/active-export file ownership survives preview
-  replacement, with destination-side temporary copies published only on success.
-- One active scene session; fresh processes, bounded cancellation/timeout, no daemon or
-  renderer reuse. Default timeout is 600 seconds per process.
-- Scratch data lives in VS Code extension storage. The displayed preview and its pending
-  replacement stay available until the webview acknowledges the swap. Pinned comparison
-  references have independent ownership; their files survive current-preview replacement
-  and source changes. Superseded reference files are retained through reference decode
-  acknowledgement, with only the displayed and latest candidate references kept.
-  Abandoned media and run directories are cleaned after jobs settle. Resource roots stay
-  stable; only completed media, not source/profile/cache files, is exposed to the webview.
+Manim Cue runs your saved scene in separate steps so it can show useful results early.
+Understanding those steps helps explain the status labels in the preview.
 
-This is **not a sandbox**. Trusted scene code and plugins can execute arbitrary Python,
-access the network, write files or start other processes. Cancellation cannot undo those
-side effects. Reports do not fingerprint every import, asset or external input.
+## Update order
 
-## Supported scope
+When you open or refresh a Scene, Cue:
 
-Cairo-first, desktop/local files, read-only timeline. Explicit GPU/image/writer requests
-during evaluation are unsupported by the current core. No nested animation schedule,
-mobject inspector, waveforms, audible playback, unsaved-buffer execution, automatic
-source remapping, or exact event/frame mapping.
+1. captures the frame at your selected time;
+2. evaluates the scene to build the timeline;
+3. renders a complete preview video when **Auto video** is enabled.
 
-Tested on macOS with VS Code 1.135 and Chrome. Windows tree termination and remote/web
-workspaces are not validated support claims. Large or unusual timelines may hit the
-explicit viewer limit (16 MiB; 20,000 events/declarations). Errors retain prior data and
-are available in **Manim Cue: Show Logs**. Logs also include wall-clock phase timings
-for capture, evaluation, verification, movie rendering, and browser frame load/swap.
+Each step runs the scene in a fresh Python process, so every step starts clean and can
+be cancelled independently. It also means scenes that
+use randomness, the current time, network responses, or changing files can produce
+different content between the captured frame and rendered video.
+
+Cue runs one Manim process at a time. A requested frame takes priority over background
+video work. While an export runs, preview updates wait for it to finish or be cancelled.
+
+## Saved files and refreshes
+
+Cue works from saved local Python files. Saving the main scene file schedules an update
+after a short pause, including saves made by VS Code Auto Save. Unsaved edits stop the
+active update and mark the visible result as old.
+
+Changes to imported Python files, assets, `manim.cfg`, or the selected environment need
+a manual **Refresh**. This keeps a helper-file save from unexpectedly executing a scene.
+
+The working directory is the workspace folder by default, or the source file's parent
+for a loose file. Change **Manim Cue: Working Directory** when your imports or relative
+asset paths expect another directory.
+
+## Preview profile
+
+The default preview uses Cairo at 30 frames per second and about 960 pixels wide. Change
+**Frame Rate** and **Preview Width** in VS Code Settings. Cue keeps the aspect ratio from
+your Manim configuration.
+
+Frame rate affects how Manim evaluates animations and updaters, so changing it can alter
+the timeline as well as the video. Cue uses seed `0` when the project has no configured
+seed, which makes many scenes more repeatable while editing.
+
+Cue reads your project configuration and applies preview-specific output settings. It
+writes generated media and caches to the extension's storage area rather than editing
+your project configuration.
+
+## Current, old, and unlinked results
+
+A result is **current** when it matches the saved scene, selected environment, preview
+settings, and known configuration inputs.
+
+An **OLD PREVIEW** remains visible while an update is running or after an input changes.
+Keeping it visible makes it easier to compare your edit with the previous result.
+
+Frame, timeline, and video updates can finish separately. If one succeeds and a later
+step fails, Cue keeps the useful result and labels combinations that came from different
+runs as **UNLINKED**. Press **Refresh** after fixing the error.
+
+## Files, caches, and trust
+
+Temporary previews, timeline data, and caches live in VS Code extension storage. Run
+**Manim Cue: Clear Caches** when you change fonts or typesetting tools, or when you want
+to reclaim cache space. Exported files are written only after rendering finishes, so a
+failed export leaves an existing destination intact.
+
+A Manim scene runs as normal Python code. It has the same access to files, the network,
+and other processes as Python started from your account. Cue therefore requires a
+trusted workspace before discovering or running scenes.

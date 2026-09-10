@@ -1,217 +1,122 @@
 # Using Manim Cue
 
-## Reading the timeline
+## Open and update a scene
 
-- **Bar widths are observed execution spans.** At 4 fps an ordinary 0.3 s wait advances
-  0.5 s; a frozen 0.3 s wait advances 0.25 s. The inspector keeps these separate from
-  the nominal request, evaluated sample count and logical hold intervals.
-- Repeated calls at the same source line remain separate events and show occurrence
-  numbers. A wait is not duplicated as a second play.
-- Section markers are reached declarations. A requested section skip is explicitly
-  labeled: no-raster evaluation ignores it, while ordinary rendering may skip output.
-- Caption bars and sound diamonds use their **placement**, which can precede the
-  declaration. A sound with unknown duration is a point cue, not a made-up waveform/bar.
-- Text in the timeline pane is deliberately non-selectable so scrubbing cannot select
-  labels. Copy diagnostics from the **Logs** output channel instead.
-- Click a bar/cue to inspect it. Double-click, or use **Go to source**, to navigate.
-  Left/right select timed calls; zoom controls and horizontal scrolling inspect detail.
-- The source root is the primary file's directory. Only primary source bytes are
-  fingerprinted; helpers are best-effort navigation and outside-root hints are not links.
-- **Manim Cue: Export Timeline JSON** in the Command Palette writes the original,
-  verified JSON, retaining its numeric representation and canonical revision.
+Open a saved Python file and click **▶ Open Manim Cue** above a Manim `Scene` class.
+You can also run **Manim Cue: Open Scene** from the Command Palette.
 
-## Current frame first, movie afterward
+After you save the file, Cue updates in this order:
 
-On an edit, Cue keeps the last picture—still or paused movie—visible with an **OLD
-PREVIEW** marker until its replacement is decoded. After saving, it
-executes a fresh scene up to your selected time and shows the captured frame as soon as
-it is decoded. The timeline refresh runs next. A successful frame remains usable even
-if later timeline evaluation fails.
+1. the frame at the selected time;
+2. the execution timeline;
+3. the complete preview video, when **Auto video** is enabled.
 
-The **Auto video** setting renders a complete muted movie after the frame and timeline
-are ready and you have been idle for 1.5 seconds. Disable it for frame-and-timeline
-updates only; it is enabled by default.
-Use **Manim Cue: Refresh Timeline Only** for evaluation alone, or **Render video** to
-request a complete movie explicitly.
+This order gives you a useful image before the full video is finished. The previous
+image stays visible with an **OLD PREVIEW** label while Cue works. Editing the file again
+or pressing **Cancel** stops outdated work. Use **Refresh** after changing imported
+helpers, configuration files, assets, or the selected Python environment.
 
-- Drag the preview scrubber or timeline to select a time. A current movie seeks directly.
-  Otherwise Cue captures the latest request after a short settle delay; releasing the
-  pointer requests that time immediately. The preview scrubber becomes available when
-  the current duration is known.
-- **Play** requests a movie if needed, then starts it when ready. Seeking or editing
-  clears that playback request. Automatic refreshes remain paused.
-- Replacement images decode offscreen. Replacement movies load and seek before the
-  swap, so the same preview area stays filled throughout. A newer time selection wins.
-- The time display shows the presented frame time and total duration, for example
-  `16.100 s / 23.200 s`. Fixed decimal places and reserved width keep controls still
-  during playback. An unknown total is shown as `—`. At 4 fps, selecting 0.3 s
-  chooses the frame at 0.25 s; Cue retains the requested time separately.
-- An unavailable frame produces a labeled **end-state snapshot**. When a shortened movie
-  is ready, Cue adjusts the position to its last verified frame and reports the change.
-  Switching Scene resets the position to zero.
+Cue remembers the last open Scene and selected time in each workspace. Opening another
+Scene starts at its beginning.
 
-Frame, timeline, and movie are separate executions under the same checked source and
-profile. Movie timing checks include nominal rate, decoded presentation timestamps,
-duration and section skips. An incompatible movie leaves the current frame visible with
-a concrete warning. For a compatible movie, Cue uses its actual frame timestamps to
-seek the selected frame. These checks establish timing compatibility, not identical
-content across arbitrary Python executions.
+## Navigate the preview
 
-### Transport and saved frames
+- Drag the scrubber to choose a time.
+- Press **Play/Pause**, or press **Space** while the preview is focused.
+- Press **Left/Right** while the preview is focused to step one frame.
+- Use **Render video** when Auto video is off and you want a playable preview.
+- Open the **settings cog** to change preview width, frame rate, and Auto video.
 
-Cue's controls replace the browser's native video controls:
+If a video is ready, seeking uses its rendered frames. Otherwise Cue captures a still
+at the requested time. The time display shows both the current frame time and scene
+duration when known.
 
-- **Play/Pause** uses icons with tooltips. With the preview focused, Space toggles playback
-  and Left/Right step frames. Form controls keep their own keyboard behavior; the timeline
-  still uses Left/Right to select timed calls. Frame stepping pauses playback.
-- **Render video** appears when Auto video is off and no current movie is ready. It
-  prepares playback without starting it; Play requests a movie and starts when ready.
-- The **settings cog**, after Measure and Compare, opens VS Code Settings filtered to Cue.
-  Set `manimCue.previewWidth` there (for example 480, 960 or 1920); changing width does
-  not change FPS. Refresh after changing the rendering profile. Auto video changes take
-  effect immediately without invalidating current results.
-- **Export…** opens the frame/video/timeline dialog described below. Direct **Save Captured
-  Frame as PNG** and **Export Timeline JSON** palette commands remain available.
+Preview playback is muted. Sound cues appear on the timeline, and saved videos include
+the scene's audio.
 
-Cue remembers the last Scene and requested time per workspace, including a paused movie's
-position. Reopening that Scene restores its selection; no Python runs merely on activation.
-Opening a different Scene starts at zero. With no Python editor active, Open Scene can
-reopen the remembered file and class.
+## Read the timeline
 
-Playback is **muted**. Sound cues remain visible on the timeline, and ordinary movie
-rendering validates/mixes the scene's sound assets.
+The timeline shows what happened while Manim executed the scene at the selected frame
+rate. Each bar represents an animation or wait. Captions, sounds, and sections have
+their own markers.
 
-## Exporting and rendering
+- Click an event to inspect it and move to its start time.
+- Double-click an event, or choose **Go to source**, to open its Python line.
+- Use the zoom buttons and horizontal scrollbar to inspect a busy timeline.
+- Use Left/Right while the timeline is focused to move between timed events.
 
-Click **Export…** in the preview controls, or run **Manim Cue: Export…**. Opening the
-dialog pauses playback and holds the artifacts/time it describes. New previews do not
-silently replace that selection; **Use latest preview** explicitly picks newer results.
+Repeated calls from the same source line remain separate events. Sound cues with an
+unknown duration appear as points. At low frame rates, observed event boundaries can
+be rounded to nearby frames.
 
-- **Current frame → Save PNG…** copies the captured still's pixels, including a visibly
-  marked old still. From a current movie, **Capture and save PNG…** executes a fresh
-  capture at the held frame using the preview profile, without replacing the preview.
-  This is not movie pixel extraction; arbitrary Python can produce different content.
-  Unavailable captures fail rather than saving an unrelated or untimed frame.
-- **Video → Save existing preview** copies the completed MP4 with its actual resolution,
-  FPS and audio. An older movie is explicitly marked **OLD**, even if a newer still is
-  already visible. No render settings apply to this copy.
-- **Video → New render** executes the whole saved Scene with independent export settings.
-  Dirty source requires explicit **Save and Render** confirmation. Preview timeline
-  selection/looping does not restrict the export; normal source-defined section skips
-  still apply. The exported movie does not replace Cue's preview or comparison pin.
-- **Timeline JSON → Save JSON…** copies the original verified observation, preserving
-  its canonical numeric representation. It does not reevaluate or apply video settings.
+### Select and loop a range
 
-New-render controls use opaque **MP4/H.264, Cairo, yuv420p**:
+1. Click an event to select it.
+2. Cmd-click on macOS or Ctrl-click elsewhere to add or remove events.
+3. Shift-click to select a continuous range.
+4. Turn on **Loop selection**, then press **Play**.
 
-- Resolution presets specify the short edge and preserve orientation/aspect; exact width
-  and height are always visible. Custom dimensions can unlock aspect, changing framing.
-  Dimensions must be even, 64–8192 pixels per axis, and no more than 32 megapixels.
-- FPS is independent of resolution (1–120, including fractional values). Changing FPS
-  re-executes animation/updater semantics, not just playback speed.
-- **CRF** defaults to 18: lower means higher quality/larger files. Encoding effort is
-  Fast / Balanced / Slow, mapped to `veryfast` / `medium` / `slow` (default Balanced).
-- Advanced codec options accept one `key=value` per line, not command-line flags.
-  CRF/preset use the visible controls; duplicates and invalid syntax are rejected.
-  Cue supplies a complete encoder-option map, replacing inherited project codec options;
-  it does not modify project configuration. Encoder failures are reported with logs,
-  without a silent codec fallback. Other formats/renderers/custom configuration overrides
-  remain CLI workflows for now.
+The shaded area shows the loop interval. Events between the first and last selection
+are part of the interval even when their boxes are not highlighted.
 
-The native Save As picker chooses a local destination. Existing artifacts are retained
-through the picker; cancelling it starts no Python work. Accepted render preferences
-are remembered per workspace, separately from preview settings.
+## Export a frame, video, or timeline
 
-One native export runs at a time. It interrupts and joins background preview work, then
-holds that process slot; queued preview requests coalesce until it finishes. Local movie
-scrubbing remains available and does not cancel the export. Source/config/environment
-changes or Scene reopening cancel an in-progress render, without automatically restarting
-it. Use **Cancel export** or the cancellable progress notification; closing the dialog or
-preview panel does not cancel an already accepted job.
+Click **Export…** above the preview. The dialog uses the preview and selected time shown
+when you opened it. Choose **Use latest preview** if a newer update finishes while the
+dialog is open.
 
-Output is prepared privately and copied to a destination-side temporary file before
-replacement. Failure/cancellation preserves any previous destination. Success offers
-**Reveal file / Open file**. Exports include Scene audio if present, even though Cue's
-player is muted. Selected-interval export and comparison-composition export are not built.
+Available exports depend on the current results:
 
-## Selecting and looping timeline events
+- **Current frame → Save PNG…** saves a still at the selected time. If a video is
+  displayed, Cue runs the scene again to capture the frame, so scenes with changing
+  external inputs or unseeded randomness may produce a different image.
+- **Video → Save existing preview** copies the completed preview video.
+- **Video → New render** renders the complete saved Scene with separate output settings.
+- **Timeline JSON → Save JSON…** saves the timeline for other tools or inspection.
 
-1. Click an event to select it and seek to its start. **Cmd-click** (macOS) or
-   **Ctrl-click** toggles additional events without seeking. **Shift-click** selects
-   a consecutive range from the anchor event.
-2. The shaded region and toolbar label show the interval from the earliest selected
-   start to the latest selected end. Intervening events are included, even when their
-   boxes are not selected; this is a continuous interval, not a playlist.
-3. Enable **Loop selection** above the timeline, then press **Play** in the preview.
-   Play prepares a movie if necessary and enters the interval if the cursor is outside it.
-   Selecting or toggling a loop pauses playback rather than starting it.
+A new render supports MP4/H.264 with Cairo. Choose a resolution preset or enter custom
+width and height, then set FPS and quality. Width and height must be even numbers between
+64 and 8192, with at most 32 megapixels in total.
 
-Looping uses the compatible movie's checked presentation timestamps and performs no
-Python work on each repeat. Browser seeking can pause briefly at a wrap; this is a
-preview loop, not an exported clip. Source/profile changes disable the old loop. Old
-observations remain inspectable, with stale selection clearly marked, until refreshed.
+Lower **CRF** values produce higher quality and larger files. **Encoding effort** trades
+rendering time for compression. Most users can keep the defaults. Advanced options use
+one `key=value` entry per line.
 
-The timeline toolbar contains Scene, Refresh, Cancel (while busy), Loop selection,
-range and status. Environment checks, logs and timeline JSON export remain in the
-Command Palette; errors offer relevant diagnostic actions in the pane.
+A new render always covers the complete Scene; the selected timeline range is only for
+preview looping. Changing FPS can change animation and updater behavior because Manim
+executes the scene again at that frame rate.
 
-## Comparing before and after
+Only one render runs at a time. Use **Cancel export** or the progress notification to
+stop it. Cue preserves an existing destination file if rendering or copying fails.
+After a successful export, choose **Reveal file** or **Open file**.
 
-Click **Compare**, beside Measure, to pin the displayed still as a reference. Edit and
-save normally: only the current image updates, while the reference retains its pixels.
+## Compare two frames
 
-- **Wipe** (default) shows the reference on the left and current image on the right.
-  Drag the vertical divider or use the slider. With the divider focused, Left/Right
-  adjust it; Home/End show current-only/reference-only without seeking the scene.
-- **Overlay** blends both images, initially at 50%. Its slider controls the current
-  image's opacity: 0% is reference-only, 100% is current-only. Each mode remembers its
-  slider position while the webview remains open.
-- **Replace reference** pins the displayed current still. Turning Compare off hides the
-  comparison but keeps the reference; turning it on again does not silently repin.
-- Labels identify each actual capture time and the primary-source SHA-256 prefix.
-  These are source identifiers, not full dependency revisions. Untimed snapshots say
-  **End state**; old/loading current images remain explicitly marked. A stale still can
-  deliberately be pinned, without executing an older source revision.
-- Entering from a current movie pauses it and **captures a new still at its presented
-  frame** using the public capture API. This is a fresh execution, not extraction of
-  the movie's pixels; arbitrary scene code can produce a different result. The new
-  reference is pinned only after that capture is decoded. Failed/cancelled captures or
-  a superseding seek/edit never substitute an older still or replace an existing pin.
-- Seeking and stepping in Compare capture new stills, even if a movie exists. Automatic
-  movie rendering/handoff is suspended without changing **Auto video**. Play or the
-  explicit Render Preview command exits Compare; normal movie behavior then resumes.
-  Compare and Measure are mutually exclusive so their drag gestures cannot conflict.
-- Both images are centred and fitted into the current image area without stretching.
-  Aspect/frame-geometry changes are flagged; there is no automatic registration or
-  camera alignment. Transparent pixels use a neutral dark background for comparison.
-- The reference survives refreshes and webview reconstruction within the current panel
-  session. Switching Scene, closing the preview panel, or restarting VS Code clears it.
-  Reference replacements decode before swapping; a failed decode keeps the previous
-  reference visible.
+Click **Compare** to pin the displayed frame as a reference. Edit and save your scene;
+the reference stays fixed while the current frame updates.
 
-**Export… → Current frame** saves the current captured image, not the wipe/overlay composition.
-There is no comparison export, reference gallery or synchronized movie comparison.
+- **Wipe** places the reference on the left and current frame on the right. Drag the
+  divider to compare them.
+- **Overlay** blends the two images. Move the slider from reference-only to current-only.
+- **Replace reference** pins the currently displayed frame instead.
 
-## Measuring scene units
+While Compare is active, seeking and frame stepping capture new current frames. Pressing
+Play leaves Compare and returns to video playback. Switching Scene or closing the preview
+panel clears the reference.
 
-Click **Measure** at the right of the preview controls to pause playback and enable top/left
-rulers and a pointer crosshair. Works on videos and still images:
+Frames with different sizes or camera geometry are labelled so you can interpret the
+comparison carefully.
 
-- Move to read `(x, y)` in Manim units, with positive Y upward.
-- Click to pin a point; drag to measure `Δx`, `Δy` and straight-line distance.
-- **Copy point** copies the pinned point/drag endpoint (otherwise pointer) as `[x, y, 0]`,
-  rounded to six significant digits. **Clear** or Escape over the measurement surface
-  clears the selection.
-- Play turns measurement off; enabling measurement pauses playback. Scrubbing and frame
-  stepping remain available.
-  The mode survives webview recreation; points clear when media is replaced or becomes stale.
-- Resizing and letterboxing are accounted for; black margins outside the actual content
-  are not part of the measurement surface. Pointer movement never invokes Python.
+## Measure coordinates and distances
 
-**This is an explicit fixed-camera assumption, not camera tracking.** The mapping uses
-that preview's **configured** frame width and pixel aspect ratio to obtain the reference
-height. It assumes the camera is centred at `(0, 0)`, unrotated and fixed throughout a 2D scene. Runtime camera overrides, pan/zoom,
-rotation, 3D projection and custom output cropping are not tracked. Measurements are
-reference coordinates in this assumed frame, not certified world coordinates or an
-`Axes` object's own data coordinates. Old/loading previews have measurement disabled;
-new timeline dimensions are never applied to an old video.
+Click **Measure** to show rulers and a crosshair over the preview.
+
+- Move the pointer to read `(x, y)` in Manim units.
+- Click to pin a point.
+- Drag from the pinned point to measure horizontal, vertical, and straight-line distance.
+- Choose **Copy point** to copy `[x, y, 0]`.
+- Choose **Clear**, or press Escape over the preview, to clear the selection.
+
+Measurement uses the configured Manim frame dimensions and works best with a centred,
+unrotated 2D camera. Camera movement, 3D projection, and custom cropping can make the
+reported coordinates differ from the coordinates you expect in the scene.
