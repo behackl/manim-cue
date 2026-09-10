@@ -107,7 +107,8 @@ class DiagnosticTests(unittest.TestCase):
     def test_supported_api_reports_module_and_actual_runtime(self):
         module = SimpleNamespace(__file__="/environment/manim/__init__.py", __version__="test",
                                  Manager=SimpleNamespace(evaluate=lambda self, capture_timeline=False: None,
-                                                         capture_frame_at=lambda self, timestamp: None))
+                                                         capture_frame_at=lambda self, timestamp: None),
+                                 config=SimpleNamespace(video_codec="libx264", pixel_format="yuv420p", video_encoder_options={}))
         with patch.dict("sys.modules", {"manim": module}):
             result = support.diagnose()
         self.assertEqual(result["status"], "ready")
@@ -116,6 +117,70 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(result["manim_module"], module.__file__)
         self.assertTrue(result["capture_frame"])
         self.assertTrue(result["timeline"])
+        self.assertTrue(result["video_encoder"])
+        self.assertIsNone(result["error"])
+
+    def test_capabilities_not_version_determine_ready_limited_or_unsupported(self):
+        for timeline in (False, True):
+            for frame in (False, True):
+                for encoder in (False, True):
+                    with self.subTest(timeline=timeline, frame=frame, encoder=encoder):
+                        manager = SimpleNamespace(evaluate=(lambda self, capture_timeline=False: None) if timeline else (lambda self: None))
+                        if frame:
+                            manager.capture_frame_at = lambda timestamp: None
+                        config = SimpleNamespace(video_codec="libx264", pixel_format="yuv420p")
+                        if encoder:
+                            config.video_encoder_options = {}
+                        module = SimpleNamespace(__version__="0.21.0", Manager=manager, config=config)
+                        with patch.dict("sys.modules", {"manim": module}):
+                            result = support.diagnose()
+                        expected = "ready" if timeline and frame and encoder else "limited" if timeline or frame or encoder else "unsupported-manim"
+                        self.assertEqual(result["status"], expected)
+                        self.assertEqual((result["timeline"], result["capture_frame"], result["video_encoder"]), (timeline, frame, encoder))
+                        if expected != "ready":
+                            self.assertIn("version alone", result["error"])
+
+    def test_unsupported_build_writes_actionable_diagnostic_before_scene_loading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            module = SimpleNamespace(__version__="0.21.0")
+            with patch.dict("sys.modules", {"manim": module}):
+                with self.assertRaisesRegex(RuntimeError, "Check Python Environment"):
+                    support.prepare({"run": tmp})
+            result = json.loads((Path(tmp) / "diagnostic.json").read_text())
+            self.assertEqual(result["status"], "unsupported-manim")
+            self.assertIn("capture_timeline", result["error"])
+            self.assertFalse((Path(tmp) / "profile.json").exists())
+
+    def test_encoder_only_build_can_prepare_an_independent_export(self):
+        config = SimpleNamespace(video_codec="libx264", pixel_format="yuv420p", video_encoder_options={},
+                                 pixel_width=640, pixel_height=360, frame_width=8, frame_height=4.5,
+                                 seed=0, get_dir=lambda *args, **kwargs: None)
+        module = SimpleNamespace(__version__="0.21.0", __file__=__file__, config=config)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("sys.modules", {"manim": module}):
+            profile = support.prepare({"run": tmp, "source": str(Path(tmp) / "scene.py"), "scene": "Demo",
+                                       "width": 320, "fps": 4,
+                                       "export": {"width": 320, "height": 180, "fps": 4, "crf": 18,
+                                                  "preset": "medium", "encoderOptions": {}}})
+            self.assertFalse(profile["timeline"])
+            self.assertFalse(profile["captureFrame"])
+            self.assertTrue(profile["videoEncoder"])
+            self.assertTrue((Path(tmp) / "cue.cfg").is_file())
+
+    def test_missing_operation_capability_fails_before_profile_or_scene_work(self):
+        for exporting in (False, True):
+            with self.subTest(exporting=exporting), tempfile.TemporaryDirectory() as tmp:
+                # Encoder-only cannot preview; timeline/frame-only cannot encode an export.
+                module = SimpleNamespace(config=SimpleNamespace(video_codec="libx264", pixel_format="yuv420p"))
+                if exporting:
+                    module.Manager = SimpleNamespace(capture_frame_at=lambda timestamp: None)
+                else:
+                    module.config.video_encoder_options = {}
+                request = {"run": tmp, "export": {"width": 320} if exporting else None}
+                with patch.dict("sys.modules", {"manim": module}):
+                    with self.assertRaisesRegex(RuntimeError, "Check Python Environment"):
+                        support.prepare(request)
+                self.assertEqual(json.loads((Path(tmp) / "diagnostic.json").read_text())["status"], "limited")
+                self.assertFalse((Path(tmp) / "cue.cfg").exists())
 
     def test_old_or_shadowing_module_is_not_reported_as_missing_manim(self):
         with patch.dict("sys.modules", {"manim": SimpleNamespace(__file__="/project/manim.py")}):

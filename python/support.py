@@ -27,6 +27,7 @@ def diagnose():
         "python": sys.executable, "python_version": sys.version.split()[0],
         "prefix": sys.prefix, "base_prefix": sys.base_prefix, "cwd": str(Path.cwd()),
         "manim_module": None, "manim_version": None, "status": "import-error", "error": None,
+        "capture_frame": False, "timeline": False, "video_encoder": False,
     }
     try:
         import manim
@@ -41,16 +42,29 @@ def diagnose():
     except (AttributeError, TypeError, ValueError):
         supported = False
     report["capture_frame"] = callable(getattr(getattr(manim, "Manager", None), "capture_frame_at", None))
-    report["status"] = "ready" if supported or report["capture_frame"] else "unsupported-manim"
     report["timeline"] = supported
+    report["video_encoder"] = all(hasattr(getattr(manim, "config", None), key)
+                                  for key in ("video_codec", "pixel_format", "video_encoder_options"))
+    report["status"] = ("ready" if all(report[key] for key in ("timeline", "capture_frame", "video_encoder"))
+                        else "limited" if any(report[key] for key in ("timeline", "capture_frame", "video_encoder")) else "unsupported-manim")
+    missing = []
     if not supported:
-        report["error"] = "This Manim build lacks Manager.evaluate(capture_timeline=True). Select a timeline-capable Manim build for timeline evaluation."
+        missing.append("Timeline and full preview need Manager.evaluate(capture_timeline=True).")
+    if not report["capture_frame"]:
+        missing.append("Frame-first updates and comparison need Manager.capture_frame_at(timestamp).")
+    if not report["video_encoder"]:
+        missing.append("New MP4 exports need public video_codec, pixel_format and video_encoder_options configuration.")
+    if missing:
+        report["error"] = " ".join(missing) + " Manim's version alone does not establish compatibility. Select a capable build, then Refresh; Cue does not install or change Manim."
     return report
 
 
 def prepare(request):
     report = diagnose()
-    if report["status"] != "ready":
+    if request.get("run"):
+        write_json(Path(request["run"]) / "diagnostic.json", report)
+    usable = report["video_encoder"] if request.get("export") else report["timeline"] or report["capture_frame"]
+    if not usable:
         raise RuntimeError(
             f"Manim Cue environment check: {report['status']}\n"
             f"Python: {report['python']}\nWorking directory: {report['cwd']}\n"
@@ -71,8 +85,6 @@ def prepare(request):
         parser.add_section("CLI")
     width = max(64, int(request["width"]) // 2 * 2)
     export = request.get("export")
-    if export and not all(hasattr(config, key) for key in ("video_codec", "pixel_format", "video_encoder_options")):
-        raise RuntimeError("New video exports require Manim's public video encoder profile support.")
     height = export["height"] if export else max(2, round(width * config.pixel_height / config.pixel_width / 2) * 2)
     if export and (width != export["width"] or request["fps"] != export["fps"] or
                    not isinstance(height, int) or height < 64 or height > 8192 or height % 2):
@@ -130,6 +142,7 @@ def prepare(request):
         "fps": request["fps"], "width": width, "height": height, "seed": seed,
         "frameWidth": config.frame_width, "frameHeight": config.frame_width * height / width,
         "configs": configs, "captureFrame": report["capture_frame"], "timeline": report["timeline"],
+        "videoEncoder": report["video_encoder"],
     }
 
 

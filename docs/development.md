@@ -20,12 +20,24 @@ pnpm test:python                   # stdlib parser + canonical verification (via
 MANIM_PYTHON=/path/to/python pnpm test:integration
 pnpm test:ui                       # installed Google Chrome via playwright-core
 MANIM_PYTHON=/path/to/python pnpm test:vscode
+pnpm test:vscode:activation        # editor API smoke, no Manim required
 pnpm package                      # creates a local VSIX; does not publish
 ```
 
-The VS Code smoke test uses isolated user data and a copy of the locally installed
+By default the VS Code tests use isolated user data and a copy of the locally installed
 Microsoft Python extension. `VSCODE_EXECUTABLE` can select another desktop VS Code.
-It exercises CodeLens, the real timeline/preview pipeline, decoded video presentation,
+For self-contained inputs, set `VSCODE_VERSION` (instead of `VSCODE_EXECUTABLE`) and
+`PYTHON_EXTENSION_VERSION`. This explicitly downloads Code and installs the specified Python
+extension into the temporary test profile, never the normal profile. Test-profile telemetry
+and extension updates are disabled. For example:
+
+```sh
+VSCODE_VERSION=1.96.0 PYTHON_EXTENSION_VERSION=2024.22.2 pnpm test:vscode:activation
+```
+
+The activation-only smoke checks manifest identity, command registration, idle activation
+and basic lifecycle commands. It does **not** prove rendering or Python API integration.
+The full native smoke exercises CodeLens, the real timeline/preview pipeline, decoded video presentation,
 stale-state gating, save-triggered refresh, superseding saves, failure recovery and
 cancellation, timestamp restoration/clamping and cache clearing. Unit/UI tests consume
 the public v1 fixture and a small generated seek-test movie, and do not require Manim.
@@ -40,6 +52,26 @@ responsive dialog/focus behavior, artifact copies across a pending Save As, capt
 movie, independent rendering, encoder errors, cancellation/source invalidation and dirty
 source save consent. Real renders verify resolution/FPS/audio and configuration isolation.
 Integration tests explicitly require the supported environment.
+
+## CI coverage
+
+`.github/workflows/ci.yml` is configured for:
+- Type checking, TS units, stdlib-only Python tests and bundles on Linux, macOS and Windows.
+- Chrome UI tests on Linux, including the real H.264 seek fixture and preference restoration.
+- Isolated extension activation on Linux with VS Code **1.96.0** and **stable**, using Microsoft
+  Python **2024.22.2** (whose editor requirement includes 1.96).
+- A Linux VSIX packaging check to a temporary path; nothing is published or installed normally.
+
+These jobs need their first successful hosted run before they are evidence of cross-platform
+compatibility. Native Manim integrations and the full desktop smoke remain explicit/manual
+until a publicly obtainable build with the required APIs can be pinned. Passing helpers or
+activation alone does not establish Windows native-process-tree cancellation, codec behavior,
+or a complete editor/platform rendering matrix. Node 24 is CI tooling; the extension bundle
+targets Node 20 and the declared minimum VS Code API types.
+
+The intended public channel is the official VS Code Marketplace under publisher **behackl**.
+Packaging and publishing are separate actions; choose a new release version and validate the
+exact VSIX before an explicitly approved publication. `pnpm package` does not publish.
 
 See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for the public Manim fixture and bundled Python-extension
 API helper attribution. The generated demo WAV is original to this project.

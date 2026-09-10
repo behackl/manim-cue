@@ -19,8 +19,9 @@ Run **Manim Cue: Check Python Environment** from the Command Palette. Import/env
 errors also offer a **Check Python** action in the timeline pane.
 The output channel shows the resource/workspace, selection rule, requested executable,
 actual `sys.executable`, Python version/prefix, CWD, and Manim module path/version.
-It distinguishes missing Manim, import/dependency failures, and builds without the
-required timeline API. Failed subprocess messages also include the executable.
+It distinguishes missing Manim, import/dependency failures, unsupported builds and
+limited feature support. Timeline, frame capture and export encoder configuration are
+reported separately. Failed subprocess messages also include the executable.
 
 **Manim Cue: Select Python for Manim Cue** offers the Python extension's known workspace
 environments, an explicit executable path, or following the Python extension's selection.
@@ -32,8 +33,38 @@ own interpreter selection is not changed. **Refresh** afterward to retry the Sce
 The check uses the same selected Python, environment and CWD, with isolated cold
 bytecode lookup rather than the execution cache. It requests no
 scene evaluation/render, but importing Manim may execute package/plugin initialization;
-workspace trust is required. Success means the timeline API is available, not that every
-optional dependency, LaTeX tool or scene-specific import is installed. Installation,
-guided dependency repair and managed environments remain future work.
+workspace trust is required. **Ready** means all three API checks passed, not that native
+encoders, optional dependencies, LaTeX tools or scene-specific imports work. **Limited**
+means at least one API is available; the output names the missing features.
+Installation, guided dependency repair and managed environments remain future work.
+
+## Manim capabilities
+
+Ordinary PyPI Manim **0.21.0** does not have Cue's required experimental APIs. Development
+builds may also report 0.21.0 while providing them; do not rely on a version comparison or
+assume reinstalling that release will fix an unsupported environment. A public compatible
+release/install path is still pending. If you already have a development build, select its
+Python environment and run the check before opening a Scene.
+
+| Feature | Required public API |
+| --- | --- |
+| Timeline, full preview and looping | `Manager.evaluate(capture_timeline=True)` and CLI `--timeline-output` with `manim.execution-timeline` v1 |
+| Frame-first updates and still comparison | `Manager.capture_frame_at(timestamp)` |
+| New MP4 export with independent encoding | Configuration properties `video_codec`, `pixel_format`, `video_encoder_options` |
+
+The environment check inspects the Manager API and encoder configuration without executing
+a Scene. Timeline CLI/schema compatibility and native encoding are validated when used.
+A timeline-only build can still render full previews; a frame-only build can show captured
+stills but has no timeline/full preview. New MP4 renders require the encoder API, not the
+timeline/capture APIs. Existing artifact copies do not need a new render.
+If neither timeline nor capture is available, Cue stops queued work and offers environment
+checks rather than trying to synthesize a timeline. Select a capable build, then **Refresh**.
+
+## Moving from local builds
+
+The Marketplace identity is `behackl.manim-cue`. If you previously installed
+`manim-cue-local.manim-cue`, disable or uninstall that extension before installing the new
+identity to avoid duplicate commands/CodeLens. This does not change the selected Python;
+Cue's extension-private remembered state is not migrated between identities.
 
 See [usage](usage.md) for preview controls and [performance](performance.md) for cache troubleshooting.

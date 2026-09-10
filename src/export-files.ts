@@ -13,12 +13,13 @@ export async function validateDestination(destination: string, extension: string
   }
 }
 /** Stream/clone to the destination filesystem first; a failed/cancelled export never truncates its destination. */
-export async function copyExport(source: string, destination: string, signal: AbortSignal, beforePublish: () => Promise<void> = async () => {}): Promise<void> {
-  if (await fs.realpath(source) === await fs.realpath(destination).catch(() => destination)) throw new Error('Source and destination are the same file.');
+export async function copyExport(source: string | Uint8Array, destination: string, signal: AbortSignal, beforePublish: () => Promise<void> = async () => {}): Promise<void> {
+  if (typeof source === 'string' && await fs.realpath(source) === await fs.realpath(destination).catch(() => destination)) throw new Error('Source and destination are the same file.');
   const temporary = path.join(path.dirname(destination), `.cue-export-${randomUUID()}.tmp`);
   try {
     signal.throwIfAborted();
-    await fs.copyFile(source, temporary, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+    if (typeof source === 'string') await fs.copyFile(source, temporary, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+    else await fs.writeFile(temporary, source, { flag: 'wx' });
     await beforePublish(); signal.throwIfAborted();
     await fs.rename(temporary, destination);
   } finally { await fs.rm(temporary, { force: true }); }

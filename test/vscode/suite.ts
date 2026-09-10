@@ -8,7 +8,8 @@ import type { PythonDiagnostic } from '../../src/diagnostics';
 import { PythonExtension } from '@vscode/python-extension';
 
 export async function run(): Promise<void> {
-  const extension = vscode.extensions.getExtension('manim-cue-local.manim-cue');
+  const manifest = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
   assert.ok(extension, 'development extension registered');
   const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void; setComparison(enabled: boolean, token?: string, time?: number, replace?: boolean): void; submitExport(id: string, choice: unknown): Promise<void> };
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -39,6 +40,27 @@ export async function run(): Promise<void> {
     Object.assign(vscode.window, { showSaveDialog: async () => png });
     await vscode.commands.executeCommand('manimCue.saveFrame');
     assert.deepEqual(await fs.readFile(png.fsPath), await fs.readFile(api.getSnapshot().media!.token), 'PNG export copies displayed pixels');
+    const original = await fs.readFile(png.fsPath);
+    // A private artifact is never a valid destination, even with the right suffix.
+    const token = api.getSnapshot().media!.token, captured = await fs.readFile(token);
+    const errorDialog = vscode.window.showErrorMessage;
+    const failures: string[] = [];
+    try {
+      Object.assign(vscode.window, { showErrorMessage: async (message: string) => { failures.push(message); } });
+      Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(token) });
+      await vscode.commands.executeCommand('manimCue.saveFrame');
+      assert.match(failures.at(-1) ?? '', /private Cue artifacts/);
+      assert.deepEqual(await fs.readFile(token), captured);
+      Object.assign(vscode.window, { showSaveDialog: async () => png.with({ scheme: 'untitled' }) });
+      await vscode.commands.executeCommand('manimCue.saveFrame');
+      assert.match(failures.at(-1) ?? '', /local destination/);
+      assert.deepEqual(await fs.readFile(png.fsPath), original);
+    } finally { Object.assign(vscode.window, { showErrorMessage: errorDialog }); }
+    const timelineBytes = await fs.readFile(path.join(api.getSnapshot().media!.sourceId!, 'timeline.json'));
+    const json = vscode.Uri.file(path.join(root, 'direct-timeline.json'));
+    Object.assign(vscode.window, { showSaveDialog: async () => json });
+    await vscode.commands.executeCommand('manimCue.export');
+    assert.deepEqual(await fs.readFile(json.fsPath), timelineBytes, 'direct timeline save preserves original JSON bytes');
   } finally { Object.assign(vscode.window, { showSaveDialog: saveDialog }); }
   const firstFrame = api.getSnapshot().media!.token, firstBytes = await fs.readFile(firstFrame);
   api.setComparison(true);

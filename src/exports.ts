@@ -94,6 +94,7 @@ export class Exports {
       if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.movie?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
       if (kind === 'frame' && native && !this.snapshot().dialog?.canCapture) throw new Error('Refresh to a current movie with frame capture support first.');
       if (native && !vscode.workspace.isTrusted) throw new Error('Trust this workspace before executing Python.');
+      if (kind === 'video' && method === 'render' && this.source()?.job?.profile?.videoEncoder === false) throw new Error('New MP4 exports require Manim’s public video encoder profile support. Run Manim Cue: Check Python Environment; existing artifact copies remain available.');
       const active: Active = { source: s.source, abort: new AbortController(), native };
       this.active = active; this.status = 'Choosing export destination…'; s.error = undefined; this.update();
       this.task = this.run(s, active);

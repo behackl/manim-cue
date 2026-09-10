@@ -4,10 +4,25 @@ import * as path from 'node:path';
 import { runProcess } from './process';
 
 export interface PythonDiagnostic {
-  status: 'ready' | 'missing-manim' | 'import-error' | 'unsupported-manim';
+  status: 'ready' | 'limited' | 'missing-manim' | 'import-error' | 'unsupported-manim';
   python: string; python_version: string; prefix: string; base_prefix: string; cwd: string;
   manim_module: string | null; manim_version: string | null; error: string | null;
-  capture_frame?: boolean; timeline?: boolean;
+  capture_frame?: boolean; timeline?: boolean; video_encoder?: boolean;
+}
+
+export class RuntimeUnavailable extends Error {
+  constructor(readonly diagnostic: PythonDiagnostic) {
+    super(`Manim Cue: ${diagnostic.status} (${diagnostic.manim_version ?? 'unknown version'}). ${diagnostic.error ?? ''}\nRun Manim Cue: Check Python Environment or Select Python for Manim Cue, then Refresh.`);
+  }
+}
+
+export async function readDiagnostic(file: string): Promise<PythonDiagnostic> {
+  if ((await fs.stat(file)).size > 65536) throw new Error('Invalid environment diagnostic size.');
+  const result = JSON.parse(await fs.readFile(file, 'utf8')) as PythonDiagnostic;
+  if (!['ready', 'limited', 'missing-manim', 'import-error', 'unsupported-manim'].includes(result.status) || typeof result.python !== 'string') {
+    throw new Error('Python returned an invalid environment diagnostic.');
+  }
+  return result;
 }
 
 /** Same executable, flags, environment and CWD as profile preparation. No scene import. */
@@ -22,11 +37,7 @@ export async function checkPython(options: {
       path.join(options.helpers, 'support.py'), 'diagnose', '-', destination], {
       ...options, env: { ...options.env, PYTHONIOENCODING: 'utf-8' }, timeout: 30000,
     });
-    const result = JSON.parse(await fs.readFile(destination, 'utf8')) as PythonDiagnostic;
-    if (!['ready', 'missing-manim', 'import-error', 'unsupported-manim'].includes(result.status) || typeof result.python !== 'string') {
-      throw new Error('Python returned an invalid environment diagnostic.');
-    }
-    return result;
+    return await readDiagnostic(destination);
   } finally { await fs.rm(scratch, { recursive: true, force: true }); }
 }
 
@@ -36,7 +47,9 @@ export function formatDiagnostic(result: PythonDiagnostic): string {
     `Environment prefix: ${result.prefix}`, `Base prefix: ${result.base_prefix}`,
     `Working directory: ${result.cwd}`, `Manim module: ${result.manim_module ?? '(not imported)'}`,
     `Manim version: ${result.manim_version ?? '(unknown)'}`,
-    `Current-frame capture: ${result.capture_frame ? 'available' : 'requires Manager.capture_frame_at; full preview remains available with timeline support'}`,
-    result.error ?? 'Timeline evaluation API available.',
+    `Timeline / full preview: ${result.timeline ? 'available' : 'unavailable'}`,
+    `Current-frame capture / comparison: ${result.capture_frame ? 'available' : 'unavailable'}`,
+    `New MP4 export encoder profile: ${result.video_encoder ? 'available' : 'unavailable'}`,
+    result.error ?? 'Required APIs available; scene-specific dependencies and native encoders are not checked.',
   ].join('\n');
 }

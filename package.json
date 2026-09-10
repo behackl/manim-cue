@@ -3,7 +3,7 @@
   "displayName": "Manim Cue",
   "description": "Preview the current Manim frame, then explore the executed timeline and movie.",
   "version": "0.1.9",
-  "publisher": "manim-cue-local",
+  "publisher": "behackl",
   "private": true,
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/behackl/manim-cue.git" },
@@ -182,6 +182,7 @@
     "test:python": "uv run --no-project python -m unittest discover -s test -p '*_test.py'",
     "test:integration": "tsx --test test/integration/*.test.ts",
     "test:vscode": "node test/vscode/run.cjs",
+    "test:vscode:activation": "node test/vscode/run.cjs --activation",
     "test:ui": "pnpm build && tsx --test test/browser/*.test.ts",
     "package": "pnpm build && vsce package --no-dependencies --allow-missing-repository"
   },

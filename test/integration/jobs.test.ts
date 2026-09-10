@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { createJob, captureFrame, publishPreview, executeJob, renderExport, type JobOptions, type RunResult } from '../../src/jobs';
 import { pairingReason } from '../../src/timeline';
 import { runProcess } from '../../src/process';
-import { checkPython } from '../../src/diagnostics';
+import { checkPython, RuntimeUnavailable } from '../../src/diagnostics';
 const python = process.env.MANIM_PYTHON;
 if (!python) throw new Error('Set MANIM_PYTHON to the executable of a supported Manim environment; integration tests are not silently skipped.');
 const options = (source: string, scratch: string): JobOptions => ({
@@ -156,6 +156,26 @@ test('doctor reports the actual runtime in another folder without executing scen
     const missing = JSON.parse(await fs.readFile(output, 'utf8'));
     assert.equal(missing.status, 'missing-manim');
     assert.ok(missing.python); assert.match(missing.error, /No module named 'manim'/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('an incompatible 0.21.0 build fails with a capability diagnostic before executing the Scene', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-unsupported-'));
+  try {
+    const source = path.join(root, 'scene.py'), marker = path.join(root, 'executed.txt');
+    await fs.writeFile(source, `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text("executed")\n`);
+    await fs.writeFile(path.join(root, 'manim.py'), '__version__ = "0.21.0"\n');
+    const job = await createJob({ ...options(source, path.join(root, 'runs')), env: { ...process.env, PYTHONPATH: root } });
+    await assert.rejects(captureFrame(job, 0), (error: unknown) => {
+      assert.ok(error instanceof RuntimeUnavailable);
+      assert.equal(error.diagnostic.status, 'unsupported-manim');
+      assert.equal(error.diagnostic.manim_version, '0.21.0');
+      assert.match(error.message, /capture_timeline/);
+      assert.match(error.message, /Check Python Environment/);
+      return true;
+    });
+    await assert.rejects(fs.stat(marker), /ENOENT/);
+    await assert.rejects(fs.stat(path.join(job.directory, 'profile.json')), /ENOENT/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 

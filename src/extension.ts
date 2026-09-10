@@ -3,7 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { PythonExtension } from '@vscode/python-extension';
 import { environmentFor, workingDirectoryFor } from './environment';
-import { checkPython, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
+import { checkPython, formatDiagnostic, RuntimeUnavailable, type PythonDiagnostic } from './diagnostics';
+import { copyExport, validateDestination } from './export-files';
 import { selectPythonFor } from './python-picker';
 import { Scenes } from './scenes';
 import { createJob, captureFrame, evaluateTimeline, renderPreview, publishPreview, fileHash, InputsChanged, type RunResult, type PreviewResult, type SceneJob } from './jobs';
@@ -123,7 +124,7 @@ class Cue implements vscode.Disposable {
       } : undefined },
       duration: hasMovie ? this.movie!.media.duration : !this.stale ? this.result?.timeline.end : undefined,
       fps: this.job?.options.fps ?? cfg.get<number>('frameRate', 30), previewWidth: cfg.get<number>('previewWidth', 960), hasMovie,
-      canSeek: !!this.target, canPlay: this.stale || !this.result || this.result.timeline.end > this.result.timeline.start, mediaReady: !!media && !!fresh && positioned && !this.mediaError,
+      canSeek: !!this.target, canPlay: this.job?.profile?.timeline !== false && (this.stale || !this.result || this.result.timeline.end > this.result.timeline.start), mediaReady: !!media && !!fresh && positioned && !this.mediaError,
       profile: this.result ? `Cairo · ${this.result.profile.fps} fps · ${this.result.profile.width}×${this.result.profile.height} · seed ${this.result.profile.seed}` : undefined,
       media: media ? { uri: webview ? webview.asWebviewUri(vscode.Uri.file(media.path)).toString() : '',
         kind: media.kind, token: media.path, old: !fresh, duration: media.duration, rate: media.rate,
@@ -230,6 +231,11 @@ class Cue implements vscode.Disposable {
     if (phase === 'Movie' || phase === 'Timeline') this.playIntent = undefined;
     if (phase === 'Frame capture') this.pinRequest = undefined;
     this.status = `${phase} failed — completed results retained`;
+    if (error instanceof RuntimeUnavailable) {
+      this.job = undefined; this.pinRequest = undefined; this.playIntent = undefined;
+      this.queue.clear(); // Do not repeat the same failed import/capability check for queued phases.
+      this.status = 'Preview unavailable — Check Python, then Refresh';
+    }
     this.output.appendLine(`\n${this.status}: ${this.error}`); this.views.update();
   }
   private offer(result: PreviewResult): void {
@@ -419,7 +425,17 @@ class Cue implements vscode.Disposable {
     const old = result.directory !== this.job?.directory || this.sourceEdited;
     const name = `${path.parse(result.source).name}-${this.target?.scene ?? 'frame'}-${stamp == null ? 'end-state' : stamp.toFixed(3) + 's'}${old ? '-old' : ''}.png`;
     const uri = await vscode.window.showSaveDialog({ title: 'Save captured frame', defaultUri: vscode.Uri.file(path.join(path.dirname(result.source), name)), filters: { 'PNG image': ['png'] } });
-    if (uri) await vscode.workspace.fs.writeFile(uri, bytes);
+    if (uri) await this.saveArtifact(bytes, uri, '.png', result);
+  }
+  private async saveArtifact(bytes: Uint8Array, destination: vscode.Uri, extension: string, result: PreviewResult | RunResult): Promise<void> {
+    if (destination.scheme !== 'file') throw new Error('Export requires a local destination.');
+    const validate = async () => {
+      if (this.disposed) throw new Error('Export cancelled: Manim Cue closed.');
+      await validateDestination(destination.fsPath, extension, [result.source, this.scratch,
+        ...Object.keys(result.profile.configs), ...(this.target ? [this.target.uri.fsPath] : [])]);
+    };
+    await validate();
+    await copyExport(bytes, destination.fsPath, new AbortController().signal, validate);
   }
   async clearCaches(): Promise<void> {
     if (this.exports.busy) throw new Error('Finish or cancel the export before clearing caches.');
@@ -535,9 +551,10 @@ class Cue implements vscode.Disposable {
   }
   async export(): Promise<void> {
     if (!this.result) throw new Error('No completed timeline to export.');
-    const bytes = await fs.readFile(path.join(this.result.directory, 'timeline.json'));
+    const result = this.result;
+    const bytes = await fs.readFile(path.join(result.directory, 'timeline.json'));
     const target = await vscode.window.showSaveDialog({ filters: { 'Timeline JSON': ['json'] }, saveLabel: this.stale ? 'Export stale observation' : 'Export timeline' });
-    if (target) await vscode.workspace.fs.writeFile(target, bytes);
+    if (target) await this.saveArtifact(bytes, target, '.json', result);
   }
   private pythonResource(uri?: vscode.Uri): vscode.Uri {
     const resource = uri ?? this.target?.uri ?? vscode.window.activeTextEditor?.document.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -572,8 +589,8 @@ class Cue implements vscode.Disposable {
       });
       if (abort.signal.aborted || this.disposed) return;
       this.output.appendLine(formatDiagnostic(report)); this.output.show(true);
-      const message = report.status === 'ready'
-        ? `Manim APIs checked in ${report.python}. Current-frame capture: ${report.capture_frame ? 'available' : 'requires a newer Manim build'}. See Manim Cue output for details.`
+      const message = report.status === 'ready' || report.status === 'limited'
+        ? `Manim Cue ${report.status}: timeline ${report.timeline ? 'available' : 'unavailable'}; frame capture ${report.capture_frame ? 'available' : 'unavailable'}; export encoder profile ${report.video_encoder ? 'available' : 'unavailable'}. See Manim Cue output for build requirements and the checked Python.`
         : `${report.status}: ${report.python}. ${report.error ?? ''} See Manim Cue output for details.`;
       const notification = report.status === 'ready' ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
       void notification(message, 'Select Python…').then(action => {

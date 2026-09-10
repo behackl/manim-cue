@@ -1,0 +1,84 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.11'
+          - os: macos-latest
+            python: '3.13'
+          - os: windows-latest
+            python: '3.13'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm test:python
+      - run: pnpm build
+      - name: Verify VSIX packaging without publishing
+        if: runner.os == 'Linux'
+        run: pnpm exec vsce package --no-dependencies --allow-missing-repository --out "${{ runner.temp }}/manim-cue-ci.vsix"
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      # Chrome supplies the H.264 decoder used by the real seek/playback fixture.
+      - run: pnpm exec playwright-core install --with-deps chrome
+      - run: pnpm test:ui
+
+  editor:
+    name: Activation (VS Code ${{ matrix.code }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        code: ['1.96.0', stable]
+    env:
+      VSCODE_VERSION: ${{ matrix.code }}
+      # Compatible with the advertised editor floor; do not pick an unbounded latest extension.
+      PYTHON_EXTENSION_VERSION: '2024.22.2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: xvfb-run -a pnpm test:vscode:activation
+
+# Native integration/render smoke is not replaced by these jobs. It still requires
+# MANIM_PYTHON with the experimental public APIs; no public artifact is pinned yet.

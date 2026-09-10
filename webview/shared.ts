@@ -3,7 +3,10 @@ declare function acquireVsCodeApi(): { postMessage(m: ViewMessage): void; getSta
 const api = acquireVsCodeApi();
 export const post = (message: ViewMessage) => api.postMessage(message);
 export const saved = () => api.getState();
-export const save = (state: unknown) => api.setState(state);
+export function save(patch: Record<string, unknown>): void {
+  const previous = api.getState();
+  api.setState({ ...(previous && typeof previous === 'object' && !Array.isArray(previous) ? previous : {}), ...patch });
+}
 export function listen(fn: (message: HostMessage) => void): void { window.addEventListener('message', e => fn(e.data)); }
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag); node.className = cls;

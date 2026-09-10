@@ -27,6 +27,13 @@ test('atomic export copies exact bytes and preserves an existing destination on 
     assert.equal(await fs.readFile(destination, 'utf8'), 'previous export');
     await copyExport(source, destination, new AbortController().signal);
     assert.equal(await fs.readFile(destination, 'utf8'), 'new artifact');
+    const held = await fs.readFile(source);
+    await fs.writeFile(source, 'replacement after Save As opened');
+    await copyExport(held, destination, new AbortController().signal);
+    assert.equal(await fs.readFile(destination, 'utf8'), 'new artifact', 'held bytes survive source replacement');
+    await assert.rejects(copyExport(Buffer.from('unpublished'), destination, new AbortController().signal,
+      async () => { throw new Error('Destination became forbidden'); }));
+    assert.equal(await fs.readFile(destination, 'utf8'), 'new artifact', 'failed held-byte publication preserves destination');
     assert.deepEqual((await fs.readdir(dir)).sort(), ['output.mp4', 'source.mp4']);
     await assert.rejects(copyExport(source, source, new AbortController().signal));
     await validateDestination(destination, '.mp4', [path.join(dir, 'private')]);

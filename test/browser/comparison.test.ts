@@ -11,7 +11,8 @@ test('comparison composites exact endpoints, keeps reference through updates and
     const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
     await page.setContent('<main id="app"></main>');
     await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
-    await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
+    const stateApi = 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>window.savedState,setState:s=>window.savedState=s,postMessage:m=>window.messages.push(m)});';
+    await page.addScriptTag({ content: 'window.savedState={unrelated:"keep"};' + stateApi });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     const image = (color: string, width = 400, height = 200) => page.evaluate(({ color, width, height }) => {
       const c = document.createElement('canvas'); c.width = width; c.height = height;
@@ -43,6 +44,7 @@ test('comparison composites exact endpoints, keeps reference through updates and
     assert.deepEqual(await pixel(.25), [255, 0, 0, 255]); assert.deepEqual(await pixel(.75), [0, 0, 255, 255]);
     assert.match(await page.locator('.compare-labels').innerText(), /Reference: 1.250 s · source abcdef01.*Current: 1.500 s · source 12345678/);
     await page.getByRole('button', { name: 'Overlay', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => (window as any).savedState), { unrelated: 'keep', measure: false, compareMode: 'overlay' });
     const blend = await pixel(.25);
     assert.ok(Math.abs(blend[0] - 127) <= 1 && blend[1] === 0 && Math.abs(blend[2] - 128) <= 1 && blend[3] === 255, `50% blend: ${blend}`);
     const opacity = page.getByLabel('Current image opacity');
@@ -104,7 +106,9 @@ test('comparison composites exact endpoints, keeps reference through updates and
     await publish(); await displayed('square');
     assert.match(await page.locator('.compare-info').innerText(), /Different aspect\/frame geometry/);
     assert.match(await page.locator('.compare-labels').innerText(), /Current: End state/);
+    await page.getByRole('button', { name: 'Overlay', exact: true }).click();
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => (window as any).savedState), { unrelated: 'keep', measure: true, compareMode: 'overlay' });
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).enabled), false, 'Measure exits comparison');
     await publish({ ...model, comparison: { ...model.comparison!, enabled: false } });
     assert.equal(await page.locator('.compare-canvas').isVisible(), false);
@@ -113,14 +117,19 @@ test('comparison composites exact endpoints, keeps reference through updates and
     await page.getByRole('button', { name: 'Compare', exact: true }).click();
     await publish({ ...model, comparison: { enabled: true, pending: false } });
     assert.equal(await page.locator('.compare-canvas').isVisible(), false, 'no reference leaks into a new scene');
-    // Host-owned pins restore after VS Code reconstructs the webview, including stale current media.
+    // Host-owned pins and independent preferences restore after webview reconstruction.
+    await page.getByRole('button', { name: 'Measure', exact: true }).click();
+    const preferences = await page.evaluate(() => (window as any).savedState);
     await page.reload();
     await page.setContent('<main id="app"></main>');
     await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
-    await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
+    await page.addScriptTag({ content: `window.savedState=${JSON.stringify(preferences)};` + stateApi });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
+    assert.equal(await page.getByRole('button', { name: 'Measure', exact: true }).getAttribute('aria-pressed'), 'true');
     await publish({ ...model, mediaReady: false, media: { ...model.media!, old: true } });
     await displayed('square'); await referenceShown('green');
+    assert.equal(await page.getByRole('button', { name: 'Overlay', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.getByRole('button', { name: 'Wipe', exact: true }).click();
     assert.equal(await page.locator('.compare-canvas').isVisible(), true);
     assert.deepEqual(await pixel(.25), [0, 255, 0, 255]); assert.deepEqual(await pixel(.75), [0, 0, 255, 255]);
     assert.match(await page.locator('.compare-labels').innerText(), /OLD/);

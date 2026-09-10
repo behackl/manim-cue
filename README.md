@@ -16,15 +16,16 @@ visible while you work.
 
 ## Get started
 
-Cue is experimental and currently requires a Manim build with
-`Manager.capture_frame_at(timestamp)` and `Manager.evaluate(capture_timeline=True)`.
-Tested against Manim commit `0fc4f752`; older timeline-capable builds can use full previews.
-You also need desktop VS Code 1.96+ and the Microsoft Python extension.
+You need desktop VS Code 1.96+, the Microsoft Python extension, and a compatible Manim
+build. Cue is experimental: it uses APIs from **0.21.0-based development builds** that
+are absent from the ordinary PyPI 0.21.0 release. The version string alone is not enough;
+Cue checks the actual APIs. See the [capability requirements](docs/troubleshooting.md#manim-capabilities).
 
-1. Install `manim-cue-0.1.9.vsix` using **Extensions → … → Install from VSIX…**.
+1. Install a Manim Cue VSIX using **Extensions → … → Install from VSIX…**.
 2. Open your scene folder in a trusted VS Code window.
 3. Use **Python: Select Interpreter** to select the environment containing Manim.
-4. Click **▶ Open Manim Cue** above a Scene class, or run **Manim Cue: Open Scene**.
+4. Run **Manim Cue: Check Python Environment** to see which features your build supports.
+5. Click **▶ Open Manim Cue** above a Scene class, or run **Manim Cue: Open Scene**.
 
 Try `examples/cue_demo.py` for animations, captions and sound cues. Cue remembers the
 last Scene and selected time in the workspace; it runs only when you open or refresh it.
@@ -51,8 +52,9 @@ it with new frames as you edit; **Replace reference** explicitly updates the pin
 - Cue executes **saved, trusted Python files**. It is not a sandbox.
 - Playback is currently muted. Sound cues remain visible on the timeline.
 - Measurement assumes a fixed, centred, unrotated 2D camera.
-- The current preview profile uses Cairo. Desktop macOS is tested; remote/web
-  workspaces and Windows process cancellation are not yet validated.
+- The current preview profile uses Cairo. Desktop macOS has native-render validation;
+  CI is configured for cross-platform helpers and editor activation, not a full native-render matrix.
+  Remote/web workspaces remain outside the supported scope.
 
 ## More information
 

@@ -3,10 +3,11 @@ import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import * as path from 'node:path';
 import { runProcess } from './process';
+import { readDiagnostic, RuntimeUnavailable } from './diagnostics';
 import { renderSettings, encoderOptions, type RenderSettings } from './export-settings';
 import { MAX_REPORT_BYTES, parseTimeline, type Timeline } from './timeline';
 
-export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; captureFrame?: boolean; timeline?: boolean }
+export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; captureFrame?: boolean; timeline?: boolean; videoEncoder?: boolean }
 export interface Media { path: string; kind: 'video' | 'image'; duration: number; rate: number; hasAudio: boolean;
   averageRate: number; frames: number; maxFrameTimeError: number; frameTimes?: number[] | null;
   capture?: { requestedTime: number; time: number | null; frameIndex: number | null } }
@@ -64,6 +65,10 @@ async function invoke(job: SceneJob, args: string[], signal: AbortSignal, label:
     });
     if (await maybeHash(o.source) !== job.sourceHash) throw new InputsChanged('Primary source changed during the run. Save and refresh.');
     if (job.profile) await checkInputs({ source: o.source, sourceHash: job.sourceHash, directory: job.directory, profile: job.profile });
+    if (!signal.aborted) {
+      const diagnostic = await readDiagnostic(path.join(job.directory, 'diagnostic.json')).catch(() => undefined);
+      if (diagnostic && (o.exportSettings ? !diagnostic.video_encoder : !diagnostic.timeline && !diagnostic.capture_frame)) throw new RuntimeUnavailable(diagnostic);
+    }
     throw error;
   } finally { o.log(`\n[Cue timing] ${label}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`); }
 }
@@ -111,6 +116,7 @@ export async function captureFrame(job: SceneJob, time: number, signal = job.opt
   } finally { await Promise.all([request, output].map(p => fs.rm(p, { force: true }))); }
 }
 export async function evaluateTimeline(job: SceneJob, signal = job.options.signal): Promise<RunResult> {
+  if (job.profile?.timeline === false) throw new Error('Timeline and full preview require Manager.evaluate(capture_timeline=True). Current-frame capture remains available. Run Manim Cue: Check Python Environment for details.');
   const helper = path.join(job.options.helpers, 'support.py'), report = path.join(job.directory, 'timeline.json');
   await invoke(job, [helper, 'evaluate', job.request, report], signal, 'Timeline evaluation');
   const result = await observation(job, signal);
