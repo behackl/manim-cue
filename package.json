@@ -2,7 +2,7 @@
   "name": "manim-cue",
   "displayName": "Manim Cue",
   "description": "Preview the current Manim frame, then explore the executed timeline and movie.",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "publisher": "behackl",
   "private": true,
   "license": "MIT",
