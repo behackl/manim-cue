@@ -86,9 +86,8 @@ export class Exports {
     const s = this.session;
     if (!s || s.id !== id || this.busy) return;
     try {
-      const incoming = value as ExportChoice;
-      // Hidden render controls cannot block an exact artifact copy.
-      s.choice = exportChoice({ ...incoming, settings: incoming?.kind === 'video' && incoming.method === 'render' ? incoming.settings : s.choice.settings });
+      // Copies do not depend on render controls, including oversized aspect-derived defaults.
+      s.choice = exportChoice(value, s.choice.settings);
       const { kind, method } = s.choice;
       const native = kind === 'video' && method === 'render' || kind === 'frame' && s.source.frame?.media.kind === 'video';
       if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.movie?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
@@ -136,7 +135,9 @@ export class Exports {
         release = await this.suspend(); signal.throwIfAborted();
       }
       this.session = undefined;
-      await this.context.workspaceState.update('exportChoice', s.choice);
+      let preference: ExportChoice | undefined;
+      try { preference = exportChoice(s.choice); } catch { /* A copy may carry an invalid render draft. Keep the last valid preference. */ }
+      if (preference) await this.context.workspaceState.update('exportChoice', preference);
       this.status = native ? 'Export rendering — automatic previews paused' : 'Saving export…'; this.update();
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Manim Cue: ${this.status}`, cancellable: true }, async (_progress, cancellation) => {
         const subscription = cancellation.onCancellationRequested(() => this.cancel());

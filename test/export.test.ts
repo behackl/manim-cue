@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { encoderOptions, exportSize, renderSettings } from '../src/export-settings';
+import { encoderOptions, exportChoice, exportSize, renderSettings } from '../src/export-settings';
 import { copyExport, validateDestination } from '../src/export-files';
 
 const settings = { width: 1920, height: 1080, fps: 29.97, crf: 18, preset: 'medium', options: '' };
@@ -14,6 +14,19 @@ test('export settings keep dimensions, FPS and codec options explicit and bounde
   assert.equal(encoderOptions('threads=4\nx264-params=keyint=30:scenecut=0')['x264-params'], 'keyint=30:scenecut=0');
   for (const text of ['crf=20', 'preset=slow', 'a=b\na=c', '=value', 'key=', '--flag=bad', 'key=bad\u0000value', 'x'.repeat(8193)]) assert.throws(() => encoderOptions(text));
   for (const change of [{ width: 1919 }, { height: 0 }, { width: 8192, height: 8192 }, { fps: NaN }, { fps: 121 }, { crf: 52 }, { preset: 'unknown' }]) assert.throws(() => renderSettings({ ...settings, ...change }));
+});
+test('copy choices ignore hidden render settings even when aspect-derived defaults are invalid', () => {
+  for (const aspect of [8, 1 / 8]) {
+    const draft = { ...renderSettings(settings), ...exportSize(1080, aspect) };
+    for (const kind of ['frame', 'video', 'timeline']) {
+      const copy = exportChoice({ kind, method: 'copy', settings: null }, draft);
+      assert.deepEqual(copy.settings, draft);
+      assert.throws(() => exportChoice(copy), /dimensions/, 'invalid drafts must not become stored preferences');
+    }
+    assert.throws(() => exportChoice({ kind: 'video', method: 'render', settings: draft }, draft), /dimensions/);
+    assert.deepEqual(exportChoice({ kind: 'video', method: 'render', settings }, draft).settings, renderSettings(settings));
+    assert.throws(() => exportChoice({ kind: 'other', method: 'copy' }, draft), /Invalid export choice/);
+  }
 });
 test('atomic export copies exact bytes and preserves an existing destination on cancellation or validation failure', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-export-'));

@@ -39,10 +39,12 @@ export function renderSettings(value: unknown): RenderSettings {
   encoderOptions(s.options);
   return { width: s.width, height: s.height, fps: s.fps, crf: s.crf, preset: s.preset, options: s.options };
 }
-export function exportChoice(value: unknown): ExportChoice {
+/** Copies may retain an unvalidated host render draft; stored preferences and new renders must be valid. */
+export function exportChoice(value: unknown, copySettings?: RenderSettings): ExportChoice {
   const c = value as ExportChoice | undefined;
   if (!c || !['frame', 'video', 'timeline'].includes(c.kind) || !['copy', 'render'].includes(c.method)) throw new Error('Invalid export choice.');
-  return { kind: c.kind, method: c.method, settings: renderSettings(c.settings) };
+  return { kind: c.kind, method: c.method,
+    settings: copySettings && !(c.kind === 'video' && c.method === 'render') ? { ...copySettings } : renderSettings(c.settings) };
 }
 /** Short-edge presets preserve orientation/aspect; never change frame rate. */
 export function exportSize(shortEdge: number, aspect: number): { width: number; height: number } {

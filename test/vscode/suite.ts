@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import type { Model } from '../../src/protocol';
 import type { PythonDiagnostic } from '../../src/diagnostics';
 import { PythonExtension } from '@vscode/python-extension';
+import { testExportCopies } from './export-copies';
 
 export async function run(): Promise<void> {
   const manifest = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -13,6 +14,7 @@ export async function run(): Promise<void> {
   assert.ok(extension, 'development extension registered');
   const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(key: string, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void; setComparison(enabled: boolean, token?: string, time?: number, replace?: boolean): void; submitExport(id: string, choice: unknown): Promise<void> };
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
+  await testExportCopies(root);
   const uri = vscode.Uri.file(path.join(root, 'cue_demo.py'));
   const doc = await vscode.workspace.openTextDocument(uri); await vscode.window.showTextDocument(doc);
   let lenses: vscode.CodeLens[] = [];

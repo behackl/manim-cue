@@ -74,7 +74,9 @@ function syncMeasurement(): void {
   const usable = ready() && item?.media.token === model?.media?.token && !item?.restoring && !(element instanceof HTMLVideoElement && element.seeking);
   if (element instanceof HTMLVideoElement) element.controls = false;
   exportButton.disabled = !model?.scene || !!model?.exportState?.busy || !!item && (!item.acknowledged || item.restoring);
-  previous.disabled = next.disabled = !model?.canSeek || model.canPlay === false || !!model?.media?.old;
+  // A captured still can step without a timeline/movie; an observed static scene stays disabled.
+  const captureWithoutDuration = !!model?.media?.capture && model.duration === undefined;
+  previous.disabled = next.disabled = !model?.canSeek || (model.canPlay === false && !captureWithoutDuration) || !!model?.media?.old;
   render.hidden = model?.comparison?.enabled === true || model?.autoPreview !== false || model?.hasMovie === true || model?.canPlay === false;
   render.disabled = !model?.scene;
   measurement.setTarget(usable && element && item?.media.frame ? { element, frame: item.media.frame, token: item.media.token } : undefined);

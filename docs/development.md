@@ -35,8 +35,9 @@ and extension updates are disabled. For example:
 VSCODE_VERSION=1.96.0 PYTHON_EXTENSION_VERSION=2024.22.2 pnpm test:vscode:activation
 ```
 
-The activation-only smoke checks manifest identity, command registration, idle activation
-and basic lifecycle commands. It does **not** prove rendering or Python API integration.
+The activation-only smoke checks manifest identity, command registration, idle activation,
+basic lifecycle commands, and actual artifact copies with wide/tall preview profiles.
+It does **not** prove rendering or Python API integration.
 The full native smoke exercises CodeLens, the real timeline/preview pipeline, decoded video presentation,
 stale-state gating, save-triggered refresh, superseding saves, failure recovery and
 cancellation, timestamp restoration/clamping and cache clearing. Unit/UI tests consume
@@ -50,7 +51,9 @@ retention across saves/profile changes, movie suppression and Scene-switch clean
 Export checks cover codec-option validation, atomic file publication, serial-process holds,
 responsive dialog/focus behavior, artifact copies across a pending Save As, capture from a
 movie, independent rendering, encoder errors, cancellation/source invalidation and dirty
-source save consent. Real renders verify resolution/FPS/audio and configuration isolation.
+source save consent. Copies remain independent of invalid hidden render defaults; frame-only
+previews can step without enabling playback or inventing a duration. Real renders verify
+resolution/FPS/audio and configuration isolation.
 Integration tests explicitly require the supported environment.
 
 ## CI coverage
