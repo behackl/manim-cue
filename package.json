@@ -179,7 +179,7 @@
     "build": "node esbuild.mjs",
     "check": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "test:python": "uv run --no-project python -m unittest discover -s test -p '*_test.py'",
+    "test:python": "uv run --no-project python -m unittest discover -s test -p \"*_test.py\"",
     "test:integration": "tsx --test test/integration/*.test.ts",
     "test:vscode": "node test/vscode/run.cjs",
     "test:vscode:activation": "node test/vscode/run.cjs --activation",

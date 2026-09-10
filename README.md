@@ -16,10 +16,26 @@ visible while you work.
 
 ## Get started
 
-You need desktop VS Code 1.96+, the Microsoft Python extension, and a compatible Manim
-build. Cue is experimental: it uses APIs from **0.21.0-based development builds** that
-are absent from the ordinary PyPI 0.21.0 release. The version string alone is not enough;
-Cue checks the actual APIs. See the [capability requirements](docs/troubleshooting.md#manim-capabilities).
+You need desktop VS Code 1.96+ and the Microsoft Python extension.
+
+> [!IMPORTANT]
+> **A preview version of Manim is required.** The ordinary PyPI 0.21.0 release lacks
+> the APIs Cue needs. Install the upstream `refactor/manager-targeted-frame` branch
+> into your project environment using either **uv**:
+>
+> ```sh
+> uv add "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
+> ```
+>
+> or **pip**, with your virtual environment activated:
+>
+> ```sh
+> pip install --upgrade "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
+> ```
+>
+> This requires Python 3.11+, Git and Manim's [native installation prerequisites](https://docs.manim.community/en/stable/installation.html).
+> The branch is experimental and may still report version `0.21.0`; Cue checks actual
+> [capabilities](docs/troubleshooting.md#manim-capabilities), not just the version string.
 
 1. Install a Manim Cue VSIX using **Extensions → … → Install from VSIX…**.
 2. Open your scene folder in a trusted VS Code window.
@@ -53,7 +69,8 @@ it with new frames as you edit; **Replace reference** explicitly updates the pin
 - Playback is currently muted. Sound cues remain visible on the timeline.
 - Measurement assumes a fixed, centred, unrotated 2D camera.
 - The current preview profile uses Cairo. Desktop macOS has native-render validation;
-  CI is configured for cross-platform helpers and editor activation, not a full native-render matrix.
+  A Linux native CI job tracks the moving Manim preview branch.
+  Windows native rendering is not yet covered by that matrix.
   Remote/web workspaces remain outside the supported scope.
 
 ## More information

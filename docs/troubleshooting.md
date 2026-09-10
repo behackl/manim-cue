@@ -42,9 +42,15 @@ Installation, guided dependency repair and managed environments remain future wo
 
 Ordinary PyPI Manim **0.21.0** does not have Cue's required experimental APIs. Development
 builds may also report 0.21.0 while providing them; do not rely on a version comparison or
-assume reinstalling that release will fix an unsupported environment. A public compatible
-release/install path is still pending. If you already have a development build, select its
-Python environment and run the check before opening a Scene.
+assume reinstalling that release will fix an unsupported environment. Use the preview branch
+installation commands in the [README](../README.md#get-started), select that environment's
+Python in VS Code, and run the check before opening a Scene.
+
+The branch moves. A uv project's lockfile retains its resolved commit: to test a newer branch
+revision, run `uv lock --upgrade-package manim`, then `uv sync`. With pip, rerun the README's
+`pip install --upgrade` command; if the unchanged version string leaves the old build installed,
+add `--force-reinstall`. After updating, run **Check Python Environment** and **Refresh**.
+CI logs the exact commit it tested; that is more useful than `0.21.0` alone in a bug report.
 
 | Feature | Required public API |
 | --- | --- |

@@ -3,6 +3,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Upstream branch pushes do not trigger this repository's CI; check them daily too.
+  schedule:
+    - cron: '23 5 * * *'
 
 permissions:
   contents: read
@@ -80,5 +83,69 @@ jobs:
       - run: pnpm build
       - run: xvfb-run -a pnpm test:vscode:activation
 
-# Native integration/render smoke is not replaced by these jobs. It still requires
-# MANIM_PYTHON with the experimental public APIs; no public artifact is pinned yet.
+  native:
+    name: Native Manim (preview branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MANIM_BRANCH: refactor/manager-targeted-frame
+      VSCODE_VERSION: stable
+      PYTHON_EXTENSION_VERSION: '2024.22.2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - name: Install native libraries, fonts and headless display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libcairo2-dev libpango1.0-dev ffmpeg fonts-dejavu-core xvfb libegl1 libopengl0
+      - run: pnpm install --frozen-lockfile
+      - name: Create isolated Manim environment
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/cue-manim"
+          echo "MANIM_PYTHON=$RUNNER_TEMP/cue-manim/bin/python" >> "$GITHUB_ENV"
+      - name: Install the current preview branch
+        # Refresh VCS resolution even if uv restored a cached version of this branch.
+        run: uv pip install --python "$MANIM_PYTHON" --refresh-package manim "manim @ git+https://github.com/ManimCommunity/manim.git@$MANIM_BRANCH"
+      - name: Record resolved revision and dependencies
+        run: |
+          "$MANIM_PYTHON" - <<'PY'
+          from importlib.metadata import distribution
+          import json
+          import os
+          import sys
+
+          package = distribution("manim")
+          source = json.loads(package.read_text("direct_url.json"))
+          vcs = source["vcs_info"]
+          assert vcs["vcs"] == "git" and vcs["requested_revision"] == os.environ["MANIM_BRANCH"], source
+          report = (f"Manim branch: {os.environ['MANIM_BRANCH']}\n"
+                    f"Resolved commit: {vcs['commit_id']}\n"
+                    f"Package version: {package.version}\nPython: {sys.version}\n")
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("### Native Manim environment\n```text\n" + report + "```\n")
+          PY
+          uv pip freeze --python "$MANIM_PYTHON"
+      - name: Check required Manim capabilities
+        run: |
+          "$MANIM_PYTHON" python/support.py diagnose - "$RUNNER_TEMP/cue-manim-diagnostic.json"
+          "$MANIM_PYTHON" - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "cue-manim-diagnostic.json").read_text(encoding="utf-8"))
+          print(json.dumps(report, indent=2))
+          assert report["status"] == "ready", "The preview branch no longer provides all required Cue APIs."
+          PY
+      - run: pnpm build
+      - run: pnpm test:integration
+      - run: xvfb-run -a pnpm test:vscode

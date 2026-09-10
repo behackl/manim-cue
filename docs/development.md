@@ -64,13 +64,21 @@ Integration tests explicitly require the supported environment.
 - Isolated extension activation on Linux with VS Code **1.96.0** and **stable**, using Microsoft
   Python **2024.22.2** (whose editor requirement includes 1.96).
 - A Linux VSIX packaging check to a temporary path; nothing is published or installed normally.
+- Native integrations and the full desktop smoke on Linux with Python 3.13 and stable Code.
+  A fresh environment installs Manim from upstream `refactor/manager-targeted-frame`, with
+  Cairo/Pango, fonts, audio/video libraries and Xvfb provisioned for the fixtures.
 
-These jobs need their first successful hosted run before they are evidence of cross-platform
-compatibility. Native Manim integrations and the full desktop smoke remain explicit/manual
-until a publicly obtainable build with the required APIs can be pinned. Passing helpers or
-activation alone does not establish Windows native-process-tree cancellation, codec behavior,
-or a complete editor/platform rendering matrix. Node 24 is CI tooling; the extension bundle
-targets Node 20 and the declared minimum VS Code API types.
+The native job deliberately follows the **branch**, not a fixed SHA, to detect upstream
+regressions. It refreshes Git dependency resolution, records the installed commit in the job
+summary, logs dependency versions, and checks all required APIs before running the suites.
+Runs happen on pushes/PRs, manual **Run workflow**, and daily at 05:23 UTC. An upstream branch
+push does not itself trigger this repository; the scheduled/manual runs cover that gap.
+Use the logged commit when reproducing a failure or deciding which build to recommend.
+
+The new native job still needs its first successful hosted run. Passing helper or activation
+jobs alone does not establish Windows native-process-tree cancellation, codec behavior or a
+complete editor/platform rendering matrix. Node 24 is CI tooling; the extension bundle targets
+Node 20 and the declared minimum VS Code API types.
 
 The intended public channel is the official VS Code Marketplace under publisher **behackl**.
 Packaging and publishing are separate actions; choose a new release version and validate the
