@@ -151,7 +151,7 @@ jobs:
       - run: xvfb-run -a pnpm test:vscode
 
   release:
-    name: Publish release
+    name: Create release
     if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'behackl/manim-cue'
     needs: [checks, browser, editor, native]
     runs-on: ubuntu-latest
@@ -200,20 +200,6 @@ jobs:
             pnpm package
           fi
           test -f "${{ steps.release.outputs.vsix }}"
-      - name: Publish exact VSIX to Visual Studio Marketplace
-        shell: bash
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: |
-          if [ -z "$VSCE_PAT" ]; then
-            echo "::error::Add the Marketplace token as the VSCE_PAT repository secret."
-            exit 1
-          fi
-          args=(publish --packagePath "${{ steps.release.outputs.vsix }}" --skip-duplicate)
-          if [ "${{ steps.release.outputs.preview }}" = "true" ]; then
-            args+=(--pre-release)
-          fi
-          pnpm exec vsce "${args[@]}"
       - name: Create GitHub release with the same VSIX
         shell: bash
         env:

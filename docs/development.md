@@ -81,11 +81,11 @@ pushes and pull requests, can be started manually, and runs daily to pick up bra
 
 Update `package.json` and `CHANGELOG.md` together, then push the release commit to `main`.
 A tag named `vX.Y.Z` must match the package version. Pushing that tag runs the complete CI
-suite, packages one VSIX, publishes those exact bytes to Marketplace, and creates a normal
-GitHub Release containing the same file. With `preview: true`, the Marketplace publication
-uses its pre-release channel; remove that field when preparing a stable release.
+suite, packages one VSIX, and creates a normal GitHub Release containing that file. With
+`preview: true`, the VSIX is marked for Marketplace's pre-release channel; remove that field
+when preparing a stable release.
 
-The release job reads the Marketplace credential from the `VSCE_PAT` repository secret.
+For now, upload the release's VSIX through the Visual Studio Marketplace publisher page.
 
 ## Package locally
 
