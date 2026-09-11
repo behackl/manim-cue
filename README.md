@@ -1,9 +1,5 @@
 # Manim Cue
 
-<p align="center">
-  <img src="resources/icon.png" alt="Manim Cue logo" width="160">
-</p>
-
 Manim Cue adds a live preview and execution timeline for Manim scenes to VS Code.
 It helps you inspect a scene while you edit instead of repeatedly switching to a
 terminal and video player.
