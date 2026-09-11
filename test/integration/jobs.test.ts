@@ -33,7 +33,7 @@ test('independent export renders requested dimensions/FPS/audio and replaces inh
     assert.match(cfg, /crf = 18/); assert.match(cfg, /preset = medium/); assert.match(cfg, /threads = 1/); assert.doesNotMatch(cfg, /deadline/);
     assert.match(await fs.readFile(path.join(root, 'manim.cfg'), 'utf8'), /codec=libvpx-vp9/, 'project config is untouched');
     const broken = await createJob({ ...job.options, exportSettings: { ...settings, options: 'profile=not-a-profile' } });
-    await assert.rejects(renderExport(broken, broken.options.signal), /Python exited/);
+    await assert.rejects(renderExport(broken, broken.options.signal), /Process exited/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
