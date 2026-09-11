@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Add an opt-in environment setup command using uv or Python's built-in venv support.
 

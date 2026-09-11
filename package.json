@@ -2,7 +2,7 @@
   "name": "manim-cue",
   "displayName": "Manim Cue",
   "description": "Preview, inspect, compare, and export Manim scenes in VS Code.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "behackl",
   "private": true,
   "preview": true,
