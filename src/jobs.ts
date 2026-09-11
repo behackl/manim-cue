@@ -57,6 +57,7 @@ async function invoke(job: SceneJob, args: string[], signal: AbortSignal, label:
   try {
     await runProcess(o.python, [...job.prefix, ...args], {
       cwd: o.cwd, env: { ...o.env, PYTHONIOENCODING: 'utf-8' }, signal, timeout: o.timeout, log: o.log,
+      timeoutHint: 'Increase manimCue.timeoutSeconds if needed.',
     });
   } catch (error) {
     // Workers are serialized; clear partial typesetting output before the next job.

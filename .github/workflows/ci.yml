@@ -112,11 +112,14 @@ jobs:
           uv venv --python 3.13 "$RUNNER_TEMP/cue-manim"
           echo "MANIM_PYTHON=$RUNNER_TEMP/cue-manim/bin/python" >> "$GITHUB_ENV"
       - name: Install the current preview branch
-        # Refresh VCS resolution even if uv restored a cached version of this branch.
-        run: uv pip install --python "$MANIM_PYTHON" --refresh-package manim "manim @ git+https://github.com/ManimCommunity/manim.git@$MANIM_BRANCH"
+        # The same source archive the extension's setup command installs.
+        # Refresh the cached archive even if uv restored an older download of this branch.
+        run: uv pip install --python "$MANIM_PYTHON" --refresh-package manim "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/$MANIM_BRANCH.zip"
       - name: Record resolved revision and dependencies
         run: |
-          "$MANIM_PYTHON" - <<'PY'
+          MANIM_COMMIT="$(git ls-remote https://github.com/ManimCommunity/manim.git "refs/heads/$MANIM_BRANCH" | cut -f1)"
+          test -n "$MANIM_COMMIT"
+          MANIM_COMMIT="$MANIM_COMMIT" "$MANIM_PYTHON" - <<'PY'
           from importlib.metadata import distribution
           import json
           import os
@@ -124,10 +127,10 @@ jobs:
 
           package = distribution("manim")
           source = json.loads(package.read_text("direct_url.json"))
-          vcs = source["vcs_info"]
-          assert vcs["vcs"] == "git" and vcs["requested_revision"] == os.environ["MANIM_BRANCH"], source
+          expected = f"archive/refs/heads/{os.environ['MANIM_BRANCH']}.zip"
+          assert "archive_info" in source and source["url"].endswith(expected), source
           report = (f"Manim branch: {os.environ['MANIM_BRANCH']}\n"
-                    f"Resolved commit: {vcs['commit_id']}\n"
+                    f"Branch head when recorded: {os.environ['MANIM_COMMIT']}\n"
                     f"Package version: {package.version}\nPython: {sys.version}\n")
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:

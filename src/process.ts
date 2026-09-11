@@ -4,6 +4,8 @@ export class Cancelled extends Error { constructor() { super('Cancelled'); } }
 export interface ProcessOptions {
   cwd: string; env?: NodeJS.ProcessEnv; signal: AbortSignal; timeout: number;
   input?: string; log?: (text: string) => void;
+  /** Appended to the timeout error; only callers whose timeout is configurable should set it. */
+  timeoutHint?: string;
 }
 export function runProcess(executable: string, args: string[], options: ProcessOptions): Promise<string> {
   if (options.signal.aborted) return Promise.reject(new Cancelled());
@@ -35,7 +37,7 @@ export function runProcess(executable: string, args: string[], options: ProcessO
       if (cancelled) kill('SIGKILL');
       clearTimeout(timeout); escalation.forEach(clearTimeout);
       options.signal.removeEventListener('abort', stop);
-      if (timedOut) reject(new Error(`Process exceeded ${options.timeout / 1000}s. Increase manimCue.timeoutSeconds if needed.`));
+      if (timedOut) reject(new Error(`Process exceeded ${options.timeout / 1000}s.${options.timeoutHint ? ` ${options.timeoutHint}` : ''}`));
       else if (cancelled) reject(new Cancelled());
       else if (error) reject(error);
       else resolve(output);

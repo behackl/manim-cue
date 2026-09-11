@@ -8,6 +8,7 @@ import { copyExport, validateDestination } from './export-files';
 import { selectPythonFor } from './python-picker';
 import { Scenes } from './scenes';
 import { setupPythonEnvironment } from './setup';
+import { insideEnvironment } from './setup-plan';
 import { createJob, captureFrame, evaluateTimeline, renderPreview, publishPreview, fileHash, InputsChanged, type RunResult, type PreviewResult, type SceneJob } from './jobs';
 import { PreviewQueue } from './preview-queue';
 import { frameIndex, indexAt } from './transport';
@@ -482,7 +483,7 @@ class Cue implements vscode.Disposable {
       this.sourceEdited = true;
       this.invalidate('Source changed — save to refresh');
     }
-    else if (!uri.fsPath.split(path.sep).includes('.venv') &&
+    else if (!insideEnvironment(uri.fsPath) &&
       (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env')) {
       this.invalidate('Possible dependency changed — refresh (dependency coverage is incomplete)');
     }

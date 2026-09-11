@@ -8,6 +8,13 @@ export const MANIM_REQUIREMENT = `manim @ ${MANIM_ARCHIVE}`;
 export type SetupTool = { kind: 'uv'; executable: string } | { kind: 'python'; executable: string };
 export interface SetupCommand { executable: string; args: string[] }
 
+const ENVIRONMENT_SEGMENTS = new Set(['.venv', 'site-packages']);
+
+/** Installing packages writes thousands of files that never affect a scene's own dependencies. */
+export function insideEnvironment(fsPath: string): boolean {
+  return fsPath.split(/[\\/]/u).some(segment => ENVIRONMENT_SEGMENTS.has(segment));
+}
+
 export function environmentExecutable(directory: string, platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32' ? path.win32.join(directory, 'Scripts', 'python.exe') : path.posix.join(directory, 'bin', 'python');
 }

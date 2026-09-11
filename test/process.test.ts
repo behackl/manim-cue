@@ -11,6 +11,13 @@ test('failed processes report the executable and stderr rather than publishing s
   await assert.rejects(runProcess(process.execPath, ['-e', 'console.error("primary failure");process.exit(3)'], defaults()),
     error => error instanceof Error && /Process exited with code 3/.test(error.message) && error.message.includes(process.execPath) && /primary failure/.test(error.message));
 });
+test('timeouts only advertise a setting when the caller made it configurable', async () => {
+  const hang = ['-e', 'setInterval(()=>{},1000)'];
+  await assert.rejects(runProcess(process.execPath, hang, { ...defaults(), timeout: 100 }),
+    error => error instanceof Error && /^Process exceeded 0\.1s\.$/.test(error.message));
+  await assert.rejects(runProcess(process.execPath, hang, { ...defaults(), timeout: 100, timeoutHint: 'Increase manimCue.timeoutSeconds if needed.' }),
+    /manimCue\.timeoutSeconds/);
+});
 test('cancellation and timeout settle even with a waiting process', async () => {
   const controller = new AbortController();
   const job = runProcess(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { ...defaults(), signal: controller.signal });

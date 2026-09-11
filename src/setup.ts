@@ -57,7 +57,7 @@ async function chooseTool(resource: vscode.Uri, cwd: string): Promise<Tool | und
       { label: 'Create with uv', description: 'Recommended', detail: `${pathUv} · found on VS Code's PATH`, action: 'uv' },
       { label: 'Create with selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · unsupported'})` : 'No usable interpreter selected', action: 'python' },
     ] : [
-      { label: 'Use selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · unsupported'})` : 'No usable interpreter selected', action: 'python' },
+      { label: 'Create with selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · unsupported'})` : 'No usable interpreter selected', action: 'python' },
       { label: 'Locate uv executable…', detail: 'Choose the uv executable for this setup only', action: 'locate' },
     ];
     const choice = await vscode.window.showQuickPick(choices, {
@@ -92,11 +92,26 @@ async function chooseTool(resource: vscode.Uri, cwd: string): Promise<Tool | und
 
 async function confirmSetup(root: string, directory: string, tool: Tool): Promise<boolean> {
   const creator = tool.kind === 'uv' ? `${tool.version}\nPython: ${SETUP_PYTHON}` : `Python ${tool.version}\n${tool.executable}`;
+  const downloads = tool.kind === 'uv'
+    ? `This downloads and installs Python packages, and lets uv download Python ${SETUP_PYTHON} if it is missing.`
+    : 'This downloads and installs Python packages.';
   const answer = await vscode.window.showInformationMessage(
-    `Create a new Manim environment?\n\nProject: ${root}\nEnvironment: ${directory}\nCreator: ${creator}\nManim branch: ${MANIM_BRANCH}\n\nThis downloads and installs Python packages, which can execute package build code. No pyproject.toml or uv.lock file will be changed.`,
+    `Create a new Manim environment?\n\nProject: ${root}\nEnvironment: ${directory}\nCreator: ${creator}\nManim branch: ${MANIM_BRANCH}\n\n${downloads} Installing packages can execute package build code. No existing environment, pyproject.toml or uv.lock file will be changed.`,
     { modal: true }, 'Create Environment',
   );
   return answer === 'Create Environment';
+}
+
+/** Removes a stale manimCue.pythonPath override without writing settings the user never set. */
+async function clearPythonOverride(resource: vscode.Uri): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration('manimCue', resource);
+  const override = configuration.inspect<string>('pythonPath');
+  const scopes = [
+    [override?.workspaceFolderValue, vscode.ConfigurationTarget.WorkspaceFolder],
+    [override?.workspaceValue, vscode.ConfigurationTarget.Workspace],
+    [override?.globalValue, vscode.ConfigurationTarget.Global],
+  ] as const;
+  for (const [value, target] of scopes) if (value?.trim()) await configuration.update('pythonPath', undefined, target);
 }
 
 async function deleteOwnedEnvironment(directory: string): Promise<void> {
@@ -174,10 +189,7 @@ export async function setupPythonEnvironment(options: {
       try {
         const api = await PythonExtension.api(); await api.ready;
         await api.environments.updateActiveEnvironmentPath(diagnostic.python, options.resource);
-        const folder = vscode.workspace.getWorkspaceFolder(options.resource);
-        const hasWorkspace = !!(vscode.workspace.workspaceFile || vscode.workspace.workspaceFolders?.length);
-        await vscode.workspace.getConfiguration('manimCue', options.resource).update('pythonPath', '',
-          folder ? vscode.ConfigurationTarget.WorkspaceFolder : hasWorkspace ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+        await clearPythonOverride(options.resource);
       } catch (error) {
         options.output.appendLine(`\nEnvironment is ready, but selection failed: ${error instanceof Error ? error.message : String(error)}`);
         const action = await vscode.window.showWarningMessage(
@@ -197,17 +209,20 @@ export async function setupPythonEnvironment(options: {
       const detail = error instanceof Error ? error.message : String(error);
       options.output.appendLine(`\nSetup ${cancelled ? 'cancelled' : 'failed'} while ${phase}: ${detail}`);
       const hasDirectory = owned && await present(directory);
-      const actions = hasDirectory
-        ? ['Retry from scratch', 'Show Output', 'Delete Incomplete .venv'] as const
-        : ['Retry', 'Show Output'] as const;
-      const action = await vscode.window.showWarningMessage(
-        `Setup ${cancelled ? 'was cancelled' : 'failed'} while ${phase}. The selected interpreter was not changed.${hasDirectory ? ' The new .venv may be incomplete.' : ''}`,
-        { modal: true }, ...actions,
-      );
-      if (action === 'Show Output') { options.output.show(true); continue; }
+      const retry = hasDirectory ? 'Retry from scratch' : 'Retry';
+      const cleanup = hasDirectory ? ['Delete Incomplete .venv'] as const : [] as const;
+      const message = `Setup ${cancelled ? 'was cancelled' : 'failed'} while ${phase}. The selected interpreter was not changed.${hasDirectory ? ' The new .venv may be incomplete.' : ''}`;
+      let action = await vscode.window.showWarningMessage(message, { modal: true }, retry, 'Show Output', ...cleanup);
+      if (action === 'Show Output') {
+        // A modal dialog would cover the log, so repeat the choices without one.
+        options.output.show(true);
+        action = await vscode.window.showWarningMessage(message, retry, ...cleanup);
+      }
       if (action === 'Delete Incomplete .venv') { await deleteOwnedEnvironment(directory); return; }
-      if (action === 'Retry from scratch') { await fs.rm(directory, { recursive: true, force: true }); owned = false; continue; }
-      if (action === 'Retry') continue;
+      if (action === retry) {
+        if (hasDirectory) { await fs.rm(directory, { recursive: true, force: true }); owned = false; }
+        continue;
+      }
       return;
     }
   }

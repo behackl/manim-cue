@@ -34,7 +34,9 @@ Run **Manim Cue: Set Up Python Environment** to create a new `.venv` in the scen
 workspace folder. Cue uses `uv` when you choose it and it is available on VS Code's
 `PATH`; otherwise it can use the interpreter selected by the Python extension. If `uv`
 is not on `PATH`, Cue offers to use Python or lets you locate the executable—it does not
-search other paths itself.
+search other paths itself. The confirmation dialog lists the exact project, environment
+and branch first; with `uv`, it may also download Python 3.13 when that version is
+missing.
 
 Setup never modifies an existing `.venv`, `pyproject.toml`, or `uv.lock`. It selects the
 new interpreter only after **Check Python Environment** reports **Ready**. If creation or
