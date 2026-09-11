@@ -28,23 +28,27 @@ If you enter a virtual-environment path manually, use the environment's own exec
 Avoid replacing that path with the base Python executable, because packages installed
 in the virtual environment may then be missing.
 
-## Install or update the Manim preview branch
+## Create an environment or install the Manim preview branch
 
-Follow the installation commands in the [README](../README.md#get-started). The regular
-PyPI Manim 0.21.0 package lacks the features Cue needs, while the preview branch may use
-the same version number.
+Run **Manim Cue: Set Up Python Environment** to create a new `.venv` in the scene's
+workspace folder. Cue uses `uv` when you choose it and it is available on VS Code's
+`PATH`; otherwise it can use the interpreter selected by the Python extension. If `uv`
+is not on `PATH`, Cue offers to use Python or lets you locate the executable—it does not
+search other paths itself.
 
-For a uv project, update to the branch's latest commit with:
+Setup never modifies an existing `.venv`, `pyproject.toml`, or `uv.lock`. It selects the
+new interpreter only after **Check Python Environment** reports **Ready**. If creation or
+installation fails, use **Show Output** for the complete command output. You can retry
+from a clean environment or delete the incomplete `.venv` while that setup dialog remains
+open. Cue does not attempt to install or diagnose compilers and native system libraries.
+
+For an existing environment, follow the manual installation commands in the
+[README](../README.md#get-started). The regular PyPI Manim 0.21.0 package lacks the
+features Cue needs, while the preview branch may use the same version number. To force a
+fresh pip installation of the moving branch, activate the environment and run:
 
 ```sh
-uv lock --upgrade-package manim
-uv sync
-```
-
-For a pip environment, activate it and rerun:
-
-```sh
-pip install --upgrade --force-reinstall "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
+pip install --upgrade --force-reinstall --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/manager-targeted-frame.zip"
 ```
 
 Then select that environment in VS Code and run **Manim Cue: Check Python Environment**.

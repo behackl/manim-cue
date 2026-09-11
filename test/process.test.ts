@@ -7,8 +7,9 @@ test('argument arrays preserve shell metacharacters; stdin closes', async () => 
   const output = await runProcess(process.execPath, ['-e', 'process.stdin.on("end",()=>console.log(process.argv[1]));process.stdin.resume()', 'a b; $(false)'], defaults());
   assert.equal(output.trim(), 'a b; $(false)');
 });
-test('failed processes report stderr rather than publishing success', async () => {
-  await assert.rejects(runProcess(process.execPath, ['-e', 'console.error("primary failure");process.exit(3)'], defaults()), /primary failure/);
+test('failed processes report the executable and stderr rather than publishing success', async () => {
+  await assert.rejects(runProcess(process.execPath, ['-e', 'console.error("primary failure");process.exit(3)'], defaults()),
+    error => error instanceof Error && /Process exited with code 3/.test(error.message) && error.message.includes(process.execPath) && /primary failure/.test(error.message));
 });
 test('cancellation and timeout settle even with a waiting process', async () => {
   const controller = new AbortController();

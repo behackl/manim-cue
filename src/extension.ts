@@ -7,6 +7,7 @@ import { checkPython, formatDiagnostic, RuntimeUnavailable, type PythonDiagnosti
 import { copyExport, validateDestination } from './export-files';
 import { selectPythonFor } from './python-picker';
 import { Scenes } from './scenes';
+import { setupPythonEnvironment } from './setup';
 import { createJob, captureFrame, evaluateTimeline, renderPreview, publishPreview, fileHash, InputsChanged, type RunResult, type PreviewResult, type SceneJob } from './jobs';
 import { PreviewQueue } from './preview-queue';
 import { frameIndex, indexAt } from './transport';
@@ -66,6 +67,7 @@ class Cue implements vscode.Disposable {
   private mediaError?: string;
   private pythonInUse?: string;
   private doctorAbort?: AbortController;
+  private setupAbort?: AbortController;
   private saveTimer?: ReturnType<typeof setTimeout>;
   private saveCheck = 0;
   private diskHash?: string;
@@ -480,7 +482,10 @@ class Cue implements vscode.Disposable {
       this.sourceEdited = true;
       this.invalidate('Source changed — save to refresh');
     }
-    else if (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env') this.invalidate('Possible dependency changed — refresh (dependency coverage is incomplete)');
+    else if (!uri.fsPath.split(path.sep).includes('.venv') &&
+      (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env')) {
+      this.invalidate('Possible dependency changed — refresh (dependency coverage is incomplete)');
+    }
   }
   async saved(uri: vscode.Uri): Promise<void> {
     const started = performance.now();
@@ -569,6 +574,19 @@ class Cue implements vscode.Disposable {
       await this.doctor(resource);
     }
   }
+  async setupPython(uri?: vscode.Uri): Promise<void> {
+    if (this.setupAbort) { void vscode.window.showInformationMessage('A Manim Cue environment setup is already in progress.'); return; }
+    const resource = this.pythonResource(uri), abort = new AbortController(); this.setupAbort = abort;
+    try {
+      const result = await setupPythonEnvironment({ resource, extensionUri: this.context.extensionUri, output: this.output,
+        canRefresh: this.target?.uri.toString() === resource.toString(), signal: abort.signal });
+      if (!result || this.disposed) return;
+      this.error = undefined; this.scenes.invalidate();
+      const current = this.target?.uri.toString() === resource.toString();
+      if (current) this.invalidate('Python environment ready — refresh'); else this.views.update();
+      if (result.refresh && current) await this.refresh();
+    } finally { if (this.setupAbort === abort) this.setupAbort = undefined; }
+  }
   async doctor(uri?: vscode.Uri): Promise<PythonDiagnostic | undefined> {
     const resource = this.pythonResource(uri);
     this.doctorAbort?.abort();
@@ -593,16 +611,21 @@ class Cue implements vscode.Disposable {
         ? `Manim Cue ${report.status}: timeline ${report.timeline ? 'available' : 'unavailable'}; frame capture ${report.capture_frame ? 'available' : 'unavailable'}; export encoder profile ${report.video_encoder ? 'available' : 'unavailable'}. See Manim Cue output for build requirements and the checked Python.`
         : `${report.status}: ${report.python}. ${report.error ?? ''} See Manim Cue output for details.`;
       const notification = report.status === 'ready' ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-      void notification(message, 'Select Python…').then(action => {
-        if (action && !this.disposed) void this.selectPython(resource).catch(e => this.failAction(e));
+      const actions = report.status === 'ready' ? ['Select Python…'] : ['Set Up Environment…', 'Select Python…'];
+      void notification(message, ...actions).then(action => {
+        if (this.disposed) return;
+        if (action === 'Set Up Environment…') void this.setupPython(resource).catch(e => this.failAction(e));
+        else if (action === 'Select Python…') void this.selectPython(resource).catch(e => this.failAction(e));
       });
       return report;
     } catch (e) {
       if (abort.signal.aborted || this.disposed) return;
       const message = e instanceof Error ? e.message : String(e);
       this.output.appendLine(message); this.output.show(true);
-      void vscode.window.showWarningMessage(`Python check failed: ${message}`, 'Select Python…').then(action => {
-        if (action && !this.disposed) void this.selectPython(resource).catch(error => this.failAction(error));
+      void vscode.window.showWarningMessage(`Python check failed: ${message}`, 'Set Up Environment…', 'Select Python…').then(action => {
+        if (this.disposed) return;
+        if (action === 'Set Up Environment…') void this.setupPython(resource).catch(error => this.failAction(error));
+        else if (action === 'Select Python…') void this.selectPython(resource).catch(error => this.failAction(error));
       });
     } finally { if (this.doctorAbort === abort) this.doctorAbort = undefined; }
   }
@@ -744,7 +767,7 @@ class Cue implements vscode.Disposable {
     } catch { /* Best effort (e.g. a media handle is still being released). */ }
   }
   async whenIdle(): Promise<void> { await this.pending; await this.queue.whenIdle(); await this.exports.whenIdle(); }
-  dispose(): void { clearTimeout(this.rememberTimer); if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.desiredTime }); this.clearAutoRefresh(); this.exports.dispose(); this.doctorAbort?.abort(); this.disposed = true; ++this.generation; this.abort?.abort(); this.queue.clear(); this.scenes.dispose(); this.views.dispose(); this.output.dispose(); }
+  dispose(): void { clearTimeout(this.rememberTimer); if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.desiredTime }); this.clearAutoRefresh(); this.exports.dispose(); this.doctorAbort?.abort(); this.setupAbort?.abort(); this.disposed = true; ++this.generation; this.abort?.abort(); this.queue.clear(); this.scenes.dispose(); this.views.dispose(); this.output.dispose(); }
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -757,6 +780,7 @@ export function activate(context: vscode.ExtensionContext) {
     command('manimCue.cancel', () => cue.cancel()), command('manimCue.logs', () => cue.logs()), command('manimCue.export', () => cue.export()),
     command('manimCue.doctor', (uri?: vscode.Uri) => cue.doctor(uri)),
     command('manimCue.selectPython', (uri?: vscode.Uri) => cue.selectPython(uri)),
+    command('manimCue.setupPython', (uri?: vscode.Uri) => cue.setupPython(uri)),
     command('manimCue.clearCaches', () => cue.clearCaches()),
     command('manimCue.saveFrame', () => cue.saveFrame()), command('manimCue.openExport', () => cue.openExport()),
     command('manimCue.previousFrame', () => cue.step(-1)), command('manimCue.nextFrame', () => cue.step(1)),

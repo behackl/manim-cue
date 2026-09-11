@@ -88,6 +88,10 @@
         "title": "Manim Cue: Select Python for Manim Cue"
       },
       {
+        "command": "manimCue.setupPython",
+        "title": "Manim Cue: Set Up Python Environment"
+      },
+      {
         "command": "manimCue.export",
         "title": "Manim Cue: Export Timeline JSON"
       },

@@ -16,20 +16,25 @@ terminal and video player.
 
 ## Get started
 
-You need desktop VS Code 1.96+, the Microsoft Python extension, Python 3.11+, and Git.
+You need desktop VS Code 1.96+, the Microsoft Python extension, and Python 3.11+.
 
 > [!IMPORTANT]
-> **Manim Cue requires a preview version of Manim.** Install the upstream
-> `refactor/manager-targeted-frame` branch in your project environment with **uv**:
+> **Manim Cue currently requires a preview version of Manim.** The setup command installs
+> the upstream `refactor/manager-targeted-frame` branch from a source archive into a new
+> project-local `.venv`. If `uv` is on VS Code's `PATH`, Cue can use it with Python 3.13;
+> otherwise you can use the interpreter selected by the Python extension or locate `uv`
+> yourself. Cue never searches other executable paths or modifies an existing environment.
+>
+> To install the branch manually in an existing uv project, use:
 >
 > ```sh
-> uv add "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
+> uv add "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/manager-targeted-frame.zip"
 > ```
 >
-> Or activate your virtual environment and use **pip**:
+> Or activate an existing virtual environment and use **pip**:
 >
 > ```sh
-> pip install --upgrade "manim @ git+https://github.com/ManimCommunity/manim.git@refactor/manager-targeted-frame"
+> pip install --upgrade --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/manager-targeted-frame.zip"
 > ```
 >
 > Manim may also need [system packages](https://docs.manim.community/en/stable/installation.html)
@@ -39,7 +44,8 @@ You need desktop VS Code 1.96+, the Microsoft Python extension, Python 3.11+, an
 1. Find **Manim Cue** in the Extensions view and choose **Install Pre-Release Version**.
    You can also install a downloaded VSIX with **Extensions → … → Install from VSIX…**.
 2. Open the folder containing your scene and trust the workspace.
-3. Run **Python: Select Interpreter** and choose the environment where you installed Manim.
+3. Run **Manim Cue: Set Up Python Environment**. Alternatively, install Manim manually
+   and run **Python: Select Interpreter** to choose that environment.
 4. Run **Manim Cue: Check Python Environment**. The result should say **Ready**.
 5. Open a saved Python file containing a `Scene` class.
 6. Click **▶ Open Manim Cue** above the class, or run **Manim Cue: Open Scene**.

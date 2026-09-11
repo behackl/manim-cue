@@ -50,7 +50,7 @@ export function runProcess(executable: string, args: string[], options: ProcessO
     child.stdin.on('error', () => {}); // Early exits may close stdin before AST input is sent.
     child.stdin.end(options.input);
     child.on('error', error => finish(error));
-    child.on('close', code => finish(code === 0 ? undefined : new Error(`Python exited with code ${code}.\nExecutable: ${executable}\n${errors || output}`)));
+    child.on('close', code => finish(code === 0 ? undefined : new Error(`Process exited with code ${code}.\nExecutable: ${executable}\n${errors || output}`)));
     // Cancellation must also settle if an escaped descendant retained a stdout pipe.
     child.on('exit', () => { if (cancelled) finish(); });
   });
