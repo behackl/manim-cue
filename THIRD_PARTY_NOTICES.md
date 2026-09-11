@@ -3,12 +3,17 @@
 The tiny `test/fixtures/seek.mp4` is original synthetic color-frame test data generated
 with PyAV, not footage or a Manim rendering control copied from another project.
 
-## Public Manim timeline fixture
+## Manim Community materials
 
 `test/fixtures/timeline-v1.json` is copied unchanged from
 `tests/control_data/timeline-v1.json` in Manim Community, inspected at local commit
 `a57eaaff`. The fixture describes an experimental version-1 no-raster observation;
 its older source-provenance label is intentionally preserved.
+
+`design/manim-cue-icon.svg` and the generated `resources/icon.png` incorporate the
+Manim Community mark from `logo/dark/transparent_background.svg`, inspected at commit
+`9efbbe0dd79b4a9211f6781749594088cbb03e82`. The mark is combined with original Manim Cue
+timeline artwork.
 
 Project: https://github.com/ManimCommunity/manim
 

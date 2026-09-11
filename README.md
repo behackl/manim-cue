@@ -4,6 +4,8 @@ Manim Cue adds a live preview and execution timeline for Manim scenes to VS Code
 It helps you inspect a scene while you edit instead of repeatedly switching to a
 terminal and video player.
 
+![Manim Cue showing Python source, a rendered scene preview, playback controls, and the execution timeline in VS Code](resources/screenshots/overview.png)
+
 - See the selected frame soon after saving.
 - Scrub and play the finished preview.
 - Inspect animations, waits, sections, captions, and sound cues on a timeline.
