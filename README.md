@@ -36,7 +36,8 @@ You need desktop VS Code 1.96+, the Microsoft Python extension, Python 3.11+, an
 > for Cairo, text rendering, and video encoding. The preview branch may identify itself
 > as version `0.21.0`, so Cue checks its available features rather than its version number.
 
-1. Install the Manim Cue VSIX with **Extensions → … → Install from VSIX…**.
+1. Find **Manim Cue** in the Extensions view and choose **Install Pre-Release Version**.
+   You can also install a downloaded VSIX with **Extensions → … → Install from VSIX…**.
 2. Open the folder containing your scene and trust the workspace.
 3. Run **Python: Select Interpreter** and choose the environment where you installed Manim.
 4. Run **Manim Cue: Check Python Environment**. The result should say **Ready**.

@@ -5,8 +5,19 @@
   "version": "0.2.0",
   "publisher": "behackl",
   "private": true,
+  "preview": true,
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/behackl/manim-cue.git" },
+  "homepage": "https://github.com/behackl/manim-cue#readme",
+  "bugs": { "url": "https://github.com/behackl/manim-cue/issues" },
+  "keywords": [
+    "manim",
+    "animation",
+    "preview",
+    "timeline",
+    "python",
+    "video"
+  ],
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -185,7 +196,8 @@
     "test:vscode": "node test/vscode/run.cjs",
     "test:vscode:activation": "node test/vscode/run.cjs --activation",
     "test:ui": "pnpm build && tsx --test test/browser/*.test.ts",
-    "package": "pnpm build && vsce package --no-dependencies --allow-missing-repository"
+    "package": "pnpm build && vsce package --no-dependencies",
+    "package:pre-release": "pnpm build && vsce package --pre-release --no-dependencies"
   },
   "dependencies": {
     "@vscode/python-extension": "^1.0.0"

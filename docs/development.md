@@ -36,7 +36,8 @@ pnpm test:ui                                    # browser interface tests
 MANIM_PYTHON=/path/to/python pnpm test:integration
 MANIM_PYTHON=/path/to/python pnpm test:vscode   # complete extension test
 pnpm test:vscode:activation                     # startup and file-operation test
-pnpm package                                    # build a local VSIX
+pnpm package                                    # build a local stable VSIX
+pnpm package:pre-release                        # build a local pre-release VSIX
 ```
 
 The integration tests exercise frame capture, timeline evaluation, preview rendering,
@@ -75,6 +76,16 @@ The native Linux job installs Manim from the moving
 `refactor/manager-targeted-frame` branch. It records the resolved commit in the GitHub
 Actions job summary, making an upstream regression reproducible. The workflow runs for
 pushes and pull requests, can be started manually, and runs daily to pick up branch changes.
+
+## Release
+
+Update `package.json` and `CHANGELOG.md` together, then push the release commit to `main`.
+A tag named `vX.Y.Z` must match the package version. Pushing that tag runs the complete CI
+suite, packages one VSIX, publishes those exact bytes to Marketplace, and creates a normal
+GitHub Release containing the same file. With `preview: true`, the Marketplace publication
+uses its pre-release channel; remove that field when preparing a stable release.
+
+The release job reads the Marketplace credential from the `VSCE_PAT` repository secret.
 
 ## Package locally
 

@@ -149,3 +149,81 @@ jobs:
       - run: pnpm build
       - run: pnpm test:integration
       - run: xvfb-run -a pnpm test:vscode
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'behackl/manim-cue'
+    needs: [checks, browser, editor, native]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Verify release tag and metadata
+        id: release
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          expected_tag="v$version"
+          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME must match package version $version ($expected_tag)."
+            exit 1
+          fi
+          git fetch origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Release tag must point to a commit on main."
+            exit 1
+          fi
+          if ! grep -Fxq "## $version" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no entry for $version."
+            exit 1
+          fi
+          preview="$(node -p "require('./package.json').preview === true ? 'true' : 'false'")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "preview=$preview" >> "$GITHUB_OUTPUT"
+          echo "vsix=manim-cue-$version.vsix" >> "$GITHUB_OUTPUT"
+      - name: Package extension
+        shell: bash
+        run: |
+          if [ "${{ steps.release.outputs.preview }}" = "true" ]; then
+            pnpm package:pre-release
+          else
+            pnpm package
+          fi
+          test -f "${{ steps.release.outputs.vsix }}"
+      - name: Publish exact VSIX to Visual Studio Marketplace
+        shell: bash
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::Add the Marketplace token as the VSCE_PAT repository secret."
+            exit 1
+          fi
+          args=(publish --packagePath "${{ steps.release.outputs.vsix }}" --skip-duplicate)
+          if [ "${{ steps.release.outputs.preview }}" = "true" ]; then
+            args+=(--pre-release)
+          fi
+          pnpm exec vsce "${args[@]}"
+      - name: Create GitHub release with the same VSIX
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${{ steps.release.outputs.vsix }}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${{ steps.release.outputs.vsix }}" \
+              --verify-tag \
+              --title "Manim Cue ${{ steps.release.outputs.version }}" \
+              --generate-notes
+          fi
