@@ -140,7 +140,7 @@ function render(): void {
   banner.hidden = !model.timelineOutdated;
   error.textContent = model.error ?? ''; error.hidden = !model.error;
   errorActions.hidden = !model.error;
-  checkPython.hidden = !/python|import|module|environment|executable/i.test(model.error ?? '');
+  checkPython.hidden = !model.pythonProblem;
   svg.replaceChildren();
   if (!t) {
     svg.setAttribute('width', '100%'); svg.setAttribute('height', '140');

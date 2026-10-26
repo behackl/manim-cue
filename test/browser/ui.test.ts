@@ -88,7 +88,9 @@ test('the timeline shows the entries, owns the selection and the loop, and moves
     // A new timeline starts a new selection.
     await w.publish({ ...base, timelineKey: 'run-2' });
     assert.equal(await page.locator('g.event.selected').count(), 0);
-    await w.publish({ ...base, timelineKey: 'run-2', error: 'Python import failed' });
+    await w.publish({ ...base, timelineKey: 'run-2', error: 'The timeline update failed: RuntimeError: x' });
+    assert.equal(await page.getByRole('button', { name: 'Check Python', exact: true }).isVisible(), false, 'an error of the scene');
+    await w.publish({ ...base, timelineKey: 'run-2', error: 'Manim is not installed in this Python environment.', pythonProblem: true });
     await page.getByRole('button', { name: 'Check Python', exact: true }).click();
     assert.equal((await w.messages()).at(-1).kind, 'doctor');
     assert.deepEqual(w.errors, []);

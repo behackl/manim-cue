@@ -11,6 +11,8 @@ export interface VideoMedia extends Media { duration: number; rate: number; skip
 
 export interface Model {
   scene: string; status: string; busy: boolean; error?: string;
+  /** The error comes from the Python environment. */
+  pythonProblem: boolean;
   autoPreview: boolean; fps: number; profile?: string;
   /** The current job; frames can be made only while there is one. */
   job?: string;

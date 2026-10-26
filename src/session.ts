@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { environmentFor, sceneJob } from './environment';
+import { environmentFor, PythonNotFound, sceneJob } from './environment';
 import { RuntimeUnavailable } from './diagnostics';
 import { Scenes } from './scenes';
 import { inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
@@ -36,6 +36,8 @@ export class Session implements vscode.Disposable {
   error?: string;
   busy = false;
   pythonInUse?: string;
+  /** The error comes from the Python environment: "Check Python" helps. */
+  pythonProblem = false;
   readonly extensionId: string;
   readonly views: Views;
   readonly scenes: Scenes;
@@ -135,7 +137,7 @@ export class Session implements vscode.Disposable {
     this.cancel(false);
     this.watch.updating(hash); this.videoWanted = videoWanted;
     const generation = this.generation, abort = new AbortController(); this.abort = abort;
-    this.preparing = true; this.busy = true; this.error = undefined; this.errors.clear();
+    this.preparing = true; this.busy = true; this.error = undefined; this.errors.clear(); this.pythonProblem = false;
     this.status = 'Starting Python…'; this.views.update();
     const current = () => generation === this.generation && !abort.signal.aborted && !this.disposed;
     this.pending = this.pending.catch(() => {}).then(async () => {
@@ -150,7 +152,11 @@ export class Session implements vscode.Disposable {
         this.output.appendLine(`Python: ${environment.python}\nSelection: ${environment.selection}\nSource: ${target.uri.fsPath}\nWorking directory: ${cwd}`);
         this.job = job;
         this.requestTimeline(frame);
-      } catch (e) { if (current()) { this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.output.appendLine(this.error); } }
+      } catch (e) {
+        if (!current()) return;
+        this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.pythonProblem = e instanceof PythonNotFound;
+        this.output.appendLine(this.error);
+      }
       finally { if (current()) { this.preparing = false; this.busy = this.queue.busy; this.views.update(); } }
     });
     await this.whenIdle();
@@ -169,7 +175,10 @@ export class Session implements vscode.Disposable {
     this.status = `${what} failed`;
     this.setError(topic, `${what} failed: ${error instanceof Error ? error.message : String(error)}`);
     if (topic !== 'Frame') this.videoWanted = false;
+    // A Python executable that does not start, for example a deleted environment.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') this.pythonProblem = true;
     if (error instanceof RuntimeUnavailable) {
+      this.pythonProblem = true;
       this.job = undefined;
       this.queue.clear(); // Do not repeat the same failed check for queued jobs.
       this.status = 'Python environment not ready';
