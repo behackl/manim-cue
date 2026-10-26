@@ -199,8 +199,8 @@
     "test": "tsx --test test/*.test.ts",
     "test:python": "uv run --no-project python -m unittest discover -s test -p \"*_test.py\"",
     "test:integration": "tsx --test test/integration/*.test.ts",
-    "test:vscode": "node test/vscode/run.cjs",
-    "test:vscode:activation": "node test/vscode/run.cjs --activation",
+    "test:vscode": "pnpm build && node test/vscode/run.cjs",
+    "test:vscode:activation": "pnpm build && node test/vscode/run.cjs --activation",
     "test:ui": "pnpm build && tsx --test test/browser/*.test.ts",
     "package": "pnpm build && vsce package --no-dependencies",
     "package:pre-release": "pnpm build && vsce package --pre-release --no-dependencies"
