@@ -69,6 +69,16 @@ test('the timeline shows the entries, owns the selection and the loop, and moves
     const named = { ...timeline, entries: timeline.entries.map(e => e.kind === 'sound' ? { ...e, start: 0, duration: 2, file: 'assets/click.wav' } : e) };
     await w.publish({ ...base, timeline: named });
     assert.equal(await page.locator('g.sound text').textContent(), 'click.wav');
+    // A short bar cuts the label with an ellipsis; the tooltip has the full text.
+    const caption = 'a caption that is much longer than its bar';
+    const short = { ...timeline, entries: timeline.entries.map(e => e.kind === 'sound' ? { ...e, start: 0, duration: .3, file: 'assets/a-long-sound-name.wav' }
+      : e.kind === 'caption' ? { ...e, content: caption } : e) };
+    await w.publish({ ...base, timeline: short });
+    for (const [kind, full] of [['sound', 'a-long-sound-name.wav'], ['caption', caption]]) {
+      const label = await page.locator(`g.${kind} text`).textContent() ?? '';
+      assert.ok(label.endsWith('…') && full.startsWith(label.slice(0, -1)), `${kind} label: ${label}`);
+      assert.ok((await page.locator(`g.${kind} title`).textContent())?.startsWith(full));
+    }
     // An outdated timeline is dim, with one banner, and has no loop.
     await w.publish({ ...base, timeline: named, timelineOutdated: true, busy: true });
     assert.equal(await page.locator('.banner').innerText(), 'This timeline is outdated.');

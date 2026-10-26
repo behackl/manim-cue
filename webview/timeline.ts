@@ -101,6 +101,11 @@ function animationNames(e: Call): string[] {
   return e.animations.map(a => { const name = a.type.split('.').at(-1)!; return name === '_MethodAnimation' ? '.animate' : name; });
 }
 function eventName(e: Call): string { return e.kind === 'wait' ? 'Wait' : animationNames(e).join(' + ') || 'Play'; }
+/** A label for `width` pixels: cut with an ellipsis. The tooltip has the full text. */
+function fit(text: string, width: number): string {
+  const chars = Math.max(1, Math.floor(width / 7));
+  return text.length > chars ? `${text.slice(0, Math.max(1, chars - 1))}…` : text;
+}
 const fileName = (file: string) => file.split(/[\\/]/u).at(-1)!;
 const timeRange = (start: number, end: number) => `${start.toFixed(2)}–${end.toFixed(2)} s`;
 function row(title: string, y: number): void {
@@ -183,7 +188,7 @@ function render(): void {
     if (isCall(d)) {
       const g = node('g', { class: `event ${d.kind}${d.frozen ? ' frozen' : ''}${d.skipped ? ' skipped' : ''}` }); const w = Math.max(3, (d.end - d.start) * scale);
       g.append(node('rect', { x: x(d.start), y: eventY + 3, width: w, height: 25, rx: 4 }));
-      if (w > 34) { const label = eventName(d); const chars = Math.max(1, Math.floor((w - 12) / 7)); g.append(node('text', { x: x(d.start) + 6, y: eventY + 20 }, label.length > chars ? `${label.slice(0, Math.max(0, chars - 1))}…` : label)); }
+      if (w > 34) g.append(node('text', { x: x(d.start) + 6, y: eventY + 20 }, fit(eventName(d), w - 12)));
       selectable(g, index, `${eventName(d)} · ${timeRange(d.start, d.end)}${d.skipped ? ' · Not in the video' : ''} · ${siteLabel(d.source)}`);
       svg.append(g); return;
     }
@@ -198,14 +203,13 @@ function render(): void {
       if (d.kind === 'caption') {
         label = d.content; const w = Math.max(3, (d.end - d.start) * scale);
         g.append(node('rect', { x: x(start), y: y + 5, width: w, height: 21, rx: 3 }));
-        if (w > 30) g.append(node('text', { x: x(start) + 5, y: y + 20 }, d.content.slice(0, Math.max(1, Math.floor((w - 14) / 7)))));
+        if (w > 30) g.append(node('text', { x: x(start) + 5, y: y + 20 }, fit(d.content, w - 14)));
       } else {
         label = `${fileName(d.file)} · ${d.duration === null ? time(start) : timeRange(start, start + d.duration)}`;
         const w = d.duration === null ? 0 : Math.max(3, d.duration * scale);
         if (w) g.append(node('rect', { x: x(start), y: y + 6, width: w, height: 20, rx: 3 }));
         g.append(node('path', { d: `M${x(start)},${y + 8}l7,8 -7,8 -7,-8z` }));
-        const name = fileName(d.file);
-        if (w > 30) g.append(node('text', { x: x(start) + 10, y: y + 20 }, name.slice(0, Math.max(1, Math.floor((w - 18) / 7)))));
+        if (w > 30) g.append(node('text', { x: x(start) + 10, y: y + 20 }, fit(fileName(d.file), w - 18)));
       }
     }
     selectable(g, index, `${label}${d.kind === 'sound' ? '' : ` · ${d.kind === 'caption' ? timeRange(d.start, d.end) : time(start)}`} · ${siteLabel(d.source)}`);
