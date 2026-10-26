@@ -1,49 +1,45 @@
-# Preview performance
+# Faster updates
 
-The time needed for an update depends mostly on how much work your scene performs before
-the selected frame, how expensive its geometry and updaters are, and whether text or
-formula assets are already cached.
+The time of an update depends on the work that your scene does before the selected time,
+on its geometry and updaters, and on the text and formula caches.
 
 ## Make editing faster
 
-Try these changes when previews feel slow:
+1. **Turn off Auto Preview.** Cue then updates the frame and the timeline when you save.
+   Click **Render video** when you want to play the scene.
+2. **Use a smaller Preview Width.** A width of 480 is often enough to arrange a scene.
+3. **Select an earlier time.** For a frame, Cue runs the scene up to the selected time.
+4. **Keep expensive work out of updaters.** Code that builds many objects in each frame
+   makes each update slower.
+5. **Reuse text and formulas.** The first time a font, a TeX formula or a Typst
+   expression appears, it takes longer than later.
+6. **Increase Timeout Seconds** for a slow scene.
 
-1. **Turn off Auto video.** Cue will update the selected frame and timeline after each
-   save. Use **Render video** when you are ready to play the scene.
-2. **Lower Preview Width.** A width such as 480 is often enough while arranging a scene.
-   Increase it for a final check.
-3. **Select an earlier time.** Capturing a late frame still requires Manim to execute the
-   scene up to that point.
-4. **Keep expensive work outside updaters.** Code that rebuilds many objects every frame
-   can dominate both frame capture and timeline evaluation.
-5. **Reuse text and formula content.** The first rendering of a font, TeX formula, or
-   Typst expression is usually slower than later refreshes.
-6. **Increase Timeout Seconds** for a scene that is slow but progressing normally.
-
-Cue handles one Manim job at a time. Frame requests are handled before background video
-work. An active export finishes or is cancelled before the next preview job begins.
+Cue runs one Python process at a time. A frame for a new time comes before the video.
+An export finishes, or you cancel it, before the next preview update starts.
 
 ## Caches
 
-Cue keeps Python bytecode and Manim text/typesetting caches in VS Code extension storage.
-Warm caches make repeated refreshes faster, especially for scenes with many text or formula
-objects. The first run after installing Cue or clearing caches will usually take longer.
+Cue keeps compiled Python files and the text and typesetting caches of Manim in the
+storage of the extension. With warm caches, the next update is faster, mainly for scenes
+with much text. The first update after installation or after **Clear Caches** takes
+longer.
 
-Run **Manim Cue: Clear Caches** after changing:
+Run **Manim Cue: Clear Caches** after a change to:
 
 - installed fonts;
 - TeX or Typst tools;
-- external files used while typesetting;
-- packages involved in text layout.
+- external files for typesetting;
+- packages for text layout.
 
-Clearing caches marks the current preview as old and removes Cue's cached data. Your
-source files and exported videos stay in place.
+**Clear Caches** makes the preview Outdated and removes the caches of Cue. Your source
+files and exported videos stay.
 
-## Compare mode
+## Compare
 
-While Compare is active, moving to another scene time captures a new still. This can be
-slower than seeking through a completed video. Moving the wipe divider or opacity slider
-only redraws the two images and should respond immediately.
+In Compare, each new time makes a new frame from a run of the scene. This takes longer
+than a seek in the video. The wipe divider and the overlay slider only draw the two
+frames again, so they respond at once.
 
-For the quickest visual edit cycle, turn off Auto video, choose the frame you care about,
-and save. Render the complete video when you need to check motion or timing.
+For the fastest edit cycle, turn off Auto Preview, choose the frame that you want to see,
+and save. Render the video when you want to check motion and timing.

@@ -2,121 +2,136 @@
 
 ## Open and update a scene
 
-Open a saved Python file and click **▶ Open Manim Cue** above a Manim `Scene` class.
-You can also run **Manim Cue: Open Scene** from the Command Palette.
+Open a saved Python file and click **▶ Open Manim Cue** above a Manim `Scene` class. You
+can also run **Manim Cue: Open Scene** from the Command Palette.
 
-After you save the file, Cue updates in this order:
+When you save the file, Cue updates:
 
 1. the frame at the selected time;
-2. the execution timeline;
-3. the complete preview video, when **Auto video** is enabled.
+2. the timeline;
+3. the video, when **Auto Preview** is on.
 
-This order gives you a useful image before the full video is finished. The previous
-image stays visible with an **OLD PREVIEW** label while Cue works. Editing the file again
-or pressing **Cancel** stops outdated work. Use **Refresh** after changing imported
-helpers, configuration files, assets, or the selected Python environment.
+The previous frame stays visible with the label **OUTDATED** while Cue works. When you
+edit the file again or press **■ Cancel**, the running update stops. Press **↻ Refresh**
+after a change to an imported file, a configuration file, an asset or the Python
+environment.
 
-Cue remembers the last open Scene and selected time in each workspace. Opening another
-Scene starts at its beginning.
+Cue keeps the last scene and the selected time of each workspace. Another scene opens at
+its start.
 
-## Navigate the preview
+## Move through the scene
 
 - Drag the scrubber to choose a time.
-- Press **Play/Pause**, or press **Space** while the preview is focused.
-- Press **Left/Right** while the preview is focused to step one frame.
-- Use **Render video** when Auto video is off and you want a playable preview.
-- Open the **settings cog** to change preview width, frame rate, and Auto video.
+- Press **Play** or **Pause**, or **Space** in the preview.
+- Press **Left** or **Right** in the preview to step one frame.
+- When **Auto Preview** is off, click **Render video** to make the video.
+- Click **Settings** (the cog) to change the preview width, the frame rate and
+  **Auto Preview**.
 
-If a video is ready, seeking uses its rendered frames. Otherwise Cue captures a still
-at the requested time. The time display shows both the current frame time and scene
-duration when known.
+With a video, a new time shows the frame from the video. Without a video, Cue runs the
+scene up to that time and shows its frame. The time display shows the time of the frame
+and the duration of the scene.
 
-Preview playback is muted. Sound cues appear on the timeline, and saved videos include
-the scene's audio.
+The preview plays without sound. The timeline shows the sounds, and an exported video
+contains them.
 
 ## Read the timeline
 
-The timeline shows what happened while Manim executed the scene at the selected frame
-rate. Each bar represents an animation or wait. Captions, sounds, and sections have
-their own markers.
+The timeline shows the scene in scene time. It has four lanes:
 
-- Click an event to inspect it and move to its start time.
-- Double-click an event, or choose **Go to source**, to open its Python line.
-- Use the zoom buttons and horizontal scrollbar to inspect a busy timeline.
-- Use Left/Right while the timeline is focused to move between timed events.
+- **Sections** show where each section starts.
+- **Plays & waits** show each `play()` and `wait()` call as a bar from its start to its end.
+- **Captions** show each caption for the time that it is visible.
+- **Sounds** show where each sound starts. A sound with a known duration is a bar.
 
-Repeated calls from the same source line remain separate events. Sound cues with an
-unknown duration appear as points. At low frame rates, observed event boundaries can
-be rounded to nearby frames.
+The legend below the timeline names the styles: a play, a wait, a still image (a wait
+that shows one frame) and a play that is not in the video because its section is
+skipped.
 
-### Select and loop a range
+Click an entry to see it in the panel on the right:
 
-1. Click an event to select it.
-2. Cmd-click on macOS or Ctrl-click elsewhere to add or remove events.
-3. Shift-click to select a continuous range.
-4. Turn on **Loop selection**, then press **Play**.
+- a play or a wait: its time range, the requested run time if it is different, the
+  animations, and notes such as **Still image** or **Not in the video (skipped section)**;
+- a section: its name, its start time and **Skipped in the video** if it is skipped;
+- a caption: its text and its time range;
+- a sound: its file name, its time range or start, and its gain if the scene sets one.
 
-The shaded area shows the loop interval. Events between the first and last selection
-are part of the interval even when their boxes are not highlighted.
+Each entry shows its source line, for example `scene.py, line 12`. Double-click an
+entry, or click **Go to source**, to open that line. Use the zoom buttons and the
+scrollbar for a long scene. When the timeline has the focus, **Left** and **Right**
+select the previous or the next play or wait.
 
-## Export a frame, video, or timeline
+If the scene ends early (Manim's `EndSceneEarlyException`), the header shows "The scene
+ended early."
 
-Click **Export…** above the preview. The dialog uses the preview and selected time shown
-when you opened it. Choose **Use latest preview** if a newer update finishes while the
-dialog is open.
+### Select and loop plays
 
-Available exports depend on the current results:
+1. Click a play or a wait to select it.
+2. Cmd-click on macOS, or Ctrl-click on other systems, to add or remove one.
+3. Shift-click to select a range.
+4. Turn on **Loop selection** and press **Play**.
 
-- **Current frame → Save PNG…** saves a still at the selected time. If a video is
-  displayed, Cue runs the scene again to capture the frame, so scenes with changing
-  external inputs or unseeded randomness may produce a different image.
-- **Video → Save existing preview** copies the completed preview video.
-- **Video → New render** renders the complete saved Scene with separate output settings.
-- **Timeline JSON → Save JSON…** saves the timeline for other tools or inspection.
+The shaded area shows the loop. It goes from the first to the last selected play. A loop
+can include a skipped section; playback goes over it.
 
-A new render supports MP4/H.264 with Cairo. Choose a resolution preset or enter custom
-width and height, then set FPS and quality. Width and height must be even numbers between
-64 and 8192, with at most 32 megapixels in total.
+### Skipped sections
 
-Lower **CRF** values produce higher quality and larger files. **Encoding effort** trades
-rendering time for compression. Most users can keep the defaults. Advanced options use
-one `key=value` entry per line.
+A section with `skip_animations=True` is not in the video. The timeline still shows its
+plays at their scene times. When you select a time in a skipped section, Cue shows the
+frame from a run of the scene and the note "This part is skipped in the video."
 
-A new render always covers the complete Scene; the selected timeline range is only for
-preview looping. Changing FPS can change animation and updater behavior because Manim
-executes the scene again at that frame rate.
+## Export a frame, the video or the timeline
 
-Only one render runs at a time. Use **Cancel export** or the progress notification to
-stop it. Cue preserves an existing destination file if rendering or copying fails.
-After a successful export, choose **Reveal file** or **Open file**.
+Click **Export…** above the preview. The dialog uses the preview and the time when you
+opened it. If the preview changes while the dialog is open, click **Use the latest
+preview**.
+
+- **Frame → Save PNG…** saves the frame at the selected time. When the preview shows the
+  video, Cue runs the scene to make this frame at the preview size.
+- **Video → Save the preview video** saves a copy of the preview video.
+- **Video → Render a new video** renders the whole scene with the settings of the dialog.
+- **Timeline → Save JSON…** saves the timeline in the `manim.timeline` format.
+
+A scene without plays and waits has no video. For such a scene, the dialog offers the
+frame and the timeline.
+
+A new video is an MP4 file with H.264. Choose a size, or enter a width and a height.
+Width and height must be even numbers from 64 to 8192, with at most 32 megapixels. Set
+the frame rate, the quality (CRF) and the encoding effort. A lower CRF gives a higher
+quality and a larger file. Under **Advanced**, you can add encoder options, one
+`key=value` pair on each line.
+
+A new video always contains the whole scene. A different frame rate runs the animations
+again at that rate.
+
+One export runs at a time. To stop it, click **Cancel export** or use the progress
+notification. After the export, click **Reveal file** or **Open file**.
 
 ## Compare two frames
 
-Click **Compare** to pin the displayed frame as a reference. Edit and save your scene;
-the reference stays fixed while the current frame updates.
+Click **Compare** to keep the shown frame as the reference. Edit and save the scene; the
+reference stays the same while the current frame updates.
 
-- **Wipe** places the reference on the left and current frame on the right. Drag the
-  divider to compare them.
-- **Overlay** blends the two images. Move the slider from reference-only to current-only.
-- **Replace reference** pins the currently displayed frame instead.
+- **Wipe** shows the reference on the left and the current frame on the right. Drag the
+  divider to move the edge.
+- **Overlay** blends the two frames. Move the slider from the reference to the current
+  frame.
+- **Replace reference** uses the shown frame as the new reference.
 
-While Compare is active, seeking and frame stepping capture new current frames. Pressing
-Play leaves Compare and returns to video playback. Switching Scene or closing the preview
-panel clears the reference.
-
-Frames with different sizes or camera geometry are labelled so you can interpret the
-comparison carefully.
+In Compare, a new time shows a new frame from a run of the scene. **Play** ends Compare
+and plays the video. When you open another scene or close the preview, the reference is
+removed.
 
 ## Measure coordinates and distances
 
-Click **Measure** to show rulers and a crosshair over the preview.
+Click **Measure** to show rulers and a crosshair on the preview.
 
-- Move the pointer to read `(x, y)` in Manim units.
+- Move the pointer to read `(x, y)` in scene units.
 - Click to pin a point.
-- Drag from the pinned point to measure horizontal, vertical, and straight-line distance.
-- Choose **Copy point** to copy `[x, y, 0]`.
-- Choose **Clear**, or press Escape over the preview, to clear the selection.
+- Drag from the pinned point to measure the horizontal, the vertical and the direct
+  distance.
+- Click **Copy point** to copy `[x, y, 0]`.
+- Click **Clear**, or press Escape in the preview, to remove the points.
 
-Measurement uses the configured Manim frame dimensions and works best with a centred,
-unrotated 2D camera. Camera movement, 3D projection, and custom cropping can make the
-reported coordinates differ from the coordinates you expect in the scene.
+Measurement uses the frame size of your Manim configuration. It fits a centred 2D camera
+without rotation.

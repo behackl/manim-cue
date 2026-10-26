@@ -1,70 +1,80 @@
-# How scene updates work
+# How an update works
 
-Manim Cue runs your saved scene in separate steps so it can show useful results early.
-Understanding those steps helps explain the status labels in the preview.
+Manim Cue runs your saved scene in Python and shows the results in steps, so that you
+see a frame early. This page explains the steps and the status line of the preview.
 
 ## Update order
 
-When you open or refresh a Scene, Cue:
+When you open a scene or save its file, Cue:
 
-1. captures the frame at your selected time;
-2. evaluates the scene to build the timeline;
-3. renders a complete preview video when **Auto video** is enabled.
+1. runs the scene once and shows the frame at the selected time as soon as the scene
+   reaches that time;
+2. shows the timeline when the same run ends;
+3. renders the video when **Auto Preview** is on. The render also makes the timeline
+   of the video, and the timeline view shows that timeline.
 
-Each step runs the scene in a fresh Python process, so every step starts clean and can
-be cancelled independently. It also means scenes that
-use randomness, the current time, network responses, or changing files can produce
-different content between the captured frame and rendered video.
+Each run starts a new Python process, so each run starts clean and you can cancel it.
+Scenes that use random numbers, the current time, the network or files that change
+can give a video that differs from the frame.
 
-Cue runs one Manim process at a time. A requested frame takes priority over background
-video work. While an export runs, preview updates wait for it to finish or be cancelled.
+When you choose another time and there is no video yet, Cue runs the scene up to that
+time and shows its frame. This run stops after the frame.
+
+Cue runs one Python process at a time. A frame for a new time comes before the video.
+During an export, preview updates wait until the export is done or cancelled.
 
 ## Saved files and refreshes
 
-Cue works from saved local Python files. Saving the main scene file schedules an update
-after a short pause, including saves made by VS Code Auto Save. Unsaved edits stop the
-active update and mark the visible result as old.
+Cue runs the saved scene file. When you save the scene file, Cue starts an update after
+a short pause, also for saves from VS Code Auto Save. When you edit the file without
+saving it, the results become **Outdated**.
 
-Changes to imported Python files, assets, `manim.cfg`, or the selected environment need
-a manual **Refresh**. This keeps a helper-file save from unexpectedly executing a scene.
+After a change to an imported Python file, an asset, `manim.cfg` or the Python
+environment, press **↻ Refresh**.
 
-The working directory is the workspace folder by default, or the source file's parent
-for a loose file. Change **Manim Cue: Working Directory** when your imports or relative
-asset paths expect another directory.
+The scene runs in the workspace folder, or in the folder of the scene file outside a
+workspace. To use another folder, set **Manim Cue: Working Directory**.
 
-## Preview profile
+## Preview settings
 
-The default preview uses Cairo at 30 frames per second and about 960 pixels wide. Change
-**Frame Rate** and **Preview Width** in VS Code Settings. Cue keeps the aspect ratio from
-your Manim configuration.
+The preview uses Cairo, 30 frames per second and a width of about 960 pixels. Change
+**Frame Rate** and **Preview Width** in the VS Code settings. The height follows the
+aspect ratio of your Manim configuration.
 
-Frame rate affects how Manim evaluates animations and updaters, so changing it can alter
-the timeline as well as the video. Cue uses seed `0` when the project has no configured
-seed, which makes many scenes more repeatable while editing.
+Animations and updaters run at the frame rate of the preview, so a different frame rate
+can change the timeline and the video. Cue uses the seed `0` when your project sets no
+seed, so random numbers repeat from one update to the next.
 
-Cue reads your project configuration and applies preview-specific output settings. It
-writes generated media and caches to the extension's storage area rather than editing
-your project configuration.
+Cue reads your project configuration and writes its own preview settings, media and
+caches into the storage of the extension.
 
-## Current, old, and unlinked results
+## Outdated results
 
-A result is **current** when it matches the saved scene, selected environment, preview
-settings, and known configuration inputs.
+The frame, the timeline and the video are each up to date or **Outdated**. A result is
+Outdated when the scene file, the Python environment or a setting changed after the
+result started. An Outdated result stays visible until the new result is ready, so you
+can compare your change with the previous result.
 
-An **OLD PREVIEW** remains visible while an update is running or after an input changes.
-Keeping it visible makes it easier to compare your edit with the previous result.
+## Skipped sections
 
-Frame, timeline, and video updates can finish separately. If one succeeds and a later
-step fails, Cue keeps the useful result and labels combinations that came from different
-runs as **UNLINKED**. Press **Refresh** after fixing the error.
+A section with `skip_animations=True` is not in the video. The timeline shows all plays
+and waits at their scene times, and marks the skipped ones with a hatch. The playhead,
+the scrubber, frame steps and loops use scene time. When you select a time in a skipped
+section, Cue shows the frame from a run of the scene and the note "This part is skipped
+in the video." Playback goes over skipped sections without a stop.
 
-## Files, caches, and trust
+## Sounds
 
-Temporary previews, timeline data, and caches live in VS Code extension storage. Run
-**Manim Cue: Clear Caches** when you change fonts or typesetting tools, or when you want
-to reclaim cache space. Exported files are written only after rendering finishes, so a
-failed export leaves an existing destination intact.
+The timeline shows each sound at the scene time where it starts. A sound with a known
+duration is a bar. The preview plays without sound; an exported video contains the
+sounds of the scene.
 
-A Manim scene runs as normal Python code. It has the same access to files, the network,
-and other processes as Python started from your account. Cue therefore requires a
-trusted workspace before discovering or running scenes.
+## Files, caches and trust
+
+Previews, timelines and caches are in the storage of the extension. Run
+**Manim Cue: Clear Caches** after you change fonts or typesetting tools, or to free
+space. An export writes its file when the render is complete, so a failed export keeps
+an existing file.
+
+Your scene runs as normal Python code with your account's access to files, the network
+and other programs. Cue runs scenes in trusted workspaces.
