@@ -46,9 +46,14 @@ const os = require('node:os');
       try { await fs.access(candidate); local = candidate; break; } catch { /* Try next binary name. */ }
     }
   }
-  await runTests({ vscodeExecutablePath: local, extensionDevelopmentPath: root,
-    extensionTestsPath: path.join(root, 'dist', 'smoke.cjs'),
-    launchArgs: [workspace, ...profileArgs, '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates'],
-  });
-  console.log(await fs.readFile(path.join(workspace, 'smoke-success.json'), 'utf8'));
+  try {
+    await runTests({ vscodeExecutablePath: local, extensionDevelopmentPath: root,
+      extensionTestsPath: path.join(root, 'dist', 'smoke.cjs'),
+      launchArgs: [workspace, ...profileArgs, '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates'],
+    });
+    console.log(await fs.readFile(path.join(workspace, 'smoke-success.json'), 'utf8'));
+  } finally {
+    // The test profile holds a copy of the Python extension: several hundred megabytes.
+    await fs.rm(scratch, { recursive: true, force: true });
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });
