@@ -27,11 +27,12 @@ export interface JobOptions {
 export interface SceneJob { options: JobOptions; directory: string; sourceHash: string; cache: string; request: Record<string, unknown> }
 
 export async function fileHash(file: string): Promise<string> { return createHash('sha256').update(await fs.readFile(file)).digest('hex'); }
-export async function createJob(o: JobOptions): Promise<SceneJob> {
+/** `sourceHash`: the hash of the saved file, when the caller has it. */
+export async function createJob(o: JobOptions, sourceHash?: string): Promise<SceneJob> {
   await fs.mkdir(o.scratch, { recursive: true });
   const directory = await fs.mkdtemp(path.join(o.scratch, 'run-'));
   await fs.mkdir(path.join(directory, 'media'));
-  const sourceHash = await fileHash(o.source);
+  sourceHash ??= await fileHash(o.source);
   const cacheKey = createHash('sha256').update(JSON.stringify([o.python, o.cwd, path.dirname(o.source),
     Object.entries(o.env).sort(([a], [b]) => a.localeCompare(b))])).digest('hex');
   const cache = path.join(o.scratch, 'cache-v1', cacheKey);

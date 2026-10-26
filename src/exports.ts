@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { environmentFor, workingDirectoryFor } from './environment';
-import { createJob, fileHash, inspect, renderExport, type PreviewResult, type Result, type TimelineResult, type SceneJob } from './jobs';
+import { sceneJob } from './environment';
+import { fileHash, inspect, renderExport, type PreviewResult, type Result, type TimelineResult, type SceneJob } from './jobs';
 import { exportChoice, exportSize, type ExportChoice, type ExportModel } from './export-settings';
 import { copyExport, validateDestination } from './export-files';
 import { isCall } from './timeline';
@@ -182,15 +182,11 @@ export class Exports {
             if (!frame?.media.capture || frame.media.capture.time === null) throw new Error('The scene ends before this time. Choose an earlier time.');
             file = frame.media.path; rendered = frame;
           } else {
-            const env = await environmentFor(source.uri); signal.throwIfAborted();
-            const cfg = vscode.workspace.getConfiguration('manimCue', source.uri), timeout = cfg.get<number>('timeoutSeconds', 600);
-            if (!Number.isFinite(timeout) || timeout < 5 || timeout > 7200) throw new Error('Set “Manim Cue: Timeout Seconds” to a value from 5 to 7200.');
-            const job = await createJob({ ...env, source: source.uri.fsPath, scene: source.scene, cwd: workingDirectoryFor(source.uri), fps: settings.fps, width: settings.width,
-              timeout: timeout * 1000, exportSettings: settings, scratch: this.scratch,
+            const { job, environment } = await sceneJob(source.uri, source.scene, { scratch: this.scratch, sourceHash, exportSettings: settings,
               helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal, log: this.log });
             active.job = job; signal.throwIfAborted();
-            if (job.sourceHash !== sourceHash || this.dirty(source)) throw new Error('The scene file changed. Save it and try again.');
-            this.log(`\n── Export ${source.scene} · ${settings.width}×${settings.height} · ${settings.fps} fps · CRF ${settings.crf} / ${settings.preset} ──\nPython: ${env.python}\nSource: ${source.uri.fsPath}\n`);
+            if (this.dirty(source)) throw new Error('The scene file changed. Save it and try again.');
+            this.log(`\n── Export ${source.scene} · ${settings.width}×${settings.height} · ${settings.fps} fps · CRF ${settings.crf} / ${settings.preset} ──\nPython: ${environment.python}\nSource: ${source.uri.fsPath}\n`);
             const exported = await renderExport(job, signal); rendered = exported; file = exported.file;
           }
           const beforePublish = async () => {

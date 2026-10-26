@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { PythonExtension } from '@vscode/python-extension';
+import { createJob, type SceneJob } from './jobs';
+import type { RenderSettings } from './export-settings';
 
 export interface PythonEnvironment {
   python: string; env: NodeJS.ProcessEnv; selection: string;
@@ -23,4 +25,22 @@ export async function environmentFor(uri: vscode.Uri): Promise<PythonEnvironment
   const key = Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH';
   env[key] = `${path.dirname(python)}${path.delimiter}${env[key] ?? ''}`;
   return { python, env, selection: override ? 'manimCue.pythonPath override' : `Python extension selection for this file: ${selected!.path}` };
+}
+
+/**
+ * A job for the saved scene file with the Python and the settings of its workspace. An
+ * export sets its own size and frame rate.
+ */
+export async function sceneJob(uri: vscode.Uri, scene: string, o: { scratch: string; helpers: string; signal: AbortSignal;
+  log: (text: string) => void; sourceHash?: string; exportSettings?: RenderSettings }): Promise<{ job: SceneJob; environment: PythonEnvironment; cwd: string }> {
+  const environment = await environmentFor(uri);
+  const cfg = vscode.workspace.getConfiguration('manimCue', uri), cwd = workingDirectoryFor(uri);
+  const fps = o.exportSettings?.fps ?? cfg.get<number>('frameRate', 30), width = o.exportSettings?.width ?? cfg.get<number>('previewWidth', 960);
+  const timeout = cfg.get<number>('timeoutSeconds', 600);
+  if (!(fps >= 1 && fps <= 120 && (o.exportSettings || width >= 64 && width <= 3840) && timeout >= 5 && timeout <= 7200)) {
+    throw new Error('Check the Manim Cue settings for the frame rate, the preview width and the timeout.');
+  }
+  const job = await createJob({ ...environment, source: uri.fsPath, scene, cwd, fps, width, timeout: timeout * 1000,
+    scratch: o.scratch, helpers: o.helpers, signal: o.signal, log: o.log, exportSettings: o.exportSettings }, o.sourceHash);
+  return { job, environment, cwd };
 }

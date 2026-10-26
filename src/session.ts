@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { environmentFor, workingDirectoryFor } from './environment';
+import { environmentFor, sceneJob } from './environment';
 import { RuntimeUnavailable } from './diagnostics';
 import { Scenes } from './scenes';
-import { createJob, inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
+import { inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
 import { PreviewQueue } from './preview-queue';
 import type { TimeRange } from './selection';
 import { Views } from './views';
@@ -143,17 +143,11 @@ export class Session implements vscode.Disposable {
       if (!current()) return;
       try {
         this.output.appendLine(`\n── ${target.scene} · ${path.basename(target.uri.fsPath)} · generation ${generation} ──`);
-        const environment = await environmentFor(target.uri);
+        const { job, environment, cwd } = await sceneJob(target.uri, target.scene, { scratch: this.scratch, sourceHash: hash,
+          helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal: abort.signal, log: s => { if (!this.disposed) this.output.append(s); } });
         if (!current()) return;
         this.pythonInUse = environment.python;
-        const cfg = vscode.workspace.getConfiguration('manimCue', target.uri), cwd = workingDirectoryFor(target.uri);
-        const fps = cfg.get<number>('frameRate', 30), width = cfg.get<number>('previewWidth', 960), timeout = cfg.get<number>('timeoutSeconds', 600);
-        if (!(fps >= 1 && fps <= 120 && width >= 64 && width <= 3840 && timeout >= 5 && timeout <= 7200)) throw new Error('Check the Manim Cue settings for the frame rate, the preview width and the timeout.');
         this.output.appendLine(`Python: ${environment.python}\nSelection: ${environment.selection}\nSource: ${target.uri.fsPath}\nWorking directory: ${cwd}`);
-        const job = await createJob({ ...environment, source: target.uri.fsPath, scene: target.scene, cwd, fps, width,
-          timeout: timeout * 1000, scratch: this.scratch, helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath,
-          signal: abort.signal, log: s => { if (!this.disposed) this.output.append(s); } });
-        if (!current()) return;
         this.job = job;
         this.requestTimeline(frame);
       } catch (e) { if (current()) { this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.output.appendLine(this.error); } }
