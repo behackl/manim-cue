@@ -99,9 +99,8 @@ export function activate(context: vscode.ExtensionContext) {
     command('manimCue.previousFrame', () => session.views.step(-1)), command('manimCue.nextFrame', () => session.views.step(1)),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (!e.contentChanges.length) return;
-      // An undo back to the saved content makes the results current again.
-      session.watch.changed(e.document.uri);
-      if (!e.document.isDirty) void session.watch.saved(e.document.uri, e.document.getText());
+      // An undo back to the saved content starts an update of that content.
+      void session.watch.edit(e.document.uri, e.document.isDirty ? undefined : e.document.getText());
     }),
     vscode.workspace.onDidSaveTextDocument(document => { void session.watch.saved(document.uri); }),
     vscode.workspace.onDidChangeConfiguration(e => session.configurationChanged(e)),

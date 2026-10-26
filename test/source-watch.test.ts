@@ -17,6 +17,7 @@ async function setup(refresh: () => Promise<void> = async () => {}) {
   const watch = new SourceWatch({
     file: () => file, dirty: () => state.dirty, automatic: () => state.automatic,
     invalidate: reason => { calls.push(`invalidate ${reason}`); watch.stop(); }, // The session cancels its work.
+    edited: () => calls.push('edited'),
     queued: () => calls.push('queued'),
     refresh: async () => { calls.push('refresh'); await refresh(); },
     failed: (status, error) => calls.push(`failed ${status}: ${(error as Error).message}`),
@@ -78,5 +79,18 @@ test('an editor text without the UTF-8 BOM of the file is the saved text', async
     await fs.writeFile(file.fsPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('saved')]));
     await watch.saved(file, 'saved'); await pause(30);
     assert.deepEqual(calls, ['invalidate Update queued…', 'queued', 'refresh']);
+  } finally { await fs.rm(dir, { recursive: true }); }
+});
+
+test('unsaved edits of the scene file make the results outdated once; edits of other files wait for a save', async () => {
+  const { dir, file, calls, watch } = await setup();
+  try {
+    watch.updating('hash of the update');
+    await watch.edit(file); await watch.edit(file); await watch.edit(uri(path.join(dir, 'helper.py')));
+    assert.deepEqual(calls, ['edited'], 'no stop of the running update, one message');
+    assert.equal(watch.edited, true);
+    await watch.edit(file, 'saved'); await pause(30);
+    assert.deepEqual(calls.slice(1), ['invalidate Update queued…', 'queued', 'refresh'], 'an undo back to the saved file updates');
+    assert.equal(watch.edited, false);
   } finally { await fs.rm(dir, { recursive: true }); }
 });

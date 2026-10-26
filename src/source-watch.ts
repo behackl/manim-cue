@@ -12,6 +12,8 @@ export interface WatchedScene {
   /** A save starts an update: the workspace is trusted and "Auto Refresh On Save" is on. */
   automatic(uri: FileUri): boolean;
   invalidate(reason: string, savedHash?: string): void;
+  /** The editor has the first unsaved change of the scene file since the last update. */
+  edited(): void;
   /** A save starts an update after a short pause. */
   queued(): void;
   refresh(): Promise<void>;
@@ -25,22 +27,31 @@ export class SourceWatch {
   private check = 0;
   /** The content of the last update. */
   private hash?: string;
+  private changes = false;
   /** The editor changed the scene file after the last update; a save of the old content still updates. */
-  private edited = false;
+  get edited(): boolean { return this.changes; }
   constructor(private readonly scene: WatchedScene, private readonly delay = 500) {}
   /** An update of this content starts. */
-  updating(hash: string): void { this.stop(); this.hash = hash; this.edited = false; }
+  updating(hash: string): void { this.stop(); this.hash = hash; this.changes = false; }
   /** Another scene file opens. */
-  reset(): void { this.stop(); this.hash = undefined; this.edited = false; }
+  reset(): void { this.stop(); this.hash = undefined; this.changes = false; }
   /** Stops a queued update. */
   stop(): void { clearTimeout(this.timer); this.timer = undefined; ++this.check; }
+  /**
+   * The editor changed `uri`. Only the scene file counts: other files count when they are
+   * saved. With `text`, the editor is clean again, for example after an undo.
+   */
+  async edit(uri: FileUri, text?: string): Promise<void> {
+    if (uri.toString() !== this.scene.file()?.toString()) return;
+    if (!this.changes) { this.changes = true; this.scene.edited(); }
+    if (text !== undefined) await this.saved(uri, text);
+  }
+  /** A file changed on disk, or was deleted. */
   changed(uri: FileUri): void {
     const file = this.scene.file();
     if (!file) return;
-    if (uri.toString() === file.toString()) {
-      this.edited = true;
-      this.scene.invalidate('Outdated. Save the scene file to update.');
-    } else if (!insideEnvironment(uri.fsPath) &&
+    if (uri.toString() === file.toString()) void this.edit(uri);
+    else if (!insideEnvironment(uri.fsPath) &&
       (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env')) {
       this.scene.invalidate('Outdated. A project file changed. Refresh to update.');
     }
@@ -61,8 +72,8 @@ export class SourceWatch {
       if (text !== undefined && bytes.toString('utf8').replace(/^\uFEFF/u, '') !== text) return;
       // A save and the file watcher often report the same write. Do not cancel a queued
       // or running update for the duplicate, even when the watcher comes late.
-      if (hash === this.hash && !this.edited) return;
-      this.hash = hash; this.edited = false;
+      if (hash === this.hash && !this.changes) return;
+      this.hash = hash; this.changes = false;
       const automatic = this.scene.automatic(uri);
       this.scene.invalidate(automatic ? 'Update queued…' : 'Outdated. Refresh to update.', hash);
       if (!automatic) return;

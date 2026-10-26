@@ -44,6 +44,12 @@ export class Session implements vscode.Disposable {
     dirty: uri => vscode.workspace.textDocuments.some(d => d.uri.toString() === uri.toString() && d.isDirty),
     automatic: uri => vscode.workspace.isTrusted && vscode.workspace.getConfiguration('manimCue', uri as vscode.Uri).get('autoRefreshOnSave', true),
     invalidate: (reason, savedHash) => this.invalidate(reason, savedHash),
+    // A running update of the saved file goes on; its results are outdated too.
+    edited: () => {
+      this.exports.invalidate(false);
+      for (const result of [this.frame, this.video, this.timeline, ...this.exports.results]) if (result) result.outdated = true;
+      this.status = 'Outdated. Save the scene file to update.'; this.views.update();
+    },
     queued: () => { this.busy = true; this.error = undefined; this.views.update(); },
     refresh: () => this.refresh(),
     failed: (status, e) => {
@@ -176,9 +182,12 @@ export class Session implements vscode.Disposable {
     }
     this.output.appendLine(`\n${this.error}`); this.views.update();
   }
+  /** The status after a job: unsaved edits make its results outdated at once. */
+  private done(): void { this.status = this.watch.edited ? 'Outdated. Save the scene file to update.' : 'Up to date'; }
   private async publishFrame(job: SceneJob, signal: AbortSignal, result: PreviewResult): Promise<void> {
     const published = await publishPreview(result, this.mediaRoot);
     if (!this.current(job, signal)) return;
+    published.outdated = this.watch.edited;
     this.frame = published; this.setError('Frame'); this.views.update();
   }
   /** One run gives the timeline and, with `frame`, the frame at the current time on the way. */
@@ -195,7 +204,8 @@ export class Session implements vscode.Disposable {
           await this.publishFrame(job, signal, frame);
         });
         if (!this.current(job, signal)) return;
-        this.timeline = result.timeline; this.setError('Timeline'); this.status = 'Up to date'; this.views.update();
+        this.timeline = result.timeline!; this.timeline.outdated = this.watch.edited;
+        this.setError('Timeline'); this.done(); this.views.update();
         if (frame && this.autoPreview || this.videoWanted) this.requestVideo();
       } catch (e) { this.jobFailed(job, signal, 'Timeline', e); }
     });
@@ -204,14 +214,14 @@ export class Session implements vscode.Disposable {
   requestFrame(time: number): void {
     this.time = time; this.remember();
     const job = this.job;
-    if (!job || !this.views.previewOpen) return;
+    if (!job || !this.views.previewOpen || this.watch.edited) return;
     this.queue.enqueue('frame', async signal => {
       const frame = this.frame?.media.capture;
       if (!this.current(job, signal) || frame?.requestedTime === time && !this.frame!.outdated) return;
       this.status = 'Updating frame…'; this.views.update();
       try {
         await inspect(job, { time, timeline: false }, signal, frame => this.current(job, signal) ? this.publishFrame(job, signal, frame) : undefined);
-        if (this.current(job, signal)) { this.status = 'Up to date'; this.views.update(); }
+        if (this.current(job, signal)) { this.done(); this.views.update(); }
       } catch (e) { this.jobFailed(job, signal, 'Frame', e); }
     }, 100); // Scrubbing sends many requests: start when they pause.
   }
@@ -236,7 +246,8 @@ export class Session implements vscode.Disposable {
         if (!this.current(job, signal)) return;
         // The render's timeline describes the video; selections keep their entry indices.
         this.video = published; this.timeline = result.timeline; this.videoWanted = false;
-        this.setError('Video'); this.status = 'Up to date'; this.views.update();
+        this.video.outdated = this.timeline.outdated = this.watch.edited;
+        this.setError('Video'); this.done(); this.views.update();
       } catch (e) { this.jobFailed(job, signal, 'Video', e); }
     });
   }

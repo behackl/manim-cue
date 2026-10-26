@@ -20,7 +20,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     scene: s.target?.scene ?? '', status: s.exports.nativeBusy ? 'Rendering for export…' : s.status, busy: s.busy, error: s.error,
     autoPreview: s.autoPreview, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
     profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
-    job: s.job?.directory, time: s.time,
+    job: s.watch.edited ? undefined : s.job?.directory, time: s.time,
     timeline: s.timeline?.timeline, timelineKey: s.timeline?.directory, timelineOutdated: !!s.timeline?.outdated,
     frame: frame(s.frame), reference: frame(s.reference),
     video: video && { ...media(s.video!), duration: video.duration, rate: video.rate, skipped: video.skipped ?? [] },
