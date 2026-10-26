@@ -5,8 +5,8 @@ on its geometry and updaters, and on the text and formula caches.
 
 ## Make editing faster
 
-1. **Turn off Render Video Automatically.** Cue then updates the frame and the timeline when you save.
-   Click **Render video** when you want to play the scene.
+1. **Turn off Render Video Automatically.** Cue then updates the frame and the timeline
+   when you save. Click **Render video** when you want to play the scene.
 2. **Use a smaller Preview Width.** A width of 480 is often enough to arrange a scene.
 3. **Select an earlier time.** For a frame, Cue runs the scene up to the selected time.
 4. **Keep expensive work out of updaters.** Code that builds many objects in each frame
@@ -41,5 +41,5 @@ In Compare, each new time makes a new frame from a run of the scene. This takes 
 than a seek in the video. The wipe divider and the overlay slider only draw the two
 frames again, so they respond at once.
 
-For the fastest edit cycle, turn off Render Video Automatically, choose the frame that you want to see,
-and save. Render the video when you want to check motion and timing.
+For the fastest edit cycle, turn off Render Video Automatically, choose the frame that
+you want to see, and save. Render the video when you want to check motion and timing.

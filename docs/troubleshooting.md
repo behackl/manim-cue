@@ -15,7 +15,8 @@ shows one result:
 
 The log (**Manim Cue: Show Log**) shows the details: the Python executable, the Python
 and Manim versions, the working folder and the missing features. When an update fails,
-the error under the timeline has **Show Log** and **Check Python** buttons.
+the error under the timeline has a **Show Log** button. When the error comes from the
+Python environment, it also has a **Check Python** button.
 
 ## Select the Python environment
 
@@ -102,11 +103,6 @@ Common fixes:
 
 For export errors, make sure that width and height are even and in the limits of the
 dialog. Encoder options use one `key=value` pair on each line.
-
-## Manim Cue commands appear two times
-
-Early local builds used the extension name `manim-cue-local.manim-cue`. Disable or
-uninstall that build, install `behackl.manim-cue`, and reload VS Code.
 
 ## Report a problem
 

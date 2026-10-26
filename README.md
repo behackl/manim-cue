@@ -37,8 +37,8 @@ or newer.
 > ```
 >
 > Manim can also need [system packages](https://docs.manim.community/en/stable/installation.html)
-> for Cairo, text and video. Cue checks the features of the installed Manim, so the
-> version number of the branch is not important.
+> for Cairo, text and video. Cue checks the features of the installed Manim:
+> **Manim Cue: Check Python Environment** shows the result.
 
 1. Find **Manim Cue** in the Extensions view and choose **Install Pre-Release Version**.
    To install a downloaded VSIX file, use **Extensions → … → Install from VSIX…**.
@@ -66,10 +66,11 @@ The buttons above the preview:
 - **Export…** saves the frame, the video or the timeline, or renders a new video.
 - **Compare** keeps a frame as the reference and compares later frames with it.
 - **Measure** shows scene coordinates and measures distances.
-- **Settings** (the cog) opens the preview width, the frame rate and **Render Video Automatically**.
+- **Settings** (the cog) opens the preview width, the frame rate and **Render Video
+  Automatically**.
 
-The preview plays without sound. The timeline shows the sounds, and an exported video
-contains them. Measurement works for a centred 2D camera without rotation.
+Playback in the preview is silent; exported videos have sound, and the timeline shows
+the sounds. Measurement uses the coordinates of a centred 2D camera.
 
 Your scene runs as normal Python code with your account's access to files, the network
 and other programs. Open scenes and plugins that you trust.

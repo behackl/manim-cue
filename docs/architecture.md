@@ -10,8 +10,8 @@ When you open a scene or save its file, Cue:
 1. runs the scene once and shows the frame at the selected time as soon as the scene
    reaches that time;
 2. shows the timeline when the same run ends;
-3. renders the video when **Render Video Automatically** is on. The render also makes the timeline
-   of the video, and the timeline view shows that timeline.
+3. renders the video when **Render Video Automatically** is on. The render also makes
+   the timeline of the video, and the timeline view shows that timeline.
 
 Each run starts a new Python process, so each run starts clean and you can cancel it.
 Scenes that use random numbers, the current time, the network or files that change
@@ -26,8 +26,8 @@ During an export, preview updates wait until the export is done or cancelled.
 ## Saved files and refreshes
 
 Cue runs the saved scene file. When you save the scene file, Cue starts an update after
-a short pause, also for saves from VS Code Auto Save. When you edit the file without
-saving it, the results become **Outdated**.
+a short pause, also for saves from VS Code Auto Save. The first unsaved edit makes the
+results **Outdated**; an update that runs already goes on with the saved file.
 
 After a change to an imported Python file, an asset, `manim.cfg` or the Python
 environment, press **↻ Refresh**.
@@ -42,8 +42,8 @@ The preview uses Cairo, 30 frames per second and a width of about 960 pixels. Ch
 aspect ratio of your Manim configuration.
 
 Animations and updaters run at the frame rate of the preview, so a different frame rate
-can change the timeline and the video. Cue uses the seed `0` when your project sets no
-seed, so random numbers repeat from one update to the next.
+can change the timeline and the video. Cue uses the seed of your project, or else the
+seed `0`, so random numbers repeat from one update to the next.
 
 Cue reads your project configuration and writes its own preview settings, media and
 caches into the storage of the extension.
@@ -57,17 +57,17 @@ can compare your change with the previous result.
 
 ## Skipped sections
 
-A section with `skip_animations=True` is not in the video. The timeline shows all plays
+The video leaves out a section with `skip_animations=True`. The timeline shows all plays
 and waits at their scene times, and marks the skipped ones with a hatch. The playhead,
 the scrubber, frame steps and loops use scene time. When you select a time in a skipped
-section, Cue shows the frame from a run of the scene and the note "This part is skipped
-in the video." Playback goes over skipped sections without a stop.
+section, Cue shows the frame from a run of the scene and the note "Not in the video: this
+section is skipped." Playback goes on directly after a skipped section.
 
 ## Sounds
 
 The timeline shows each sound at the scene time where it starts. A sound with a known
-duration is a bar. The preview plays without sound; an exported video contains the
-sounds of the scene.
+duration is a bar. Playback in the preview is silent; exported videos have the sounds of
+the scene.
 
 ## Files, caches and trust
 

@@ -32,8 +32,8 @@ With a video, a new time shows the frame from the video. Without a video, Cue ru
 scene up to that time and shows its frame. The time display shows the time of the frame
 and the duration of the scene.
 
-The preview plays without sound. The timeline shows the sounds, and an exported video
-contains them.
+Playback in the preview is silent; exported videos have sound, and the timeline shows
+the sounds.
 
 ## Read the timeline
 
@@ -45,14 +45,13 @@ The timeline shows the scene in scene time. It has four lanes:
 - **Sounds** show where each sound starts. A sound with a known duration is a bar.
 
 The legend below the timeline names the styles: a play, a wait, a still image (a wait
-that shows one frame) and a play that is not in the video because its section is
-skipped.
+that shows one frame) and **Not in the video** (a play or wait of a skipped section).
 
 Click an entry to see it in the panel on the right:
 
 - a play or a wait: its time range, the requested run time if it is different, the
-  animations, and notes such as **Still image** or **Not in the video (skipped section)**;
-- a section: its name, its start time and **Skipped in the video** if it is skipped;
+  animations, and notes such as **Still image** or **Not in the video**;
+- a section: its name, its start time, and **Not in the video** for a skipped section;
 - a caption: its text and its time range;
 - a sound: its file name, its time range or start, and its gain if the scene sets one.
 
@@ -76,9 +75,9 @@ can include a skipped section; playback goes over it.
 
 ### Skipped sections
 
-A section with `skip_animations=True` is not in the video. The timeline still shows its
-plays at their scene times. When you select a time in a skipped section, Cue shows the
-frame from a run of the scene and the note "This part is skipped in the video."
+The video leaves out a section with `skip_animations=True`. The timeline shows its plays
+at their scene times. When you select a time in a skipped section, Cue shows the frame
+from a run of the scene and the note "Not in the video: this section is skipped."
 
 ## Export a frame, the video or the timeline
 
@@ -92,8 +91,7 @@ preview**.
 - **Video → Render a new video** renders the whole scene with the settings of the dialog.
 - **Timeline → Save JSON…** saves the timeline in the `manim.timeline` format.
 
-A scene without plays and waits has no video. For such a scene, the dialog offers the
-frame and the timeline.
+For a scene without plays and waits, the dialog offers the frame and the timeline.
 
 A new video is an MP4 file with H.264. Choose a size, or enter a width and a height.
 Width and height must be even numbers from 64 to 8192, with at most 32 megapixels. Set
@@ -133,5 +131,5 @@ Click **Measure** to show rulers and a crosshair on the preview.
 - Click **Copy point** to copy `[x, y, 0]`.
 - Click **Clear**, or press Escape in the preview, to remove the points.
 
-Measurement uses the frame size of your Manim configuration. It fits a centred 2D camera
-without rotation.
+Measurement uses the frame size of your Manim configuration and the coordinates of a
+centred 2D camera. Values have 2 decimals; a copied point has 4.
