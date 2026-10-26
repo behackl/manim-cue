@@ -20,9 +20,13 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+class CueError(Exception):
+    """An error with a message for the user, printed without a traceback."""
+
+
 def check_source(request):
     if digest(request["source"]) != request["sourceHash"]:
-        raise ValueError("Primary source changed during the run. Save and refresh.")
+        raise CueError("The scene file changed during the update. Save it again to update.")
 
 
 def parameters(function):
@@ -57,14 +61,14 @@ def diagnose():
     features = [report[key] for key in ("timeline", "capture_frame", "video_encoder")]
     report["status"] = "ready" if all(features) else "limited" if any(features) else "unsupported-manim"
     missing = []
-    if not report["timeline"]:
-        missing.append("Timelines need Manager.evaluate(capture_timeline=True) and Manager.render(capture_timeline=True).")
     if not report["capture_frame"]:
-        missing.append("Frame updates need manim.RenderedFrame and Manager.evaluate(frame_times=..., on_frame=...).")
+        missing.append("frames (manim.RenderedFrame, Manager.evaluate with frame_times and on_frame)")
+    if not report["timeline"]:
+        missing.append("timelines (Manager.evaluate and Manager.render with capture_timeline)")
     if not report["video_encoder"]:
-        missing.append("New MP4 exports need public video_codec, pixel_format and video_encoder_options configuration.")
+        missing.append("video export (config.video_codec, pixel_format and video_encoder_options)")
     if missing:
-        report["error"] = " ".join(missing) + " Manim's version alone does not establish compatibility. Select a capable build, then Refresh; Cue does not install or change Manim."
+        report["error"] = "Missing features: " + "; ".join(missing) + "."
     return report
 
 
@@ -75,13 +79,8 @@ def prepare(request):
     export = request.get("export")
     usable = report["video_encoder"] if export else report["timeline"] and report["capture_frame"]
     if not usable:
-        raise RuntimeError(
-            f"Manim Cue environment check: {report['status']}\n"
-            f"Python: {report['python']}\nWorking directory: {report['cwd']}\n"
-            f"Manim module: {report['manim_module'] or '(not imported)'}\n{report['error']}\n"
-            "Run Manim Cue: Check Python Environment or Select Python for Manim Cue. "
-            "The scene file's environment may differ from another editor's status-bar selection."
-        )
+        raise CueError(f"This Python environment is not ready for Manim Cue ({report['status']}).\n"
+                       f"Python: {report['python']}\nManim: {report['manim_module'] or 'not installed'}\n{report['error']}")
     import manim
     from manim import config
     run = Path(request["run"])
@@ -96,7 +95,7 @@ def prepare(request):
     width = max(64, int(request["width"]) // 2 * 2)
     height = export["height"] if export else max(2, round(width * config.pixel_height / config.pixel_width / 2) * 2)
     if width * height > 32_000_000:
-        raise ValueError("Preview exceeds the 32 megapixel limit.")
+        raise CueError("The preview is larger than 32 megapixels. Reduce “Manim Cue: Preview Width”.")
     assets = config.get_dir("assets_dir", module_name=source.stem, scene_name=request["scene"])
     seed = config.seed if config.seed is not None else 0
     overrides = {
@@ -168,7 +167,7 @@ def inspect_scene(request):
     sys.path.insert(0, os.getcwd())
     matches = [cls for cls in scene_classes_from_file(Path(request["source"]), full_list=True) if cls.__name__ == request["scene"]]
     if len(matches) != 1:
-        raise ValueError("Select exactly one Scene class defined in the source file.")
+        raise CueError(f"The file has no scene class named {request['scene']}.")
     scene = matches[0]()
     manager = Manager(scene)
     time, timeline = request.get("time"), request.get("timeline")
@@ -223,4 +222,8 @@ if __name__ == "__main__":
         write_json(argument, diagnose())
     else:
         request = json.loads(Path(argument).read_text(encoding="utf-8"))
-        {"inspect": inspect_scene, "render": render_scene}[command](request)
+        try:
+            {"inspect": inspect_scene, "render": render_scene}[command](request)
+        except CueError as error:
+            print(error, file=sys.stderr)
+            sys.exit(1)

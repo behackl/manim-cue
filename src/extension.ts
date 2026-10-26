@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { PythonExtension } from '@vscode/python-extension';
 import { environmentFor, workingDirectoryFor } from './environment';
-import { checkPython, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
+import { checkPython, diagnosticSummary, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
 import { selectPythonFor } from './python-picker';
 import { setupPythonEnvironment } from './setup';
 import type { SelectionMode } from './selection';
@@ -16,13 +16,13 @@ class PythonCommands implements vscode.Disposable {
   constructor(private readonly context: vscode.ExtensionContext, private readonly output: vscode.OutputChannel, private readonly session: Session) {}
   private resource(uri?: vscode.Uri): vscode.Uri {
     const resource = uri ?? this.session.target?.uri ?? vscode.window.activeTextEditor?.document.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
-    if (!resource || resource.scheme !== 'file') throw new Error('Open a local Python file or workspace first.');
-    if (!vscode.workspace.isTrusted) throw new Error('Workspace trust is required to check or configure Python.');
+    if (!resource || resource.scheme !== 'file') throw new Error('Open a Python file on this computer first.');
+    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to check or set up Python.');
     return resource;
   }
   private offer(resource: vscode.Uri, action: string | undefined): void {
     if (this.disposed) return;
-    if (action === 'Set Up Environment…') void this.setup(resource).catch(e => this.session.failAction(e));
+    if (action === 'Set Up Python Environment…') void this.setup(resource).catch(e => this.session.failAction(e));
     else if (action === 'Select Python…') void this.select(resource).catch(e => this.session.failAction(e));
   }
   async select(uri?: vscode.Uri): Promise<void> {
@@ -33,7 +33,7 @@ class PythonCommands implements vscode.Disposable {
     }
   }
   async setup(uri?: vscode.Uri): Promise<void> {
-    if (this.setupAbort) { void vscode.window.showInformationMessage('A Manim Cue environment setup is already in progress.'); return; }
+    if (this.setupAbort) { void vscode.window.showInformationMessage('The Python environment setup is already running.'); return; }
     const resource = this.resource(uri), abort = new AbortController(); this.setupAbort = abort;
     const session = this.session, current = () => session.target?.uri.toString() === resource.toString();
     try {
@@ -41,7 +41,7 @@ class PythonCommands implements vscode.Disposable {
         canRefresh: current(), signal: abort.signal });
       if (!result || this.disposed) return;
       session.error = undefined; session.scenes.invalidate();
-      if (current()) session.invalidate('Python environment ready — refresh'); else session.views.update();
+      if (current()) session.invalidate('Python environment ready. Refresh to update.'); else session.views.update();
       if (result.refresh && current()) await session.refresh();
     } finally { if (this.setupAbort === abort) this.setupAbort = undefined; }
   }
@@ -50,7 +50,7 @@ class PythonCommands implements vscode.Disposable {
     this.doctorAbort?.abort();
     const abort = new AbortController(); this.doctorAbort = abort;
     try {
-      const report = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking Manim Cue Python', cancellable: true }, async (_progress, token) => {
+      const report = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Manim Cue: Checking the Python environment…', cancellable: true }, async (_progress, token) => {
         const subscription = token.onCancellationRequested(() => abort.abort());
         try {
           if (token.isCancellationRequested) abort.abort();
@@ -65,18 +65,16 @@ class PythonCommands implements vscode.Disposable {
       });
       if (abort.signal.aborted || this.disposed) return;
       this.output.appendLine(formatDiagnostic(report)); this.output.show(true);
-      const message = report.status === 'ready' || report.status === 'limited'
-        ? `Manim Cue ${report.status}: timeline ${report.timeline ? 'available' : 'unavailable'}; frame capture ${report.capture_frame ? 'available' : 'unavailable'}; export encoder profile ${report.video_encoder ? 'available' : 'unavailable'}. See Manim Cue output for build requirements and the checked Python.`
-        : `${report.status}: ${report.python}. ${report.error ?? ''} See Manim Cue output for details.`;
+      const message = `Manim Cue: ${diagnosticSummary(report)}`;
       const notification = report.status === 'ready' ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-      const actions = report.status === 'ready' ? ['Select Python…'] : ['Set Up Environment…', 'Select Python…'];
+      const actions = report.status === 'ready' ? ['Select Python…'] : ['Set Up Python Environment…', 'Select Python…'];
       void notification(message, ...actions).then(action => this.offer(resource, action));
       return report;
     } catch (e) {
       if (abort.signal.aborted || this.disposed) return;
       const message = e instanceof Error ? e.message : String(e);
       this.output.appendLine(message); this.output.show(true);
-      void vscode.window.showWarningMessage(`Python check failed: ${message}`, 'Set Up Environment…', 'Select Python…').then(action => this.offer(resource, action));
+      void vscode.window.showWarningMessage(`The Python check failed: ${message}`, 'Set Up Python Environment…', 'Select Python…').then(action => this.offer(resource, action));
     } finally { if (this.doctorAbort === abort) this.doctorAbort = undefined; }
   }
   dispose(): void { this.disposed = true; this.doctorAbort?.abort(); this.setupAbort?.abort(); }

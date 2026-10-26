@@ -90,7 +90,7 @@ class DiagnosticTests(unittest.TestCase):
                         self.assertEqual(result["status"], expected)
                         self.assertEqual((result["timeline"], result["capture_frame"], result["video_encoder"]), (timeline, frame, encoder))
                         if expected != "ready":
-                            self.assertIn("version alone", result["error"])
+                            self.assertIn("Missing features", result["error"])
 
     def test_frame_capture_needs_rendered_frame(self):
         module = SimpleNamespace(Manager=capable_manager())
@@ -103,7 +103,7 @@ class DiagnosticTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             module = SimpleNamespace(__version__="0.21.0")
             with patch.dict("sys.modules", {"manim": module}):
-                with self.assertRaisesRegex(RuntimeError, "Check Python Environment"):
+                with self.assertRaisesRegex(support.CueError, "not ready"):
                     support.prepare({"run": tmp})
             result = json.loads((Path(tmp) / "diagnostic.json").read_text())
             self.assertEqual(result["status"], "unsupported-manim")
@@ -137,7 +137,7 @@ class DiagnosticTests(unittest.TestCase):
                     module.config.video_encoder_options = {}
                 request = {"run": tmp, "export": {"width": 320} if exporting else None}
                 with patch.dict("sys.modules", {"manim": module}):
-                    with self.assertRaisesRegex(RuntimeError, "Check Python Environment"):
+                    with self.assertRaisesRegex(support.CueError, "not ready"):
                         support.prepare(request)
                 self.assertEqual(json.loads((Path(tmp) / "diagnostic.json").read_text())["status"], "limited")
                 self.assertFalse((Path(tmp) / "cue.cfg").exists())
@@ -159,10 +159,10 @@ class DiagnosticTests(unittest.TestCase):
             with patch("builtins.__import__", side_effect=importing):
                 result = support.diagnose()
                 self.assertEqual(result["status"], expected)
-                with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(RuntimeError, "Python:.*") as failure:
+                with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(support.CueError, "Python:.*") as failure:
                     support.prepare({"run": tmp})
             self.assertIn(support.sys.executable, str(failure.exception))
-            self.assertIn("Check Python Environment", str(failure.exception))
+            self.assertIn("not ready", str(failure.exception))
 
 
 if __name__ == "__main__":

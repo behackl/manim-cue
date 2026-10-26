@@ -10,10 +10,18 @@ export interface PythonDiagnostic {
   capture_frame: boolean; timeline: boolean; video_encoder: boolean;
 }
 
-export class RuntimeUnavailable extends Error {
-  constructor(readonly diagnostic: PythonDiagnostic) {
-    super(`Manim Cue: ${diagnostic.status} (${diagnostic.manim_version ?? 'unknown version'}). ${diagnostic.error ?? ''}\nRun Manim Cue: Check Python Environment or Select Python for Manim Cue, then Refresh.`);
+/** The state of a Python environment in one plain sentence. Details go to the log. */
+export function diagnosticSummary(d: PythonDiagnostic): string {
+  switch (d.status) {
+    case 'ready': return 'Ready.';
+    case 'missing-manim': return 'Manim is not installed in this Python environment. Run “Manim Cue: Set Up Python Environment” to install it.';
+    case 'import-error': return 'Manim does not start in this Python environment. See the log for the error.';
+    default: return 'This Manim version does not have the features Cue needs. Run “Manim Cue: Set Up Python Environment” to install the supported version.';
   }
+}
+
+export class RuntimeUnavailable extends Error {
+  constructor(readonly diagnostic: PythonDiagnostic) { super(diagnosticSummary(diagnostic)); }
 }
 
 export async function readDiagnostic(file: string): Promise<PythonDiagnostic> {
@@ -36,15 +44,14 @@ export async function checkPython(options: {
   } finally { await fs.rm(scratch, { recursive: true, force: true }); }
 }
 
-export function formatDiagnostic(result: PythonDiagnostic): string {
+const available = (value: boolean) => value ? 'available' : 'missing';
+/** The complete result for the log. */
+export function formatDiagnostic(d: PythonDiagnostic): string {
   return [
-    `Check: ${result.status}`, `Actual Python: ${result.python} (${result.python_version})`,
-    `Environment prefix: ${result.prefix}`, `Base prefix: ${result.base_prefix}`,
-    `Working directory: ${result.cwd}`, `Manim module: ${result.manim_module ?? '(not imported)'}`,
-    `Manim version: ${result.manim_version ?? '(unknown)'}`,
-    `Timeline / full preview: ${result.timeline ? 'available' : 'unavailable'}`,
-    `Current-frame capture / comparison: ${result.capture_frame ? 'available' : 'unavailable'}`,
-    `New MP4 export encoder profile: ${result.video_encoder ? 'available' : 'unavailable'}`,
-    result.error ?? 'Required APIs available; scene-specific dependencies and native encoders are not checked.',
+    `Python environment: ${diagnosticSummary(d)}`, `Python: ${d.python} (${d.python_version})`,
+    `Environment: ${d.prefix}`, `Base Python: ${d.base_prefix}`, `Working folder: ${d.cwd}`,
+    `Manim: ${d.manim_module ?? 'not installed'}${d.manim_version ? ` (version ${d.manim_version})` : ''}`,
+    `Frames: ${available(d.capture_frame)}`, `Timeline: ${available(d.timeline)}`, `Video export: ${available(d.video_encoder)}`,
+    ...d.error ? [d.error] : [],
   ].join('\n');
 }

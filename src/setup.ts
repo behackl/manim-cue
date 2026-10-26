@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { PythonExtension } from '@vscode/python-extension';
-import { checkPython, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
+import { checkPython, diagnosticSummary, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
 import { workingDirectoryFor } from './environment';
 import { Cancelled, runProcess } from './process';
 import { MANIM_BRANCH, SETUP_PYTHON, setupCommands } from './setup-plan';
@@ -54,49 +54,49 @@ async function chooseTool(resource: vscode.Uri, cwd: string): Promise<Tool | und
   while (true) {
     type Choice = vscode.QuickPickItem & { action: 'uv' | 'python' | 'locate' };
     const choices: Choice[] = pathUv ? [
-      { label: 'Create with uv', description: 'Recommended', detail: `${pathUv} · found on VS Code's PATH`, action: 'uv' },
-      { label: 'Create with selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · unsupported'})` : 'No usable interpreter selected', action: 'python' },
+      { label: 'Create with uv', description: 'Recommended', detail: pathUv, action: 'uv' },
+      { label: 'Create with the selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · too old'})` : 'No Python interpreter is selected', action: 'python' },
     ] : [
-      { label: 'Create with selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · unsupported'})` : 'No usable interpreter selected', action: 'python' },
-      { label: 'Locate uv executable…', detail: 'Choose the uv executable for this setup only', action: 'locate' },
+      { label: 'Create with the selected Python', detail: python ? `${python.executable} (${python.version}${python.supported ? '' : ' · too old'})` : 'No Python interpreter is selected', action: 'python' },
+      { label: 'Locate uv…', detail: 'Choose the uv executable', action: 'locate' },
     ];
     const choice = await vscode.window.showQuickPick(choices, {
-      title: pathUv ? 'Create Manim Cue environment' : 'uv was not found on VS Code’s PATH',
-      placeHolder: pathUv ? 'Choose how to create .venv' : 'Use Python or locate uv; Manim Cue does not search other paths',
+      title: 'Set Up Python Environment',
+      placeHolder: pathUv ? 'Choose how to create .venv' : 'Choose how to create .venv. uv is not on VS Code’s PATH.',
     });
     if (!choice) return;
     if (choice.action === 'uv') return { kind: 'uv', executable: 'uv', version: pathUv! };
     if (choice.action === 'python') {
       if (python?.supported) return { kind: 'python', executable: python.executable, version: python.version };
       const message = python
-        ? `Manim Cue requires Python 3.11 or newer; the selected interpreter is Python ${python.version}.`
-        : 'Select a Python 3.11+ interpreter, then run setup again.';
+        ? `Manim Cue needs Python 3.11 or newer. The selected interpreter is Python ${python.version}.`
+        : 'Select Python 3.11 or newer, then run the setup again.';
       const action = await vscode.window.showWarningMessage(message, 'Select Python…');
       if (action) await vscode.commands.executeCommand('manimCue.selectPython', resource);
       return;
     }
     const picked = await vscode.window.showOpenDialog({
-      title: 'Locate uv executable', defaultUri: vscode.Uri.file(cwd), openLabel: 'Use uv',
+      title: 'Locate uv', defaultUri: vscode.Uri.file(cwd), openLabel: 'Use uv',
       canSelectFiles: true, canSelectFolders: false, canSelectMany: false,
     });
     if (!picked?.[0]) continue;
     if (picked[0].scheme !== 'file') {
-      await vscode.window.showWarningMessage('Choose a local uv executable.');
+      await vscode.window.showWarningMessage('Choose a uv executable on this computer.');
       continue;
     }
     const version = await probe(picked[0].fsPath, ['--version'], cwd);
     if (version) return { kind: 'uv', executable: picked[0].fsPath, version };
-    await vscode.window.showWarningMessage(`The selected file did not run successfully as uv: ${picked[0].fsPath}`);
+    await vscode.window.showWarningMessage(`This file is not a working uv executable: ${picked[0].fsPath}`);
   }
 }
 
 async function confirmSetup(root: string, directory: string, tool: Tool): Promise<boolean> {
   const creator = tool.kind === 'uv' ? `${tool.version}\nPython: ${SETUP_PYTHON}` : `Python ${tool.version}\n${tool.executable}`;
   const downloads = tool.kind === 'uv'
-    ? `This downloads and installs Python packages, and lets uv download Python ${SETUP_PYTHON} if it is missing.`
-    : 'This downloads and installs Python packages.';
+    ? `The setup downloads and installs Python packages. uv downloads Python ${SETUP_PYTHON} if it is missing.`
+    : 'The setup downloads and installs Python packages.';
   const answer = await vscode.window.showInformationMessage(
-    `Create a new Manim environment?\n\nProject: ${root}\nEnvironment: ${directory}\nCreator: ${creator}\nManim branch: ${MANIM_BRANCH}\n\n${downloads} Installing packages can execute package build code. No existing environment, pyproject.toml or uv.lock file will be changed.`,
+    `Create a new Python environment for Manim?\n\nProject: ${root}\nEnvironment: ${directory}\nCreated with: ${creator}\nManim branch: ${MANIM_BRANCH}\n\n${downloads} Package installation can run the build code of the packages.`,
     { modal: true }, 'Create Environment',
   );
   return answer === 'Create Environment';
@@ -115,7 +115,7 @@ async function clearPythonOverride(resource: vscode.Uri): Promise<void> {
 }
 
 async function deleteOwnedEnvironment(directory: string): Promise<void> {
-  const answer = await vscode.window.showWarningMessage(`Permanently delete the incomplete environment at ${directory}?`, { modal: true }, 'Delete .venv');
+  const answer = await vscode.window.showWarningMessage(`Delete the incomplete environment at ${directory}?`, { modal: true }, 'Delete .venv');
   if (answer === 'Delete .venv') await fs.rm(directory, { recursive: true, force: true });
 }
 
@@ -123,12 +123,12 @@ async function deleteOwnedEnvironment(directory: string): Promise<void> {
 export async function setupPythonEnvironment(options: {
   resource: vscode.Uri; extensionUri: vscode.Uri; output: vscode.OutputChannel; canRefresh: boolean; signal?: AbortSignal;
 }): Promise<SetupResult | undefined> {
-  if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before creating a Python environment.');
+  if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to set up Python.');
   options.signal?.throwIfAborted();
   const root = setupRoot(options.resource), directory = path.join(root, '.venv');
   if (await present(directory)) {
     const action = await vscode.window.showWarningMessage(
-      `Manim Cue will not modify the existing environment at ${directory}. Select it, or remove it manually before creating a new one.`,
+      `An environment already exists at ${directory}. Select it, or delete it to create a new one.`,
       { modal: true }, 'Select Python…',
     );
     if (action) await vscode.commands.executeCommand('manimCue.selectPython', options.resource);
@@ -139,7 +139,7 @@ export async function setupPythonEnvironment(options: {
   options.signal?.throwIfAborted();
   // Tool selection may have taken a while; do not merge into an environment created meanwhile.
   if (await present(directory)) {
-    await vscode.window.showWarningMessage(`Setup stopped because ${directory} now exists. Manim Cue did not modify it.`, { modal: true });
+    await vscode.window.showWarningMessage(`The setup stopped: ${directory} now exists. Select it, or delete it to create a new one.`, { modal: true });
     return;
   }
 
@@ -148,7 +148,7 @@ export async function setupPythonEnvironment(options: {
     let phase = 'creating .venv';
     try {
       const diagnostic = await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification, title: 'Manim Cue: Setting up Python', cancellable: true,
+        location: vscode.ProgressLocation.Notification, title: 'Manim Cue: Setting up Python…', cancellable: true,
       }, async (progress, token) => {
         const abort = new AbortController();
         const subscription = token.onCancellationRequested(() => abort.abort());
@@ -166,12 +166,12 @@ export async function setupPythonEnvironment(options: {
           const commands = setupCommands(tool, directory);
           await execute(commands.create.executable, commands.create.args);
           const python = commands.python;
-          if (!await present(python)) throw new Error(`Environment creation produced no Python executable at ${python}.`);
+          if (!await present(python)) throw new Error(`The new environment has no Python executable at ${python}.`);
 
           phase = 'installing Manim'; progress.report({ message: 'Installing Manim…' });
           await execute(commands.install.executable, commands.install.args);
 
-          phase = 'checking Manim Cue capabilities'; progress.report({ message: 'Checking Manim Cue capabilities…' });
+          phase = 'checking the environment'; progress.report({ message: 'Checking the environment…' });
           const api = await PythonExtension.api(); await api.ready;
           const env: NodeJS.ProcessEnv = { ...process.env, ...api.environments.getEnvironmentVariables(options.resource) };
           const key = Object.keys(env).find(name => name.toLowerCase() === 'path') ?? 'PATH';
@@ -179,7 +179,7 @@ export async function setupPythonEnvironment(options: {
           const result = await checkPython({ python, env, cwd: workingDirectoryFor(options.resource),
             helpers: vscode.Uri.joinPath(options.extensionUri, 'python').fsPath, signal: abort.signal, log });
           options.output.appendLine(`\n${formatDiagnostic(result)}`);
-          if (result.status !== 'ready') throw new Error(`The installed Manim build did not pass the capability check (${result.status}).`);
+          if (result.status !== 'ready') throw new Error(diagnosticSummary(result));
           return { python, result };
         } finally { subscription.dispose(); options.signal?.removeEventListener('abort', stop); }
       });
@@ -193,16 +193,16 @@ export async function setupPythonEnvironment(options: {
       } catch (error) {
         options.output.appendLine(`\nEnvironment is ready, but selection failed: ${error instanceof Error ? error.message : String(error)}`);
         const action = await vscode.window.showWarningMessage(
-          `The environment is ready at ${diagnostic.python}, but VS Code could not select it automatically.`, 'Select Python…', 'Show Output',
+          `The environment at ${diagnostic.python} is ready. Select it with “Select Python…”.`, 'Select Python…', 'Show Log',
         );
         if (action === 'Select Python…') await vscode.commands.executeCommand('manimCue.selectPython', options.resource);
-        else if (action === 'Show Output') options.output.show(true);
+        else if (action === 'Show Log') options.output.show(true);
         return;
       }
-      const actions = options.canRefresh ? ['Refresh Scene', 'Show Environment Check'] as const : ['Show Environment Check'] as const;
-      const action = await vscode.window.showInformationMessage('Manim Cue environment is ready.', ...actions);
-      if (action === 'Show Environment Check') options.output.show(true);
-      return { python: diagnostic.python, diagnostic: diagnostic.result, refresh: action === 'Refresh Scene' };
+      const actions = options.canRefresh ? ['Refresh', 'Show Log'] as const : ['Show Log'] as const;
+      const action = await vscode.window.showInformationMessage('The Python environment is ready.', ...actions);
+      if (action === 'Show Log') options.output.show(true);
+      return { python: diagnostic.python, diagnostic: diagnostic.result, refresh: action === 'Refresh' };
     } catch (error) {
       if (options.signal?.aborted) return;
       const cancelled = error instanceof Cancelled;
@@ -211,9 +211,9 @@ export async function setupPythonEnvironment(options: {
       const hasDirectory = owned && await present(directory);
       const retry = hasDirectory ? 'Retry from scratch' : 'Retry';
       const cleanup = hasDirectory ? ['Delete Incomplete .venv'] as const : [] as const;
-      const message = `Setup ${cancelled ? 'was cancelled' : 'failed'} while ${phase}. The selected interpreter was not changed.${hasDirectory ? ' The new .venv may be incomplete.' : ''}`;
-      let action = await vscode.window.showWarningMessage(message, { modal: true }, retry, 'Show Output', ...cleanup);
-      if (action === 'Show Output') {
+      const message = `The setup ${cancelled ? 'was cancelled' : 'failed'} while ${phase}.${hasDirectory ? ' The new .venv can be incomplete.' : ''}`;
+      let action = await vscode.window.showWarningMessage(message, { modal: true }, retry, 'Show Log', ...cleanup);
+      if (action === 'Show Log') {
         // A modal dialog would cover the log, so repeat the choices without one.
         options.output.show(true);
         action = await vscode.window.showWarningMessage(message, retry, ...cleanup);

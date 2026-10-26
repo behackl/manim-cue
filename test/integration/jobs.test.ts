@@ -44,7 +44,11 @@ test('independent export renders requested dimensions/FPS/audio and replaces inh
     assert.match(cfg, /crf = 18/); assert.match(cfg, /preset = medium/); assert.match(cfg, /threads = 1/); assert.doesNotMatch(cfg, /deadline/);
     assert.match(await fs.readFile(path.join(root, 'manim.cfg'), 'utf8'), /codec=libvpx-vp9/, 'project config is untouched');
     const broken = await createJob({ ...job.options, exportSettings: { ...settings, options: 'profile=not-a-profile' } });
-    await assert.rejects(renderExport(broken, signal), /Process exited/);
+    await assert.rejects(renderExport(broken, signal), (error: Error) => {
+      assert.match(error.message, /^\S.*$/, 'one line from the error output; the log has the rest');
+      console.log('Encoder failure shown as:', error.message);
+      return true;
+    });
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
@@ -192,8 +196,8 @@ test('an incompatible 0.21.0 build fails with a capability diagnostic before exe
       assert.ok(error instanceof RuntimeUnavailable);
       assert.equal(error.diagnostic.status, 'unsupported-manim');
       assert.equal(error.diagnostic.manim_version, '0.21.0');
-      assert.match(error.message, /capture_timeline/);
-      assert.match(error.message, /Check Python Environment/);
+      assert.match(error.diagnostic.error ?? '', /capture_timeline/);
+      assert.match(error.message, /Set Up Python Environment/);
       return true;
     });
     await assert.rejects(fs.stat(marker), /ENOENT/);
@@ -224,7 +228,7 @@ test('the frame arrives before the evaluation ends; without a timeline, the proc
     const stat = await fs.stat(source);
     await fs.writeFile(source, (await fs.readFile(source, 'utf8')).replace('RIGHT))', 'RIGHT), run_time=2)'));
     await fs.utimes(source, stat.atime, stat.mtime);
-    await assert.rejects(inspect(fixed, { time: .3, timeline: false }, signal), /Primary source changed/);
+    await assert.rejects(inspect(fixed, { time: .3, timeline: false }, signal), /scene file changed/);
     const updated = await inspect(await createJob(options(source, path.join(root, 'runs'))), { time: 1.25, timeline: false }, signal);
     assert.equal(updated.frame?.media.capture?.time, 1.25);
     const mediaRoot = path.join(root, 'preview-media');
@@ -253,7 +257,7 @@ test('source mutation and user errors never publish a timeline', async () => {
     for (const body of ['raise RuntimeError("user failed")', 'Path(__file__).write_text("changed")']) {
       await fs.writeFile(source, `from pathlib import Path\nfrom manim import Scene\nclass Demo(Scene):\n    def construct(self):\n        self.wait(.25)\n        ${body}\n`);
       const job = await createJob(options(source, path.join(root, 'runs')));
-      await assert.rejects(inspect(job, { timeline: true }, signal));
+      await assert.rejects(inspect(job, { timeline: true }, signal), /user failed|scene file changed/);
       assert.deepEqual((await fs.readdir(job.directory)).filter(f => f.startsWith('timeline')), []);
     }
   } finally { await fs.rm(root, { recursive: true, force: true }); }

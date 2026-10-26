@@ -1,17 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDiagnostic, RuntimeUnavailable, type PythonDiagnostic } from '../src/diagnostics';
+import { diagnosticSummary, formatDiagnostic, RuntimeUnavailable, type PythonDiagnostic } from '../src/diagnostics';
 
 const report: PythonDiagnostic = { status: 'limited', python: '/env/python', python_version: '3.13', prefix: '/env',
   base_prefix: '/base', cwd: '/scene', manim_module: '/env/manim/__init__.py', manim_version: '0.21.0',
-  capture_frame: true, timeline: false, video_encoder: false, error: 'Timeline requires capture_timeline.' };
+  capture_frame: true, timeline: false, video_encoder: false, error: 'Missing features: timelines (capture_timeline).' };
 
-test('partial diagnostics never claim that timeline or encoding is ready', () => {
+test('the log lists each feature; the summary is one plain sentence', () => {
   const text = formatDiagnostic(report);
-  assert.match(text, /Check: limited/);
-  assert.match(text, /Timeline \/ full preview: unavailable/);
-  assert.match(text, /capture \/ comparison: available/);
-  assert.match(text, /export encoder profile: unavailable/);
-  assert.doesNotMatch(text, /Timeline evaluation API available/);
-  assert.match(new RuntimeUnavailable({ ...report, status: 'unsupported-manim' }).message, /Check Python Environment.*Refresh/);
+  assert.match(text, /Frames: available/);
+  assert.match(text, /Timeline: missing/);
+  assert.match(text, /Video export: missing/);
+  assert.match(text, /Manim: \/env\/manim\/__init__.py \(version 0.21.0\)/);
+  assert.match(text, /Missing features/);
+  assert.equal(diagnosticSummary({ ...report, status: 'ready' }), 'Ready.');
+  assert.match(diagnosticSummary({ ...report, status: 'missing-manim' }), /not installed/);
+  assert.doesNotMatch(new RuntimeUnavailable(report).message, /capture_timeline|\/env/);
+  assert.match(new RuntimeUnavailable(report).message, /Set Up Python Environment/);
 });
