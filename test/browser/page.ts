@@ -18,8 +18,13 @@ export async function webview(script: 'preview' | 'timeline', viewport = { width
     return route.fulfill({ status: range ? 206 : 200, contentType: 'video/mp4', body: movie.subarray(start, end + 1),
       headers: { 'accept-ranges': 'bytes', ...(range ? { 'content-range': `bytes ${start}-${end}/${movie.length}` } : {}) } });
   });
-  await page.setContent('<main id="app"></main>');
-  await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
+  // The style policy of the webviews: no inline style attributes or elements.
+  const css = await readFile('webview/styles.css', 'utf8');
+  await page.route('https://cue.test/styles.css', route => route.fulfill({ contentType: 'text/css', body: css }));
+  page.on('console', message => { if (message.text().startsWith('CSP ')) errors.push(message.text()); });
+  await page.setContent(`<html><head><meta http-equiv="Content-Security-Policy" content="style-src https://cue.test">
+    <link rel="stylesheet" href="https://cue.test/styles.css"></head><body><main id="app"></main></body></html>`, { waitUntil: 'load' });
+  await page.addScriptTag({ content: 'document.addEventListener("securitypolicyviolation", e => console.error(`CSP ${e.violatedDirective} ${e.sample}`));' });
   await page.addScriptTag({ content: 'window.messages=[];window.savedState={};window.acquireVsCodeApi=()=>({getState:()=>window.savedState,setState:s=>{window.savedState=s},postMessage:m=>window.messages.push(m)});' });
   await page.addScriptTag({ content: await readFile(`dist/${script}.js`, 'utf8') });
   const send = (message: HostMessage) => page.evaluate(message => new Promise<void>(resolve => {

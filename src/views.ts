@@ -25,7 +25,7 @@ export class Views implements vscode.Disposable {
     const nonce = randomBytes(18).toString('base64');
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.root, 'dist', `${kind}.js`));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(this.root, 'webview', 'styles.css'));
-    webview.html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource}; media-src ${webview.cspSource};"><link rel="stylesheet" href="${style}"><title>Manim Cue</title></head><body><main id="app"></main><script nonce="${nonce}" src="${script}"></script></body></html>`;
+    webview.html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; media-src ${webview.cspSource};"><link rel="stylesheet" href="${style}"><title>Manim Cue</title></head><body><main id="app"></main><script nonce="${nonce}" src="${script}"></script></body></html>`;
     webview.onDidReceiveMessage(data => this.receive(data, kind));
   }
   get previewOpen(): boolean { return !!this.preview; }
