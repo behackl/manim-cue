@@ -41,6 +41,8 @@ export class Session implements vscode.Disposable {
   readonly exports: Exports;
   readonly watch = new SourceWatch({
     file: () => this.target?.uri,
+    dirty: uri => vscode.workspace.textDocuments.some(d => d.uri.toString() === uri.toString() && d.isDirty),
+    automatic: uri => vscode.workspace.isTrusted && vscode.workspace.getConfiguration('manimCue', uri as vscode.Uri).get('autoRefreshOnSave', true),
     invalidate: (reason, savedHash) => this.invalidate(reason, savedHash),
     queued: () => { this.busy = true; this.error = undefined; this.views.update(); },
     refresh: () => this.refresh(),
@@ -115,7 +117,6 @@ export class Session implements vscode.Disposable {
     if (opening === this.opening) await this.refresh();
   }
   async refresh(frame = true): Promise<void> {
-    this.watch.stop();
     if (!this.target) { await this.open(); return; }
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
     const target = this.target, intent = this.generation;
