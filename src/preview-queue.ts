@@ -1,6 +1,6 @@
-export type PreviewTask = 'frame' | 'timeline' | 'movie';
+export type PreviewTask = 'inspect' | 'render';
 type Task = { kind: PreviewTask; run: (signal: AbortSignal) => Promise<void>; due: number };
-const priority: PreviewTask[] = ['frame', 'timeline', 'movie'];
+const priority: PreviewTask[] = ['inspect', 'render'];
 
 /** One subprocess task at a time; retain only the latest task of each kind. */
 export class PreviewQueue {

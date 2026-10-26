@@ -16,8 +16,8 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
       window.acquireVsCodeApi = () => ({ getState: () => ({}), setState: () => {}, postMessage: m => window.messages.push(m) });` });
     await page.addScriptTag({ content: await readFile('dist/timeline.js', 'utf8') });
     const timeline = parseTimeline(await readFile('test/fixtures/timeline-v1.json', 'utf8'));
-    const sound = timeline.declarations.find(d => d.kind === 'sound')!;
-    if (sound.kind === 'sound') { sound.start = -.25; sound.asset.request = '<img src=x onerror=alert(1)>.wav'; }
+    const sound = timeline.entries[7];
+    if (sound.kind === 'sound') { sound.start = -.25; sound.duration = null; sound.file = '<img src=x onerror=alert(1)>.wav'; }
     const model: Model = { generation: 1, scene: 'TimelineExample', status: 'Completed observation', busy: false, stale: false, autoPreview: false,
       timeline, profile: 'Cairo · 4 fps · 320×180', linked: true, pairing: '' };
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), model);
@@ -37,9 +37,9 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).mode), 'toggle');
     await page.locator('g.event').nth(4).click({ modifiers: ['Shift'] });
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).mode), 'range');
-    const selection = { start: timeline.events[0].start, end: timeline.events[2].end, enabled: false, available: true };
+    const selection = { start: 0, end: 1.5, enabled: false, available: true };
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), { ...model,
-      selectedEvents: [timeline.events[0].id, timeline.events[2].id], selection });
+      selectedEvents: [1, 4], selection });
     await page.waitForFunction(() => document.querySelectorAll('g.event.selected').length === 2);
     assert.equal(await page.locator('g.event.selected').count(), 2);
     assert.equal(await page.locator('.loop-region').count(), 1, 'one continuous region includes intervening events');
@@ -54,7 +54,7 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     assert.ok(Math.abs(widths[0] / widths[3] - 2) < 1e-9, 'ordinary .3 request spans twice the frozen .3 request');
     await page.locator('g.sound').click();
     // Simulate the host accepting the selected declaration, not a hidden state mutation.
-    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, selected: 'declaration:7' } }, '*'), model);
+    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, selected: 7 } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.inspector')?.textContent?.includes('Unknown — not decoded'));
     assert.match(await page.locator('.inspector').innerText(), /-0.25 s/);
     assert.equal(await page.locator('.inspector img').count(), 0, 'cue labels never become markup');
@@ -70,7 +70,7 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     assert.equal(await page.getByRole('button', { name: 'Loop selection', exact: true }).isDisabled(), true);
     assert.equal(await page.locator('.loop-region.stale').count(), 1);
     await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, linked: false, busy: true,
-      position: { time: 1.25, request: 3 }, timeline: { ...model.timeline!, revision: 'a'.repeat(64) } } }, '*'), model);
+      position: { time: 1.25, request: 3 }, timeline: { ...model.timeline!, mode: 'render' } } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Selected 1.25 s');
     assert.equal(await page.getByRole('button', { name: '■ Cancel', exact: true }).isVisible(), true);
     await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, error: 'Python import failed' } }, '*'), model);

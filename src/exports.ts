@@ -3,13 +3,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { environmentFor, workingDirectoryFor } from './environment';
-import { captureFrame, checkInputs, createJob, fileHash, renderExport, type PreviewResult, type RunResult, type SceneJob } from './jobs';
+import { createJob, fileHash, inspect, renderExport, type PreviewResult, type TimelineResult, type SceneJob } from './jobs';
 import { exportChoice, exportSize, type ExportChoice, type ExportModel } from './export-settings';
 import { copyExport, validateDestination } from './export-files';
-import { indexAt } from './transport';
+import { videoFrameIndex, videoFrames } from './transport';
 
 export interface ExportSource {
-  uri: vscode.Uri; scene: string; frame?: PreviewResult; movie?: PreviewResult; timeline?: RunResult;
+  uri: vscode.Uri; scene: string; frame?: PreviewResult; movie?: PreviewResult; timeline?: TimelineResult;
   job?: SceneJob; time: number; edited: boolean;
 }
 interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string }
@@ -35,13 +35,13 @@ export class Exports {
     return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.movie?.media.path]).filter((p): p is string => !!p);
   }
   private dirty(source: ExportSource): boolean { return vscode.workspace.textDocuments.some(d => d.uri.toString() === source.uri.toString() && d.isDirty); }
-  private old(result: PreviewResult | RunResult, current = this.source()): boolean {
+  private old(result: PreviewResult | TimelineResult, current = this.source()): boolean {
     return !current || current.edited || this.dirty(current) || result.directory !== current.job?.directory;
   }
-  private description(result: PreviewResult | RunResult): string {
+  private description(result: PreviewResult | TimelineResult): string {
     const p = result.profile;
     const media = 'media' in result ? result.media : undefined;
-    const time = media?.kind === 'image' ? (media.capture?.time == null ? 'End state' : `${media.capture.time.toFixed(3)} s`) : `${media?.duration ?? (result as RunResult).timeline.end} s`;
+    const time = media?.kind === 'image' ? (media.capture?.time == null ? 'End state' : `${media.capture.time.toFixed(3)} s`) : `${media?.duration ?? (result as TimelineResult).timeline.duration} s`;
     return `${this.old(result) ? 'OLD · ' : ''}${time} · ${p.width} × ${p.height} · ${p.fps} fps · source ${result.sourceHash.slice(0, 8)}${media?.kind === 'video' ? ` · H.264 · ${media.hasAudio ? 'includes audio' : 'no audio'}` : ''}`;
   }
   snapshot(webview?: vscode.Webview): ExportModel {
@@ -53,8 +53,8 @@ export class Exports {
         frame: s.source.frame ? { kind: s.source.frame.media.kind, description: this.description(s.source.frame),
           uri: webview && s.source.frame.media.kind === 'image' ? webview.asWebviewUri(vscode.Uri.file(s.source.frame.media.path)).toString() : undefined } : undefined,
         video: s.source.movie?.media.kind === 'video' ? this.description(s.source.movie) : undefined,
-        timeline: s.source.timeline ? `${this.description(s.source.timeline)} · revision ${s.source.timeline.timeline.revision.slice(0, 8)}` : undefined,
-        canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !this.old(s.source.frame) && s.source.job?.profile?.captureFrame === true,
+        timeline: s.source.timeline ? this.description(s.source.timeline) : undefined,
+        canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !this.old(s.source.frame),
         dirty: this.dirty(s.source), newer: current?.frame?.media.path !== s.source.frame?.media.path || current?.movie?.media.path !== s.source.movie?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
         error: s.error } : undefined };
   }
@@ -70,8 +70,7 @@ export class Exports {
     try { choice = exportChoice(this.context.workspaceState.get('exportChoice')); } catch { /* First visit or incompatible stored preference. */ }
     const media = source.frame?.media, value = time ?? source.time;
     if (!Number.isFinite(value) || value < 0 || media?.kind === 'video' && value > media.duration) return;
-    const pts = media?.frameTimes;
-    const selected = media?.kind === 'video' && pts ? indexAt(value + 1e-7, pts.length, i => pts[i]) / source.frame!.profile.fps : value;
+    const selected = media?.kind === 'video' ? videoFrameIndex(value, media.rate, videoFrames(media.duration, media.rate)) / media.rate : value;
     this.session = { id: randomUUID(), source, choice, time: selected }; this.update();
   }
   close(id?: string): void { if (!id || this.session?.id === id) { this.session = undefined; this.update(); } }
@@ -93,7 +92,7 @@ export class Exports {
       if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.movie?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
       if (kind === 'frame' && native && !this.snapshot().dialog?.canCapture) throw new Error('Refresh to a current movie with frame capture support first.');
       if (native && !vscode.workspace.isTrusted) throw new Error('Trust this workspace before executing Python.');
-      if (kind === 'video' && method === 'render' && this.source()?.job?.profile?.videoEncoder === false) throw new Error('New MP4 exports require Manim’s public video encoder profile support. Run Manim Cue: Check Python Environment; existing artifact copies remain available.');
+      if (kind === 'video' && method === 'render' && (s.source.timeline ?? s.source.frame)?.profile.videoEncoder === false) throw new Error('New MP4 exports require Manim’s public video encoder profile support. Run Manim Cue: Check Python Environment; existing artifact copies remain available.');
       const active: Active = { source: s.source, abort: new AbortController(), native };
       this.active = active; this.status = 'Choosing export destination…'; s.error = undefined; this.update();
       this.task = this.run(s, active);
@@ -143,10 +142,9 @@ export class Exports {
         const subscription = cancellation.onCancellationRequested(() => this.cancel());
         try {
           let file: string, observed: PreviewResult | undefined;
-          if (!native) file = kind === 'timeline' ? path.join(source.timeline!.directory, 'timeline.json') : artifact!.media!.path;
+          if (!native) file = kind === 'timeline' ? source.timeline!.file : (artifact as PreviewResult).media.path;
           else if (kind === 'frame') {
-            await checkInputs(source.frame!);
-            const frame = await captureFrame(source.job!, s.time, signal);
+            const { frame } = await inspect(source.job!, { time: s.time, timeline: false }, signal);
             if (!frame?.media.capture || frame.media.capture.time === null) throw new Error('The requested frame is unavailable; no PNG was exported. Refresh or save an end-state snapshot.');
             file = frame.media.path; observed = frame;
           } else {
@@ -154,8 +152,8 @@ export class Exports {
             const cfg = vscode.workspace.getConfiguration('manimCue', source.uri), timeout = cfg.get<number>('timeoutSeconds', 600);
             if (!Number.isFinite(timeout) || timeout < 5 || timeout > 7200) throw new Error('Export timeout must be between 5 and 7200 seconds.');
             const job = await createJob({ ...env, source: source.uri.fsPath, scene: source.scene, cwd: workingDirectoryFor(source.uri), fps: settings.fps, width: settings.width,
-              timeout: timeout * 1000, preview: false, exportSettings: settings, scratch: this.scratch,
-              helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal, log: this.log, phase: () => {}, timelineReady: () => {} });
+              timeout: timeout * 1000, exportSettings: settings, scratch: this.scratch,
+              helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal, log: this.log });
             active.job = job; signal.throwIfAborted();
             if (job.sourceHash !== sourceHash || this.dirty(source)) throw new Error('Source changed while preparing export.');
             this.log(`\n── Export ${source.scene} · ${settings.width}×${settings.height} · ${settings.fps} fps · CRF ${settings.crf} / ${settings.preset} ──\nPython: ${env.python}\nSource: ${source.uri.fsPath}\n`);
@@ -164,7 +162,7 @@ export class Exports {
           const beforePublish = async () => {
             signal.throwIfAborted();
             await validateDestination(destination.fsPath, extension, [...forbidden, ...Object.keys(observed?.profile.configs ?? {})]);
-            if (observed) { if (this.dirty(source)) throw new Error('Source changed during export.'); await checkInputs(observed); }
+            if (observed && this.dirty(source)) throw new Error('Source changed during export.');
           };
           await copyExport(file, destination.fsPath, signal, beforePublish);
         } finally { subscription.dispose(); }

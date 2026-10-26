@@ -7,7 +7,7 @@ export interface PythonDiagnostic {
   status: 'ready' | 'limited' | 'missing-manim' | 'import-error' | 'unsupported-manim';
   python: string; python_version: string; prefix: string; base_prefix: string; cwd: string;
   manim_module: string | null; manim_version: string | null; error: string | null;
-  capture_frame?: boolean; timeline?: boolean; video_encoder?: boolean;
+  capture_frame: boolean; timeline: boolean; video_encoder: boolean;
 }
 
 export class RuntimeUnavailable extends Error {
@@ -17,15 +17,10 @@ export class RuntimeUnavailable extends Error {
 }
 
 export async function readDiagnostic(file: string): Promise<PythonDiagnostic> {
-  if ((await fs.stat(file)).size > 65536) throw new Error('Invalid environment diagnostic size.');
-  const result = JSON.parse(await fs.readFile(file, 'utf8')) as PythonDiagnostic;
-  if (!['ready', 'limited', 'missing-manim', 'import-error', 'unsupported-manim'].includes(result.status) || typeof result.python !== 'string') {
-    throw new Error('Python returned an invalid environment diagnostic.');
-  }
-  return result;
+  return JSON.parse(await fs.readFile(file, 'utf8'));
 }
 
-/** Same executable, flags, environment and CWD as profile preparation. No scene import. */
+/** Same executable, environment and CWD as a scene run. No scene import. */
 export async function checkPython(options: {
   python: string; env: NodeJS.ProcessEnv; cwd: string; helpers: string;
   signal: AbortSignal; log: (text: string) => void;
@@ -34,7 +29,7 @@ export async function checkPython(options: {
   try {
     const destination = path.join(scratch, 'diagnostic.json');
     await runProcess(options.python, ['-B', '-X', `pycache_prefix=${path.join(scratch, 'bytecode')}`,
-      path.join(options.helpers, 'support.py'), 'diagnose', '-', destination], {
+      path.join(options.helpers, 'support.py'), 'diagnose', destination], {
       ...options, env: { ...options.env, PYTHONIOENCODING: 'utf-8' }, timeout: 30000,
     });
     return await readDiagnostic(destination);

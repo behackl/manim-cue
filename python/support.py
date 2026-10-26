@@ -1,14 +1,12 @@
-"""File-based capture, evaluation and verification using public Manim/PyAV APIs."""
+"""Environment check, scene inspection and video render through public Manim APIs."""
 import configparser
 import hashlib
-import inspect
+from inspect import signature
 import json
-import math
 import os
 from pathlib import Path
+import runpy
 import sys
-
-LIMIT = 16 * 1024 * 1024
 
 
 def digest(path):
@@ -20,6 +18,18 @@ def write_json(path, value):
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=True, allow_nan=False), encoding="utf-8")
     temporary.replace(path)
+
+
+def check_source(request):
+    if digest(request["source"]) != request["sourceHash"]:
+        raise ValueError("Primary source changed during the run. Save and refresh.")
+
+
+def parameters(function):
+    try:
+        return signature(function).parameters
+    except (TypeError, ValueError):
+        return {}
 
 
 def diagnose():
@@ -37,21 +47,20 @@ def diagnose():
         return report
     report["manim_module"] = getattr(manim, "__file__", None)
     report["manim_version"] = getattr(manim, "__version__", None)
-    try:
-        supported = "capture_timeline" in inspect.signature(manim.Manager.evaluate).parameters
-    except (AttributeError, TypeError, ValueError):
-        supported = False
-    report["capture_frame"] = callable(getattr(getattr(manim, "Manager", None), "capture_frame_at", None))
-    report["timeline"] = supported
+    manager = getattr(manim, "Manager", None)
+    evaluate = parameters(getattr(manager, "evaluate", None))
+    render = parameters(getattr(manager, "render", None))
+    report["capture_frame"] = hasattr(manim, "RenderedFrame") and "frame_times" in evaluate and "on_frame" in evaluate
+    report["timeline"] = "capture_timeline" in evaluate and "capture_timeline" in render
     report["video_encoder"] = all(hasattr(getattr(manim, "config", None), key)
                                   for key in ("video_codec", "pixel_format", "video_encoder_options"))
-    report["status"] = ("ready" if all(report[key] for key in ("timeline", "capture_frame", "video_encoder"))
-                        else "limited" if any(report[key] for key in ("timeline", "capture_frame", "video_encoder")) else "unsupported-manim")
+    features = [report[key] for key in ("timeline", "capture_frame", "video_encoder")]
+    report["status"] = "ready" if all(features) else "limited" if any(features) else "unsupported-manim"
     missing = []
-    if not supported:
-        missing.append("Timeline and full preview need Manager.evaluate(capture_timeline=True).")
+    if not report["timeline"]:
+        missing.append("Timelines need Manager.evaluate(capture_timeline=True) and Manager.render(capture_timeline=True).")
     if not report["capture_frame"]:
-        missing.append("Frame-first updates and comparison need Manager.capture_frame_at(timestamp).")
+        missing.append("Frame updates need manim.RenderedFrame and Manager.evaluate(frame_times=..., on_frame=...).")
     if not report["video_encoder"]:
         missing.append("New MP4 exports need public video_codec, pixel_format and video_encoder_options configuration.")
     if missing:
@@ -60,10 +69,11 @@ def diagnose():
 
 
 def prepare(request):
+    """Write the Manim configuration of this run and return its profile."""
     report = diagnose()
-    if request.get("run"):
-        write_json(Path(request["run"]) / "diagnostic.json", report)
-    usable = report["video_encoder"] if request.get("export") else report["timeline"] or report["capture_frame"]
+    write_json(Path(request["run"]) / "diagnostic.json", report)
+    export = request.get("export")
+    usable = report["video_encoder"] if export else report["timeline"] and report["capture_frame"]
     if not usable:
         raise RuntimeError(
             f"Manim Cue environment check: {report['status']}\n"
@@ -84,11 +94,7 @@ def prepare(request):
     if not parser.has_section("CLI"):
         parser.add_section("CLI")
     width = max(64, int(request["width"]) // 2 * 2)
-    export = request.get("export")
     height = export["height"] if export else max(2, round(width * config.pixel_height / config.pixel_width / 2) * 2)
-    if export and (width != export["width"] or request["fps"] != export["fps"] or
-                   not isinstance(height, int) or height < 64 or height > 8192 or height % 2):
-        raise ValueError("Invalid export dimensions or frame rate.")
     if width * height > 32_000_000:
         raise ValueError("Preview exceeds the 32 megapixel limit.")
     assets = config.get_dir("assets_dir", module_name=source.stem, scene_name=request["scene"])
@@ -120,7 +126,7 @@ def prepare(request):
             versions[package] = None
     identity = json.dumps([configs, versions, str(Path(manim.__file__).resolve()), manim.__version__,
                            request["fps"], width, height, config.frame_width, config.frame_height, seed], sort_keys=True)
-    assets_cache = Path(request.get("cache", run / "cache")) / hashlib.sha256(identity.encode()).hexdigest()
+    assets_cache = Path(request["cache"]) / hashlib.sha256(identity.encode()).hexdigest()
     for key in ("media_dir", "video_dir", "images_dir", "sections_dir", "partial_movie_dir", "tex_dir", "text_dir", "log_dir"):
         overrides[key] = (assets_cache if key in ("tex_dir", "text_dir") else run / "work") / key
     for key, value in overrides.items():
@@ -137,156 +143,84 @@ def prepare(request):
         parser.set("video_encoder.options", key, value.replace("%", "%%"))
     with (run / "cue.cfg").open("w", encoding="utf-8") as stream:
         parser.write(stream)
-    return {
+    write_json(run / "profile.json", {
         "version": manim.__version__, "module": str(Path(manim.__file__).resolve()),
         "fps": request["fps"], "width": width, "height": height, "seed": seed,
         "frameWidth": config.frame_width, "frameHeight": config.frame_width * height / width,
-        "configs": configs, "captureFrame": report["capture_frame"], "timeline": report["timeline"],
-        "videoEncoder": report["video_encoder"],
-    }
+        "configs": configs, "videoEncoder": report["video_encoder"],
+    })
 
 
-def prepared(request):
-    profile_path = Path(request["run"]) / "profile.json"
-    if profile_path.is_file():
-        profile = json.loads(profile_path.read_text(encoding="utf-8"))
-    else:
-        profile = prepare(request)
-        write_json(profile_path, profile)
-    for file, expected in profile["configs"].items():
-        if (digest(file) if Path(file).is_file() else None) != expected:
-            raise ValueError("Manim configuration changed during the run. Refresh.")
-    return profile
+class FrameReady(BaseException):
+    """Ends an evaluation that only needs its frame. Scene code rarely catches a BaseException."""
 
 
-def capture(request, destination):
-    profile = prepared(request)
-    if not profile["captureFrame"]:
-        return {"kind": "unsupported"}
+def inspect_scene(request):
+    """Evaluate the scene once: write the frame at request["time"] and the timeline, if requested.
+
+    The frame is announced with one ``[Cue frame] {json}`` line on stdout as soon as it is written.
+    """
+    prepare(request)
     from manim import Manager, config
     from manim.utils.module_ops import scene_classes_from_file
-    run = Path(request["run"])
-    source = Path(request["source"])
-    expected = request["sourceHash"]
-    if digest(source) != expected:
-        raise ValueError("Primary source changed before capture. Save and refresh.")
-    config.digest_file(run / "cue.cfg")
-    candidates = scene_classes_from_file(source, full_list=True)
-    matches = [cls for cls in candidates if cls.__name__ == request["scene"]]
+    check_source(request)
+    config.digest_file(Path(request["run"]) / "cue.cfg")
+    sys.path.insert(0, os.getcwd())
+    matches = [cls for cls in scene_classes_from_file(Path(request["source"]), full_list=True) if cls.__name__ == request["scene"]]
     if len(matches) != 1:
         raise ValueError("Select exactly one Scene class defined in the source file.")
-    if digest(source) != expected:
-        raise ValueError("Primary source changed during loading.")
     scene = matches[0]()
     manager = scene.manager or Manager(scene)
+    time, timeline = request.get("time"), request.get("timeline")
+    sent = False
+
+    def publish(image, frame=None):
+        nonlocal sent
+        check_source(request)
+        image.save(request["frame"])
+        print("[Cue frame] " + json.dumps({
+            "requestedTime": time, "time": None if frame is None else frame.time,
+            "frameIndex": None if frame is None else frame.frame_index}), flush=True)
+        sent = True
+
+    def on_frame(frame):
+        publish(frame.image, frame)
+        if not timeline:
+            raise FrameReady
+
     with manager:
-        if manager.session_spec.frame_rate != profile["fps"] or type(scene.renderer).__name__ != "CairoRenderer":
-            raise ValueError("Scene changed the requested capture profile.")
-        frame = manager.capture_frame_at(request["time"])
-        image = frame.image if frame is not None else scene.get_image()
-        if image.size != (profile["width"], profile["height"]):
-            raise ValueError("Captured image dimensions differ from the requested profile.")
-        image.save(Path(destination).with_suffix(".png"))
-        result = {"kind": "frame" if frame is not None else "snapshot",
-                  "requestedTime": request["time"], "time": frame.time if frame else None,
-                  "frameIndex": frame.frame_index if frame else None,
-                  "width": image.width, "height": image.height}
-    if digest(source) != expected:
-        raise ValueError("Primary source changed during capture or cleanup.")
-    prepared(request)  # Check configuration again before publishing the result.
-    return result
+        try:
+            manager.evaluate(capture_timeline=bool(timeline), frame_times=() if time is None else (time,),
+                             on_frame=None if time is None else on_frame)
+        except FrameReady:
+            return
+        if time is not None and not sent:
+            publish(scene.get_image())  # The time is at or after the end: show the final state.
+    if timeline:
+        check_source(request)
+        manager.timeline.write(timeline)
 
 
-def verify(path):
-    path = Path(path)
-    if path.stat().st_size > LIMIT:
-        raise ValueError("Timeline exceeds the 16 MiB viewer limit.")
-    def reject_constant(value):
-        raise ValueError(f"Non-finite JSON value: {value}")
-    data = json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
-    if not isinstance(data, dict) or data.get("schema") != "manim.execution-timeline" or type(data.get("version")) is not int or data["version"] != 1 or data.get("complete") is not True:
-        raise ValueError("Unsupported or incomplete timeline.")
-    revision = data.pop("revision", None)
-    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    if revision != hashlib.sha256(canonical.encode("utf-8")).hexdigest():
-        raise ValueError("Timeline content revision does not match its document.")
-    return {"revision": revision, "source": data.get("source")}
-
-
-def probe(path, collect_times=True):
-    import av
-    with av.open(path) as container:
-        if not collect_times and "mp4" not in container.format.name.split(","):
-            raise ValueError("Export is not an MP4 container.")
-        if not container.streams.video:
-            raise ValueError("Preview has no video stream.")
-        stream = container.streams.video[0]
-        # Average rate is frames / container duration, not necessarily the encoder
-        # cadence: sub-millisecond segment/mux timing can make 30 fps report 30.001.
-        rate = float(stream.guessed_rate or stream.base_rate or stream.average_rate or 0)
-        average_rate = float(stream.average_rate or 0)
-        duration = float(stream.duration * stream.time_base) if stream.duration is not None else 0
-        if not math.isfinite(duration) or duration <= 0 or not math.isfinite(rate) or rate <= 0:
-            raise ValueError("Preview has no playable video time axis.")
-        if stream.codec_context.name != "h264":
-            raise ValueError("Preview is not the expected H.264 video.")
-        # Decode in presentation order (packet order can differ for B-frames).
-        # Retain only the worst offset; this checks the WHOLE video with bounded
-        # memory, without assigning any frame to an event or changing timestamps.
-        frames = 0
-        max_error = 0.0
-        previous = None
-        frame_times = [] if collect_times else None
-        for frame in container.decode(stream):
-            if frame.pts is None or frame.time_base is None:
-                raise ValueError("Preview has a frame without a presentation timestamp.")
-            timestamp = float(frame.pts * frame.time_base)
-            if not math.isfinite(timestamp) or (previous is not None and timestamp <= previous):
-                raise ValueError("Preview has invalid or non-increasing presentation timestamps.")
-            max_error = max(max_error, abs(timestamp - frames / rate))
-            previous = timestamp
-            if frame_times is not None:
-                if len(frame_times) < 500_000:
-                    frame_times.append(timestamp)
-                else:
-                    frame_times = None
-            frames += 1
-        if not frames:
-            raise ValueError("Preview has no decoded video frames.")
-        return {"duration": duration, "rate": rate, "averageRate": average_rate,
-                "frames": frames, "maxFrameTimeError": max_error,
-                "width": stream.width, "height": stream.height,
-                "hasAudio": bool(container.streams.audio), "frameTimes": frame_times,
-                "codec": stream.codec_context.name, "pixelFormat": stream.codec_context.format.name}
+def render_scene(request):
+    """Render the video with Manim's CLI and, if requested, the timeline of the same run."""
+    prepare(request)
+    check_source(request)
+    sys.path.insert(0, os.getcwd())
+    timeline = ["--timeline-output", request["timeline"]] if request.get("timeline") else []
+    sys.argv = ["manim", "--config_file", str(Path(request["run"]) / "cue.cfg"), "--silent", "--progress_bar", "none",
+                "-o", request["output"], *timeline, request["source"], request["scene"]]
+    try:
+        runpy.run_module("manim", run_name="__main__", alter_sys=True)
+    except SystemExit as exit:
+        if exit.code:
+            raise
+    check_source(request)
 
 
 if __name__ == "__main__":
-    command, source, destination = sys.argv[1:]
-    if command == "evaluate":
-        import runpy
-        request = json.loads(Path(source).read_text(encoding="utf-8"))
-        profile = prepared(request)
-        if not profile["timeline"]:
-            raise RuntimeError("This Manim build lacks timeline capture. Select a timeline-capable build.")
-        print("[Cue phase] Evaluating scene", flush=True)
-        # Public CLI, same import-time CWD/config as a normal invocation. No custom
-        # Scene runner, persistent interpreter or private recorder hooks.
-        sys.path.insert(0, os.getcwd())
-        sys.argv = ["manim", "--config_file", str(Path(request["run"]) / "cue.cfg"),
-                    "--silent", "--progress_bar", "none", "--timeline-output", destination,
-                    request["source"], request["scene"]]
-        runpy.run_module("manim", run_name="__main__", alter_sys=True)
-        sys.exit(0)
-    elif command == "capture":
-        result = capture(json.loads(Path(source).read_text(encoding="utf-8")), destination)
-    elif command == "prepare":
-        result = prepared(json.loads(Path(source).read_text(encoding="utf-8")))
-    elif command == "verify":
-        result = verify(source)
-    elif command in ("probe", "probe-export"):
-        result = probe(source, collect_times=command == "probe")
-    elif command == "diagnose":
-        result = diagnose()
+    command, argument = sys.argv[1:]
+    if command == "diagnose":
+        write_json(argument, diagnose())
     else:
-        raise ValueError("Unknown helper command")
-    write_json(destination, result)
+        request = json.loads(Path(argument).read_text(encoding="utf-8"))
+        {"inspect": inspect_scene, "render": render_scene}[command](request)

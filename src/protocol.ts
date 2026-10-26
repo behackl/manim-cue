@@ -3,7 +3,7 @@ import type { Timeline } from './timeline';
 import type { SelectionMode, TimeRange } from './selection';
 export interface Model {
   generation: number; scene: string; status: string; busy: boolean; stale: boolean;
-  autoPreview: boolean; timeline?: Timeline; selected?: string; selectedEvents?: string[]; error?: string; python?: string;
+  autoPreview: boolean; timeline?: Timeline; selected?: number; selectedEvents?: number[]; error?: string; python?: string;
   selection?: TimeRange & { enabled: boolean; available: boolean };
   profile?: string; linked: boolean; pairing: string; playbackTime?: number;
   canSeek?: boolean; canPlay?: boolean; mediaReady?: boolean; playIntent?: number;
@@ -30,7 +30,7 @@ export type ViewMessage =
   | { kind: 'compare'; generation: number; enabled: boolean; token?: string; time?: number; replace?: boolean }
   | { kind: 'referenceDisplayed'; token: string }
   | { kind: 'referenceError'; token: string; message: string }
-  | { kind: 'select' | 'navigate'; generation: number; key: string; mode?: SelectionMode }
+  | { kind: 'select' | 'navigate'; generation: number; index: number; mode?: SelectionMode }
   | { kind: 'seek'; generation: number; time: number; immediate?: boolean }
   | { kind: 'play' | 'pause'; generation: number; request: number; token?: string }
   | { kind: 'displayed'; token: string; request: number; sequence: number }

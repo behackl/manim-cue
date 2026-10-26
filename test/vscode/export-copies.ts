@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { Exports, type ExportSource } from '../../src/exports';
 import type { ExportChoice } from '../../src/export-settings';
-import type { Profile, RunResult } from '../../src/jobs';
+import type { Profile, TimelineResult } from '../../src/jobs';
 
 /** Real controller and filesystem publication; no Manim needed for existing artifact copies. */
 export async function testExportCopies(root: string): Promise<void> {
@@ -20,13 +20,13 @@ export async function testExportCopies(root: string): Promise<void> {
     for (const [width, height] of [[960, 120], [120, 960]]) {
       const memory = new Map<string, unknown>();
       const context = { workspaceState: { get: (key: string) => memory.get(key), update: async (key: string, value: unknown) => { memory.set(key, value); } } } as unknown as vscode.ExtensionContext;
-      const profile: Profile = { version: 'test', module: 'test', fps: 30, width, height, frameWidth: 16, frameHeight: 16 * height / width, seed: 0, configs: {} };
+      const profile: Profile = { version: 'test', module: 'test', fps: 30, width, height, frameWidth: 16, frameHeight: 16 * height / width, seed: 0, configs: {}, videoEncoder: true };
       const observation = { directory: run, source: sourceFile, sourceHash: 'a'.repeat(64), profile };
-      const media = { duration: 1, rate: 30, hasAudio: false, averageRate: 30, frames: 30, maxFrameTimeError: 0 };
+      const media = { duration: 1, rate: 30, hasAudio: false };
       const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo', edited: false, time: 0,
         frame: { ...observation, media: { ...media, kind: 'image', path: files.frame, capture: { requestedTime: 0, time: 0, frameIndex: 0 } } },
         movie: { ...observation, media: { ...media, kind: 'video', path: files.video } },
-        timeline: { ...observation, timeline: { end: 1, revision: 'b'.repeat(64) } as RunResult['timeline'] } };
+        timeline: { ...observation, timeline: { duration: 1 } as TimelineResult['timeline'], file: files.timeline } };
       let pickers = 0;
       const exports = new Exports(context, scratch, () => source, () => {}, async () => { throw new Error('Copies must not start native work'); }, () => {});
       try {

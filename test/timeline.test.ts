@@ -1,66 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { extent, pairingReason, parseTimeline, safeRelativePath, soundLabel } from '../src/timeline';
+import { extent, isCall, parseTimeline } from '../src/timeline';
 const raw = readFileSync('test/fixtures/timeline-v1.json', 'utf8');
 
-test('real v1 spans distinguish nominal requests, ordinary samples and frozen holds', () => {
+test('Manim fixture keeps the spans of plays, waits and frozen waits', () => {
   const t = parseTimeline(raw);
-  assert.deepEqual(t.events.map(e => [e.start, e.end, e.samples, e.hold_intervals]), [
-    [0, .5, 2, 0], [.5, 1, 2, 0], [1, 1.5, 2, 0], [1.5, 1.75, 0, 1], [1.75, 2.25, 2, 0],
+  assert.equal(t.scene, 'TimelineExample'); assert.equal(t.duration, 2.25);
+  assert.deepEqual(t.entries.filter(isCall).map(e => [e.kind, e.start, e.end, e.frozen]), [
+    ['play', 0, .5, false], ['wait', .5, 1, false], ['wait', 1, 1.5, false], ['wait', 1.5, 1.75, true], ['wait', 1.75, 2.25, false],
   ]);
-  assert.equal(t.events[0].nominal_duration, .3);
-  assert.equal(t.events[4].nominal_duration, 1);
-  assert.equal(t.events[1].source?.site_id, t.events[2].source?.site_id);
-  assert.deepEqual(t.events.slice(1, 3).map(e => e.source?.occurrence), [0, 1]);
-  assert.equal('output' in t, false);
+  assert.deepEqual(t.entries.map(e => e.kind), ['section', 'play', 'caption', 'wait', 'wait', 'wait', 'wait', 'sound']);
+  assert.deepEqual(t.entries[1].source, { path: 'timeline_scene.py', line: 16 });
 });
 
-test('placement differs from declaration time; unknown sound duration stays unknown', () => {
+test('captions and sounds extend the drawn span', () => {
   const t = parseTimeline(raw);
-  const sound = t.declarations.find(d => d.kind === 'sound')!;
-  assert.equal(sound.kind, 'sound'); if (sound.kind !== 'sound') return;
+  assert.deepEqual(extent(t), [0, 2.35]);
+  const sound = t.entries.at(-1)!; if (sound.kind !== 'sound') return;
   sound.start = -.5; sound.duration = null;
-  assert.equal(soundLabel(sound), 'example.wav');
   assert.deepEqual(extent(t), [-.5, 2.25]);
-  assert.equal(sound.at, 2.25);
-  assert.equal(parseTimeline(JSON.stringify(t)).declarations.at(-1)?.kind, 'sound');
 });
 
-test('reject invalid observations instead of repairing or inventing a timeline', () => {
+test('reject other schemas, versions and malformed entries', () => {
   const cases: ((t: any) => void)[] = [
-    t => t.version = 2, t => t.complete = false, t => t.policy = 'render',
-    t => t.events[1].start = -.1, t => t.events[0].end = 999,
-    t => t.events[1].id = t.events[0].id, t => t.events[0].samples = 1.5,
-    t => t.declarations[0].event_id = 'missing', t => t.declarations[0].order = 1,
-    t => t.events[0].source.path = '../secret.py', t => t.events[0].source.line = 0,
-    t => t.declarations[2].duration = -1, t => t.frame_rate = 0,
+    t => t.schema = 'manim.execution-timeline', t => t.version = 2, t => t.frame_rate = 0,
+    t => t.entries = null, t => t.entries[0].kind = 'marker', t => t.entries[1].end = '1',
+    t => t.entries[1].animations = [{ type: 'Wait' }], t => t.entries[1].source = { path: 'a.py' },
+    t => t.entries[7].duration = 'long', t => t.source = { path: 'a.py' },
   ];
   for (const modify of cases) { const data = JSON.parse(raw); modify(data); assert.throws(() => parseTimeline(JSON.stringify(data)), /Invalid timeline/); }
-});
-
-test('plausible pairing is not a certificate; obvious mismatches are unlinked', () => {
-  const t = parseTimeline(raw);
-  assert.equal(pairingReason(t, 2.25, 4, 0), null);
-  assert.match(pairingReason(t, 3, 4, 0)!, /durations/);
-  assert.match(pairingReason(t, 2.25, 30, 0)!, /rates/);
-  assert.match(pairingReason(t, 2.25, 4, NaN)!, /measured/);
-  assert.match(pairingReason(t, 2.25, 4, .13)!, /timestamps drift/);
-  const section = t.declarations[0]; if (section.kind !== 'section') return;
-  section.skip_requested = true;
-  assert.match(pairingReason(t, 2.25, 4, 0)!, /skip/);
-  section.skip_requested = false; t.events[2].start += .1;
-  assert.match(pairingReason(t, 2.25, 4, 0)!, /gaps/);
-});
-
-test('small mux timestamp rounding is tolerated, but accumulated/interior drift is not', () => {
-  const t = parseTimeline(raw); t.frame_rate = 30;
-  assert.equal(pairingReason(t, t.end - 0.000651041667, 30, 0.000651041667), null);
-  assert.match(pairingReason(t, t.end, 30, 0.02)!, /timestamps drift/, 'matching end times cannot hide intermediate drift');
-  assert.match(pairingReason(t, t.end, 30000 / 1001, 0)!, /rates/, '30 and 29.97 are not interchangeable');
-});
-
-test('navigation path hints cannot escape their root', () => {
-  for (const p of ['../x', '/x', 'C:/x', 'a\\b', 'a/../b', 'a//b', 'a\0b']) assert.equal(safeRelativePath(p), false);
-  assert.equal(safeRelativePath('helpers/é.py'), true);
 });

@@ -25,7 +25,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
       linked: true, pairing: '', canSeek: true, duration: 3, fps: 4, previewWidth: 960, hasMovie: true, position: { time: 1.25, request: 1 },
-      media: { uri: 'https://cue.test/a.mp4', kind: 'video', token: 'a', old: false, duration: 3, rate: 4, frame: { width: 8, height: 4 } } };
+      media: { uri: 'https://cue.test/a.mp4', kind: 'video', token: 'a', old: false, duration: 3, rate: 4, seekTime: 1.25, frame: { width: 8, height: 4 } } };
     const publish = (m: Model) => page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), m);
     await publish(model);
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.time === 1.25), undefined, { timeout: 5000 }).catch(async e => {
@@ -108,7 +108,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
     assert.equal(await page.locator('.measure-layer').isVisible(), false, 'stale image is display-only');
     const movieModel: Model = { ...model, generation: 3, mediaReady: true, position: { time: 1.25, request: 3 },
-      media: { ...model.media!, uri: 'https://cue.test/b.mp4', token: 'b', sourceId: 'new', frame: { width: 12, height: 6 } } };
+      media: { ...model.media!, uri: 'https://cue.test/b.mp4', token: 'b', sourceId: 'new', seekTime: undefined, frame: { width: 12, height: 6 } } };
     await publish(movieModel);
     assert.equal(await page.locator('.media-stage img').isVisible(), true, 'still stays mounted while movie loads');
     await publish({ ...movieModel, position: { time: 2.25, request: 4 } });

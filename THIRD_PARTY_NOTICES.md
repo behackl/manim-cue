@@ -6,9 +6,9 @@ with PyAV, not footage or a Manim rendering control copied from another project.
 ## Manim Community materials
 
 `test/fixtures/timeline-v1.json` is copied unchanged from
-`tests/control_data/timeline-v1.json` in Manim Community, inspected at local commit
-`a57eaaff`. The fixture describes an experimental version-1 no-raster observation;
-its older source-provenance label is intentionally preserved.
+`tests/control_data/timeline-v1.json` in Manim Community, inspected at commit
+`58075480` of the `refactor/audio-mixer-v2` branch. The fixture describes an
+experimental `manim.timeline` version-1 evaluation.
 
 `design/manim-cue-icon.svg` and the generated `resources/icon.png` incorporate the
 Manim Community mark from `logo/dark/transparent_background.svg`, inspected at commit

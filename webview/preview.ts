@@ -107,12 +107,15 @@ function emit(item: Item, value: number): void {
   post({ kind: 'playback', token: item.media.token, time: value, currentTime: video.currentTime, playing: !video.paused,
     sequence: tick(), seekSequence: item.request });
 }
+// Seek to the middle of a frame: the timestamps in the file can differ slightly from
+// the nominal frame times.
+const middle = (item: Item, frameStart: number) => frameStart + .5 / item.media.rate;
 function repeat(item: Item, start: number): void {
-  item.restoring = true; item.repeating = true; item.target = start;
+  item.restoring = true; item.repeating = true; item.target = middle(item, start);
   item.decodedTime = undefined; item.freshSeek = true;
   (item.element as HTMLVideoElement).pause(); showDecoded(item);
 }
-// Use the movie's checked presentation boundaries. Seeking may pause briefly at a
+// Use the frame boundaries of the movie. Seeking may pause briefly at a
 // wrap; never stretch timestamps or start a Python job for looping.
 function checkLoop(item: Item, presented?: number): boolean {
   clearTimeout(item.loopTimer);
@@ -131,11 +134,13 @@ function frames(item: Item): void {
   item.callback = item.element.requestVideoFrameCallback((_now, metadata) => {
     if (item.disposed || request !== item.request) return;
     const video = item.element as HTMLVideoElement;
-    const tolerance = item.freshSeek && model?.media?.seekTime !== undefined ? .00001 : 1 / (item.media.rate || 30) + .002;
+    const shows = item.freshSeek && model?.media?.seekTime !== undefined
+      ? metadata.mediaTime <= item.target && item.target < metadata.mediaTime + 1 / item.media.rate
+      : Math.abs(metadata.mediaTime - item.target) <= 1 / (item.media.rate || 30) + .002;
     if (item.restoring) {
-      if (Math.abs(metadata.mediaTime - item.target) <= tolerance) item.decodedTime = metadata.mediaTime;
+      if (shows) item.decodedTime = metadata.mediaTime;
       showDecoded(item);
-    } else if (!video.paused || Math.abs(metadata.mediaTime - video.currentTime) <= tolerance) {
+    } else if (!video.paused || Math.abs(metadata.mediaTime - video.currentTime) <= 1 / (item.media.rate || 30) + .002) {
       item.freshSeek = false; emit(item, metadata.mediaTime);
     }
     frames(item);
@@ -197,7 +202,8 @@ function seek(item: Item): void {
   const request = model.position?.request ?? 0;
   if (item.request === request) { applyPlay(item); return; }
   item.request = request;
-  item.target = Math.max(0, Math.min(model.media.seekTime ?? model.position?.time ?? 0, Math.max(0, video.duration - .000001)));
+  const seekTime = model.media.seekTime;
+  item.target = Math.max(0, Math.min(seekTime === undefined ? model.position?.time ?? 0 : middle(item, seekTime), Math.max(0, video.duration - .000001)));
   clearTimeout(item.loopTimer); item.repeating = false;
   item.restoring = true; item.freshSeek = true; item.decodedTime = undefined; video.pause();
   if (item.callback !== undefined) video.cancelVideoFrameCallback(item.callback);
