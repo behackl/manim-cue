@@ -55,11 +55,11 @@ test('the preview plays the current video in scene time and reports its position
     assert.deepEqual((await w.messages()).at(-1), { kind: 'openExport', time: (await positions(w)).at(-1), video: true });
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     assert.equal((await w.messages()).at(-1).kind, 'settings');
-    // An outdated video stays with a watermark; the controls wait for the next update.
+    // An outdated video stays with a watermark and still plays.
     await w.publish(model({ time: 1, video: video({ outdated: true }), timelineOutdated: true, job: undefined }));
     await page.waitForFunction(() => document.querySelector('.watermark')?.textContent === 'OUTDATED');
     assert.equal(await page.locator('.preview-controls .position').innerText(), `${Number((await positions(w)).at(-1)).toFixed(2)} s / 3.00 s`, 'the duration stays');
-    assert.equal(await page.getByRole('button', { name: 'Next frame', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Next frame', exact: true }).isDisabled(), false);
     assert.deepEqual(w.errors, []);
   } finally { await w.browser.close(); }
 });
@@ -77,7 +77,13 @@ test('without a current video, the preview asks for the frame at its position', 
     // A new position keeps the old frame until the new one is there.
     await page.getByRole('button', { name: 'Next frame', exact: true }).click();
     assert.equal((await w.message('frameNeeded')).time, 1.25);
+    assert.equal(await page.locator('.watermark').innerText(), 'FRAME AT 1.00 S', 'the host is idle: the shown frame is for another time');
+    await w.publish(model({ time: 1.25, autoPreview: false, frame: red, busy: true }));
     assert.equal(await page.locator('.watermark').innerText(), 'UPDATING FRAME');
+    // After Cancel, the same position is asked for again when the user chooses it.
+    await w.publish(model({ time: 1.25, autoPreview: false, frame: red, status: 'Cancelled' }));
+    await w.send({ kind: 'seek', time: 1.25 });
+    assert.equal((await w.messages()).filter(m => m.kind === 'frameNeeded' && m.time === 1.25).length, 2);
     const blue = await frame(page, 1.25, '#00f');
     await w.publish(model({ time: 1.25, autoPreview: false, frame: blue }));
     await page.waitForFunction(() => document.querySelector('.watermark')!.hasAttribute('hidden'));
@@ -92,10 +98,17 @@ test('without a current video, the preview asks for the frame at its position', 
     await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last }));
     await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('last frame'));
     assert.equal(await page.locator('.preview-controls .position').innerText(), 'Last frame / 1.00 s');
-    // Play without a video asks for one.
+    // Play without a video asks for one. A failed render ends the wait; a later video does not start by itself.
     await page.getByRole('button', { name: 'Play', exact: true }).click();
     assert.equal((await w.messages()).at(-1).kind, 'preview');
     assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).getAttribute('aria-busy'), 'true');
+    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last, videoWanted: true, busy: true }));
+    assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).getAttribute('aria-busy'), 'true');
+    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last, error: 'The video render failed: x' }));
+    assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).getAttribute('aria-busy'), 'false');
+    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last, video: video({ duration: 1 }) }));
+    await page.waitForFunction(() => !!document.querySelector('video') && !(document.querySelector('video') as HTMLVideoElement).style.visibility);
+    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
     // A scene without plays has no positions to step to; an outdated scene waits for the next job.
     for (const blocked of [model({ duration: 0, frame: last }), model({ job: undefined, frame: { ...last, outdated: true } })]) {
       await w.publish(blocked);
@@ -142,6 +155,23 @@ test('another file with the same scene class is another scene', async () => {
     assert.equal(await page.getByRole('button', { name: 'Compare', exact: true }).getAttribute('aria-pressed'), 'false');
     assert.equal(await page.locator('.media-stage img').count(), 0, 'no frame of the other file');
     assert.equal((await w.message('frameNeeded')).time, 2);
+    assert.deepEqual(w.errors, []);
+  } finally { await w.browser.close(); }
+});
+
+test('an outdated video plays without a job, and a seek after the end is reported back clamped', async () => {
+  const w = await webview('preview'), { page } = w;
+  try {
+    await w.publish(model({ time: 1, video: video({ outdated: true }), job: undefined, timelineOutdated: true }));
+    await page.waitForFunction(() => !!document.querySelector('video') && !(document.querySelector('video') as HTMLVideoElement).style.visibility);
+    assert.equal(await page.locator('.watermark').innerText(), 'OUTDATED');
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await page.waitForFunction(() => (window as any).messages.filter((m: any) => m.kind === 'position').at(-1)?.time > 1.2);
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    assert.deepEqual((await w.messages()).filter(m => m.kind === 'frameNeeded'), [], 'no job, no frame requests');
+    await w.publish(model({ time: 1, video: video() }));
+    await w.send({ kind: 'seek', time: 9 });
+    assert.equal((await w.messages()).at(-1).time, 2.75, 'the last frame of the 3 s scene');
     assert.deepEqual(w.errors, []);
   } finally { await w.browser.close(); }
 });

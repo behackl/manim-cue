@@ -49,7 +49,7 @@ export class Session implements vscode.Disposable {
     invalidate: (reason, savedHash) => this.invalidate(reason, savedHash),
     // A running update of the saved file goes on; its results are outdated too.
     edited: () => {
-      this.exports.invalidate(false);
+      this.exports.invalidate(false); this.videoWanted = false;
       for (const result of [this.frame, this.video, this.timeline, ...this.exports.results]) if (result) result.outdated = true;
       this.status = 'Outdated. Save the scene file to update.'; this.views.update();
     },
@@ -67,8 +67,8 @@ export class Session implements vscode.Disposable {
   private abort?: AbortController;
   private pending: Promise<void> = Promise.resolve();
   private preparing = false;
-  /** "Render video" or Play came before the timeline: render when it is ready. */
-  private videoWanted = false;
+  /** "Render video" or Play asked for a video; the render can wait for the timeline. */
+  videoWanted = false;
   private errors = new Map<string, string>();
   private disposed = false;
   private rememberTimer?: ReturnType<typeof setTimeout>;

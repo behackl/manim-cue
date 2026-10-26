@@ -64,11 +64,12 @@ function lastFrame(): number {
   const d = duration();
   return d === undefined ? Infinity : Math.max(0, (videoFrames(d, fps()) - 1) / fps());
 }
+/** The video to show: the current one, or an outdated one while no job can make frames. */
 function currentVideo(): VideoMedia | undefined {
   const video = model?.video;
-  return video && !video.outdated && !failed.has(video.id) && !comparison.enabled ? video : undefined;
+  return video && (!video.outdated || !model!.job) && !failed.has(video.id) && !comparison.enabled ? video : undefined;
 }
-/** The result for the position: the current video, or else a current frame for it. */
+/** The result for the position: the video, or else a current frame for it. */
 function wanted(): Media | undefined {
   const video = currentVideo();
   if (video && (playing || !isSkipped(video.skipped, time))) return video;
@@ -80,6 +81,7 @@ function wanted(): Media | undefined {
 const videoPosition = (video: VideoMedia, at: number) => videoTime(video.skipped, at) + .5 / video.rate;
 function setTime(value: number, report: boolean): void {
   time = Math.max(0, Math.min(value, lastFrame()));
+  requested = undefined; // A position that the user chooses again is asked for again, also after a failure or Cancel.
   if (report) post({ kind: 'position', time });
   sync();
 }
@@ -88,9 +90,12 @@ function step(direction: -1 | 1): void {
   stop(); setTime((frameIndex(time, fps()) + direction) / fps(), true);
 }
 function start(): void {
-  if (!model?.job) return;
+  if (!model) return;
   comparison.disable(); if (measurement.enabled) measurement.setEnabled(false);
-  if (!currentVideo()) { playWanted = true; post({ kind: 'preview' }); sync(); return; }
+  if (!currentVideo()) {
+    if (!model.job) return;
+    playWanted = true; post({ kind: 'preview' }); sync(); return;
+  }
   playWanted = false;
   const loop = model.loop;
   if (loop && (time < loop.start || time >= loop.end)) setTime(loop.start, true);
@@ -185,7 +190,9 @@ function sync(): void {
     }
   }
   empty.hidden = !!shown || !!loading;
-  watermark.textContent = shown?.media.outdated ? 'OUTDATED' : 'UPDATING FRAME';
+  // A frame for another time: "updating" while the host works, else the time of the frame.
+  const other = shown && !isVideo(shown.media) ? shown.media.time === null ? 'LAST FRAME' : `FRAME AT ${shown.media.time.toFixed(2)} S` : 'OUTDATED';
+  watermark.textContent = shown?.media.outdated ? 'OUTDATED' : model.busy ? 'UPDATING FRAME' : other;
   watermark.hidden = !shown || !shown.media.outdated && current;
   const last = current && !isVideo(shown!.media) && shown!.media.time === null;
   const notice = last ? 'The scene ends before this time. This is its last frame.'
@@ -193,11 +200,12 @@ function sync(): void {
   message.textContent = model.error ?? loadError ?? notice; message.hidden = !message.textContent;
   const d = duration();
   clock.textContent = `${last ? 'Last frame' : time.toFixed(2) + ' s'} / ${d === undefined ? '—' : d.toFixed(2) + ' s'}`;
-  scrubber.disabled = !model.job || !d; scrubber.max = String(d ?? 0); scrubber.step = String(1 / fps());
+  const movable = !!model.job || !!video; // An outdated video plays without a job.
+  scrubber.disabled = !movable || !d; scrubber.max = String(d ?? 0); scrubber.step = String(1 / fps());
   if (!scrubbing) scrubber.value = String(time);
   scrubber.setAttribute('aria-valuetext', clock.textContent);
-  previous.disabled = next.disabled = play.disabled = !model.job || d === 0;
-  render.hidden = model.autoPreview || !!video || comparison.enabled || d === 0;
+  previous.disabled = next.disabled = play.disabled = !movable || d === 0;
+  render.hidden = model.autoPreview || model.video?.outdated === false || comparison.enabled || d === 0;
   render.disabled = !model.scene;
   exportButton.disabled = !model.scene || !!model.exportState?.busy;
   const pausing = playing || playWanted;
@@ -216,9 +224,15 @@ document.addEventListener('keydown', event => {
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 listen(m => {
-  if (m.kind === 'seek') { stop(); setTime(m.time, false); return; }
+  if (m.kind === 'seek') {
+    stop(); setTime(m.time, false);
+    if (time !== m.time) post({ kind: 'position', time }); // The views agree on the clamped position.
+    return;
+  }
   if (m.kind === 'step') { step(m.direction); return; }
   if (m.kind !== 'state') return;
+  // The host no longer wants the video: the render failed, or Cancel or an edit stopped it.
+  if (playWanted && model?.videoWanted && !m.model.videoWanted && m.model.video?.outdated !== false) playWanted = false;
   model = m.model;
   if (model.sceneKey !== sceneKey) {
     const before = sceneKey; sceneKey = model.sceneKey; time = model.time; playing = playWanted = false; requested = loadError = undefined;

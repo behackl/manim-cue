@@ -20,7 +20,7 @@ export function model(s: Session, webview?: vscode.Webview, view?: 'timeline' | 
   return {
     scene: s.target?.scene ?? '', sceneKey: s.target ? `${s.target.uri.toString()}#${s.target.scene}` : '', status: s.exports.nativeBusy ? 'Rendering for export…' : s.status, busy: s.busy, error: s.error,
     pythonProblem: !!s.error && s.pythonProblem,
-    autoPreview: s.autoPreview, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
+    autoPreview: s.autoPreview, videoWanted: s.videoWanted, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
     profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
     job: s.watch.edited ? undefined : s.job?.directory, time: s.time,
     timeline: view !== 'preview' && sent !== s.timeline?.file ? s.timeline?.timeline : undefined, timelineId: s.timeline?.file,

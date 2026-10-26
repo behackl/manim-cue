@@ -34,7 +34,7 @@ export async function webview(script: 'preview' | 'timeline', viewport = { width
 }
 export const timeline = (duration: number) => ({ schema: 'manim.timeline', version: 1, mode: 'render', scene: 'Demo', backend: 'CairoRenderer',
   frame_rate: 4, duration, ended_early: false, source: null, entries: [] }) as Timeline;
-export const model = (changes: Partial<Model> = {}): Model => ({ scene: 'Demo', sceneKey: 'file:///scene.py#Demo', status: 'Up to date', busy: false, pythonProblem: false, autoPreview: true, fps: 4,
+export const model = (changes: Partial<Model> = {}): Model => ({ scene: 'Demo', sceneKey: 'file:///scene.py#Demo', status: 'Up to date', busy: false, pythonProblem: false, autoPreview: true, videoWanted: false, fps: 4,
   job: 'job-1', time: 0, timelineOutdated: false, timeline: timeline(3), timelineId: 'timeline-1', duration: 3, ...changes });
 export const video = (changes: Partial<NonNullable<Model['video']>> = {}): NonNullable<Model['video']> => ({ id: 'video', uri: 'https://cue.test/a.mp4',
   outdated: false, frame: { width: 8, height: 4 }, duration: 3, rate: 4, skipped: [], ...changes });

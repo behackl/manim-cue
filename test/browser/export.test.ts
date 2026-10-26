@@ -14,7 +14,7 @@ test('export dialog separates copies from renders, validates settings, and keeps
     await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
     await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
-    const model: Model = { scene: 'Demo', sceneKey: 'file:///scene.py#Demo', status: 'Up to date', busy: false, pythonProblem: false, timelineOutdated: false, autoPreview: false, fps: 4, time: 0 };
+    const model: Model = { scene: 'Demo', sceneKey: 'file:///scene.py#Demo', status: 'Up to date', busy: false, pythonProblem: false, timelineOutdated: false, autoPreview: false, videoWanted: false, fps: 4, time: 0 };
     const publish = (m: Model) => page.evaluate(model => new Promise<void>(resolve => {
       window.addEventListener('message', () => resolve(), { once: true }); window.postMessage({ kind: 'state', model }, '*');
     }), m);

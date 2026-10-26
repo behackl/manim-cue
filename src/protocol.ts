@@ -17,6 +17,8 @@ export interface Model {
   /** The error comes from the Python environment. */
   pythonProblem: boolean;
   autoPreview: boolean; fps: number; profile?: string;
+  /** "Render video" or Play asked for a video that is not there yet. */
+  videoWanted: boolean;
   /** The current job; frames can be made only while there is one. */
   job?: string;
   /** The last position. A new webview starts here. */
