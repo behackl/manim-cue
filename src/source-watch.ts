@@ -36,7 +36,7 @@ export class SourceWatch {
   updating(hash: string): void { this.stop(); this.hash = hash; this.changes = false; }
   /** Another scene file opens. */
   reset(): void { this.stop(); this.hash = undefined; this.changes = false; }
-  /** Stops a queued update. */
+  /** Stops a queued update and drops the notifications on the way. */
   stop(): void { clearTimeout(this.timer); this.timer = undefined; ++this.check; }
   /**
    * The editor changed `uri`. Only the scene file counts: other files count when they are
@@ -82,8 +82,9 @@ export class SourceWatch {
       this.scene.queued();
       this.timer = setTimeout(() => {
         this.timer = undefined;
-        // The update stops this check only after its first checks; their errors show here.
-        void this.scene.refresh().catch(e => { if (check === this.check) this.scene.failed('Update failed', e); });
+        // refresh() stops the watch at once: its errors show unless a later save replaced it.
+        const update = this.scene.refresh(), started = this.check;
+        update.catch(e => { if (started === this.check) this.scene.failed('Update failed', e); });
       }, this.delay);
     } catch (e) {
       if (check !== this.check) return;

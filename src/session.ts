@@ -138,6 +138,8 @@ export class Session implements vscode.Disposable {
     if (opening === this.opening) await this.refresh();
   }
   async refresh(frame = true): Promise<void> {
+    // A save notification that is still on the way must not cancel this update.
+    this.watch.stop();
     if (!this.target) { await this.open(); return; }
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
     const target = this.target, intent = this.generation;

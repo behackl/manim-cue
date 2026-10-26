@@ -19,7 +19,7 @@ async function setup(refresh: () => Promise<void> = async () => {}) {
     invalidate: reason => { calls.push(`invalidate ${reason}`); watch.stop(); }, // The session cancels its work.
     edited: () => calls.push('edited'),
     queued: () => calls.push('queued'),
-    refresh: async () => { calls.push('refresh'); await refresh(); },
+    refresh: async () => { watch.stop(); calls.push('refresh'); await refresh(); }, // As Session.refresh().
     failed: (status, error) => calls.push(`failed ${status}: ${(error as Error).message}`),
   }, 10);
   return { dir, file, calls, state, watch };
@@ -43,7 +43,7 @@ test('an error of the automatic update shows, unless a newer change came first',
     await watch.saved(file); await pause(30);
     assert.deepEqual(calls.at(-1), 'failed Update failed: the file is gone');
     calls.length = 0;
-    const later = await setup(async () => { later.watch.stop(); throw new Error('superseded'); });
+    const later = await setup(async () => { await pause(1); later.watch.stop(); throw new Error('superseded'); });
     await later.watch.saved(later.file); await pause(30);
     assert.equal(later.calls.some(c => c.startsWith('failed')), false, 'a newer change replaces the error');
     await fs.rm(later.dir, { recursive: true });
@@ -92,5 +92,17 @@ test('unsaved edits of the scene file make the results outdated once; edits of o
     await watch.edit(file, 'saved'); await pause(30);
     assert.deepEqual(calls.slice(1), ['invalidate Update queued…', 'queued', 'refresh'], 'an undo back to the saved file updates');
     assert.equal(watch.edited, false);
+  } finally { await fs.rm(dir, { recursive: true }); }
+});
+
+test('a save notification on the way does not cancel an update that starts', async () => {
+  const { dir, file, calls, state, watch } = await setup();
+  try {
+    state.automatic = false;
+    await fs.writeFile(file.fsPath, 'new');
+    const late = watch.saved(file); // It reads the file while the update starts.
+    watch.stop(); watch.updating('hash of new');
+    await late; await pause(30);
+    assert.deepEqual(calls, []);
   } finally { await fs.rm(dir, { recursive: true }); }
 });
