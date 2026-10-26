@@ -217,6 +217,8 @@ export class Session implements vscode.Disposable {
           await this.publishFrame(job, signal, frame);
         });
         if (!this.current(job, signal)) return;
+        // The loop belongs to the selection of the old timeline, also when the timeline view is hidden.
+        if (result.timeline!.directory !== this.timeline?.directory) this.loop = undefined;
         this.timeline = result.timeline!; this.timeline.outdated = this.watch.edited;
         this.setError('Timeline'); this.done(); this.views.update();
         if (frame && this.autoPreview || this.videoWanted) this.requestVideo();
