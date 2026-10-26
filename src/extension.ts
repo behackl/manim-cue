@@ -99,10 +99,9 @@ export function activate(context: vscode.ExtensionContext) {
     command('manimCue.previousFrame', () => session.views.step(-1)), command('manimCue.nextFrame', () => session.views.step(1)),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (!e.contentChanges.length) return;
-      // VS Code can deliver content changes before updating isDirty. Invalidate
-      // immediately; the async disk check rechecks dirtiness before queuing a run.
+      // An undo back to the saved content makes the results current again.
       session.watch.changed(e.document.uri);
-      if (!e.document.isDirty) void session.watch.saved(e.document.uri);
+      if (!e.document.isDirty) void session.watch.saved(e.document.uri, e.document.getText());
     }),
     vscode.workspace.onDidSaveTextDocument(document => { void session.watch.saved(document.uri); }),
     vscode.workspace.onDidChangeConfiguration(e => session.configurationChanged(e)),

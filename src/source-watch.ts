@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileHash } from './jobs';
 import { insideEnvironment } from './setup-plan';
 
@@ -39,7 +40,11 @@ export class SourceWatch implements vscode.Disposable {
       this.scene.invalidate('Outdated. A project file changed. Refresh to update.');
     }
   }
-  async saved(uri: vscode.Uri): Promise<void> {
+  /**
+   * The file `uri` is saved. With `text`, an edit made the editor clean: VS Code can report
+   * that before its dirty state is right, so only an edit back to the saved content counts.
+   */
+  async saved(uri: vscode.Uri, text?: string): Promise<void> {
     if (uri.toString() !== this.scene.file()?.toString()) { this.changed(uri); return; }
     let check = ++this.check;
     try {
@@ -47,6 +52,7 @@ export class SourceWatch implements vscode.Disposable {
       if (check !== this.check) return;
       // A disk notification must never run an older saved version under a dirty buffer.
       if (vscode.workspace.textDocuments.some(d => d.uri.toString() === uri.toString() && d.isDirty)) return;
+      if (text !== undefined && createHash('sha256').update(text).digest('hex') !== hash) return;
       // A save and the file watcher often report the same write. Do not cancel a queued
       // or running update for the duplicate, even when the watcher comes late.
       if (hash === this.hash && !this.edited) return;
