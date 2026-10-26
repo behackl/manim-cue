@@ -13,6 +13,7 @@
 - Offer only the frame and the timeline for export when a scene has no plays or waits.
 - Use plain, consistent words in all texts. A changed scene shows "Outdated".
 - Show the line that names the error when a scene fails; the log has the complete output.
+- Show the status in the preview header only. Sound bars show the file name. Times have two decimals.
 
 ## 0.2.1
 
