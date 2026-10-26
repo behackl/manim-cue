@@ -10,7 +10,7 @@ import { videoFrameIndex, videoFrames } from './transport';
 
 export interface ExportSource {
   uri: vscode.Uri; scene: string; frame?: PreviewResult; movie?: PreviewResult; timeline?: TimelineResult;
-  job?: SceneJob; time: number; edited: boolean;
+  job?: SceneJob; time: number;
 }
 interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string }
 interface Active { source: ExportSource; abort: AbortController; native: boolean; started?: boolean; sourceHash?: string; job?: SceneJob }
@@ -31,18 +31,19 @@ export class Exports {
     return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.directory, s?.movie?.directory, s?.timeline?.directory, s?.job?.directory])
       .concat(this.active?.job?.directory).filter((p): p is string => !!p);
   }
+  /** Results that an open dialog or a running export still uses. */
+  get results(): (PreviewResult | TimelineResult)[] {
+    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame, s?.movie, s?.timeline]).filter(r => r !== undefined);
+  }
   get files(): string[] {
     return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.movie?.media.path]).filter((p): p is string => !!p);
   }
   private dirty(source: ExportSource): boolean { return vscode.workspace.textDocuments.some(d => d.uri.toString() === source.uri.toString() && d.isDirty); }
-  private old(result: PreviewResult | TimelineResult, current = this.source()): boolean {
-    return !current || current.edited || this.dirty(current) || result.directory !== current.job?.directory;
-  }
   private description(result: PreviewResult | TimelineResult): string {
     const p = result.profile;
     const media = 'media' in result ? result.media : undefined;
     const time = media?.kind === 'image' ? (media.capture?.time == null ? 'End state' : `${media.capture.time.toFixed(3)} s`) : `${media?.duration ?? (result as TimelineResult).timeline.duration} s`;
-    return `${this.old(result) ? 'OLD · ' : ''}${time} · ${p.width} × ${p.height} · ${p.fps} fps · source ${result.sourceHash.slice(0, 8)}${media?.kind === 'video' ? ` · H.264 · ${media.hasAudio ? 'includes audio' : 'no audio'}` : ''}`;
+    return `${result.outdated ? 'OLD · ' : ''}${time} · ${p.width} × ${p.height} · ${p.fps} fps · source ${result.sourceHash.slice(0, 8)}${media?.kind === 'video' ? ` · H.264 · ${media.hasAudio ? 'includes audio' : 'no audio'}` : ''}`;
   }
   snapshot(webview?: vscode.Webview): ExportModel {
     const s = this.session, current = this.source();
@@ -54,7 +55,7 @@ export class Exports {
           uri: webview && s.source.frame.media.kind === 'image' ? webview.asWebviewUri(vscode.Uri.file(s.source.frame.media.path)).toString() : undefined } : undefined,
         video: s.source.movie?.media.kind === 'video' ? this.description(s.source.movie) : undefined,
         timeline: s.source.timeline ? this.description(s.source.timeline) : undefined,
-        canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !this.old(s.source.frame),
+        canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !s.source.frame.outdated,
         dirty: this.dirty(s.source), newer: current?.frame?.media.path !== s.source.frame?.media.path || current?.movie?.media.path !== s.source.movie?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
         error: s.error } : undefined };
   }
@@ -65,7 +66,7 @@ export class Exports {
     if (!source) { this.update(); return; }
     if (token !== undefined && token !== source.frame?.media.path) return;
     const p = source.frame?.profile ?? source.timeline?.profile;
-    let choice: ExportChoice = { kind: source.frame?.media.kind === 'video' ? 'video' : 'frame', method: source.movie && !this.old(source.movie) ? 'copy' : 'render',
+    let choice: ExportChoice = { kind: source.frame?.media.kind === 'video' ? 'video' : 'frame', method: source.movie && !source.movie.outdated ? 'copy' : 'render',
       settings: { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium', options: '' } };
     try { choice = exportChoice(this.context.workspaceState.get('exportChoice')); } catch { /* First visit or incompatible stored preference. */ }
     const media = source.frame?.media, value = time ?? source.time;
@@ -107,7 +108,7 @@ export class Exports {
     const native = active.native, source = s.source;
     const extension = kind === 'frame' ? '.png' : kind === 'timeline' ? '.json' : '.mp4';
     const artifact = kind === 'frame' ? source.frame : kind === 'timeline' ? source.timeline : source.movie;
-    const old = !native && artifact && this.old(artifact);
+    const old = !native && artifact?.outdated;
     const stamp = kind === 'frame' ? `-${source.frame?.media.capture?.time == null && !native ? 'end-state' : (native ? s.time : source.frame!.media.capture!.time!).toFixed(3) + 's'}` : kind === 'timeline' ? '-timeline' : '';
     let release: (() => void) | undefined, sourceHash: string | undefined;
     try {

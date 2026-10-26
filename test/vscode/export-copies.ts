@@ -21,9 +21,9 @@ export async function testExportCopies(root: string): Promise<void> {
       const memory = new Map<string, unknown>();
       const context = { workspaceState: { get: (key: string) => memory.get(key), update: async (key: string, value: unknown) => { memory.set(key, value); } } } as unknown as vscode.ExtensionContext;
       const profile: Profile = { version: 'test', module: 'test', fps: 30, width, height, frameWidth: 16, frameHeight: 16 * height / width, seed: 0, configs: {}, videoEncoder: true };
-      const observation = { directory: run, source: sourceFile, sourceHash: 'a'.repeat(64), profile };
+      const observation = { directory: run, source: sourceFile, sourceHash: 'a'.repeat(64), profile, outdated: false };
       const media = { duration: 1, rate: 30, hasAudio: false };
-      const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo', edited: false, time: 0,
+      const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo', time: 0,
         frame: { ...observation, media: { ...media, kind: 'image', path: files.frame, capture: { requestedTime: 0, time: 0, frameIndex: 0 } } },
         movie: { ...observation, media: { ...media, kind: 'video', path: files.video } },
         timeline: { ...observation, timeline: { duration: 1 } as TimelineResult['timeline'], file: files.timeline } };

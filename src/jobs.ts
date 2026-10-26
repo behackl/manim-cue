@@ -10,7 +10,8 @@ import { parseTimeline, type Timeline } from './timeline';
 export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; videoEncoder: boolean }
 export interface Media { path: string; kind: 'video' | 'image'; duration: number; rate: number; hasAudio: boolean;
   capture?: { requestedTime: number; time: number | null; frameIndex: number | null } }
-export interface Observation { directory: string; source: string; sourceHash: string; profile: Profile }
+/** `outdated`: the source or the settings changed after the result started. */
+export interface Observation { directory: string; source: string; sourceHash: string; profile: Profile; outdated: boolean }
 export interface PreviewResult extends Observation { media: Media }
 export interface TimelineResult extends Observation { timeline: Timeline; file: string }
 export interface JobOptions {
@@ -63,7 +64,7 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
 }
 async function observation(job: SceneJob): Promise<Observation> {
   const profile: Profile = JSON.parse(await fs.readFile(path.join(job.directory, 'profile.json'), 'utf8'));
-  return { directory: job.directory, source: job.options.source, sourceHash: job.sourceHash, profile };
+  return { directory: job.directory, source: job.options.source, sourceHash: job.sourceHash, profile, outdated: false };
 }
 const skipped = (t: Timeline) => t.entries.some(e => (e.kind === 'play' || e.kind === 'wait') && e.skipped);
 export interface Inspection { frame?: PreviewResult; timeline?: TimelineResult }
