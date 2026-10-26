@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runProcess, Cancelled } from '../src/process';
+import { errorLine } from '../src/jobs';
 const defaults = () => ({ cwd: process.cwd(), signal: new AbortController().signal, timeout: 5000 });
 
 test('argument arrays preserve shell metacharacters; stdin closes', async () => {
@@ -33,4 +34,10 @@ test('stdout lines arrive while the process still runs', async () => {
   const output = await runProcess(process.execPath, ['-e', 'process.stdout.write("a\\r\\nb");setTimeout(()=>console.log("c"),50)'], { ...defaults(), line: line => lines.push(line) });
   assert.deepEqual(lines, ['a', 'bc']);
   assert.equal(output, 'a\r\nbc\n');
+});
+test('the error line keeps file names instead of long paths', () => {
+  const output = 'Traceback (most recent call last):\n  File "/x/y.py", line 1\nRuntimeError: Failed to encode /tmp/cue-a/runs/run-1/work/uncached_00\n000.mp4 (C:\\Users\\me\\scene.py)';
+  assert.equal(errorLine(output), 'RuntimeError: Failed to encode uncached_00 000.mp4 (scene.py)');
+  assert.equal(errorLine('plain message'), 'plain message');
+  assert.equal(errorLine(''), 'Python stopped with an error. See the log.');
 });

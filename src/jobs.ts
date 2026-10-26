@@ -70,11 +70,13 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
  * The error for the UI; the log has the complete output. A traceback ends with the
  * exception line, which a terminal-width console can wrap over more lines.
  */
-function errorLine(output: string): string {
+export function errorLine(output: string): string {
   const lines = output.trim().split('\n').map(line => line.trim()).filter(Boolean);
   let start = lines.length - 1;
   while (start >= 0 && !/^[A-Za-z_][\w.]*(Error|Exception|Exit|Interrupt)\b/u.test(lines[start])) start--;
-  return (start < 0 ? lines.at(-1) : lines.slice(start).join(' '))?.slice(0, 500) || 'Python stopped with an error. See the log.';
+  const line = start < 0 ? lines.at(-1) : lines.slice(start).join(' ');
+  // Long run and cache paths only hide the message: keep their file names.
+  return line?.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s'"(),:\\/]+[\\/])+(?=[^\s'"(),:\\/])/gu, '').slice(0, 500) || 'Python stopped with an error. See the log.';
 }
 async function newResult(job: SceneJob): Promise<Result> {
   const profile: Profile = JSON.parse(await fs.readFile(path.join(job.directory, 'profile.json'), 'utf8'));
