@@ -17,3 +17,4 @@ export function button(text: string, action: () => void, title = text): HTMLButt
   const b = el('button', '', text); b.type = 'button'; b.title = title; b.onclick = action; return b;
 }
 export const seconds = (n: number) => `${Number(n.toFixed(4))} s`;
+export const time = (n: number) => `${n.toFixed(2)} s`;
