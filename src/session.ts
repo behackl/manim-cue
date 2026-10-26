@@ -13,6 +13,7 @@ import { SourceWatch } from './source-watch';
 import { model, receive } from './panel';
 
 type Topic = 'Frame' | 'Timeline' | 'Video';
+const failures: Record<Topic, string> = { Frame: 'The frame update', Timeline: 'The timeline update', Video: 'The video render' };
 
 /**
  * The open scene: its jobs and its results (frame, timeline, video). The webviews own
@@ -170,7 +171,7 @@ export class Session implements vscode.Disposable {
   }
   private jobFailed(job: SceneJob, signal: AbortSignal, topic: Topic, error: unknown): void {
     if (!this.current(job, signal)) return;
-    const what = { Frame: 'The frame update', Timeline: 'The timeline update', Video: 'The video render' }[topic];
+    const what = failures[topic];
     this.status = `${what} failed`;
     this.setError(topic, `${what} failed: ${error instanceof Error ? error.message : String(error)}`);
     if (topic !== 'Frame') this.videoWanted = false;
@@ -182,8 +183,11 @@ export class Session implements vscode.Disposable {
     }
     this.output.appendLine(`\n${this.error}`); this.views.update();
   }
-  /** The status after a job: unsaved edits make its results outdated at once. */
-  private done(): void { this.status = this.watch.edited ? 'Outdated. Save the scene file to update.' : 'Up to date'; }
+  /** The status after a job: an earlier failure or unsaved edits stay visible. */
+  private done(): void {
+    const failed = (['Timeline', 'Video', 'Frame'] as const).find(topic => this.errors.has(topic));
+    this.status = this.watch.edited ? 'Outdated. Save the scene file to update.' : failed ? `${failures[failed]} failed` : 'Up to date';
+  }
   private async publishFrame(job: SceneJob, signal: AbortSignal, result: PreviewResult): Promise<void> {
     const published = await publishPreview(result, this.mediaRoot);
     if (!this.current(job, signal)) return;
