@@ -103,6 +103,16 @@ export async function run(): Promise<void> {
   await until(() => api.getSnapshot().time === 1.5, 'the preview steps one frame');
   await vscode.commands.executeCommand('manimCue.previousFrame');
   await until(() => api.getSnapshot().time === 1.25, 'the preview steps back');
+  // "Save Frame as PNG" saves the frame at the position: with the video shown there, a new frame.
+  const videoFrame = vscode.Uri.file(path.join(root, 'video-frame.png'));
+  let suggested: string | undefined;
+  Object.assign(vscode.window, { showSaveDialog: async (options: vscode.SaveDialogOptions) => { suggested = options.defaultUri?.fsPath; return videoFrame; } });
+  try { await vscode.commands.executeCommand('manimCue.saveFrame'); await api.whenIdle(); } finally { Object.assign(vscode.window, { showSaveDialog: saveDialog }); }
+  assert.equal(path.basename(suggested ?? ''), 'CueDemo-1.250s.png');
+  const saved = await fs.readFile(videoFrame.fsPath);
+  assert.equal(saved.readUInt32BE(16), 480); assert.equal(saved.readUInt32BE(20), 270);
+  assert.notDeepEqual(saved, await fs.readFile(api.getSnapshot().frame!.id), 'not the newest frame, which is for 0 s');
+  assert.equal(api.getSnapshot().frame?.id, frameBefore, 'the saved frame does not replace the preview frame');
   api.setLoop({ start: 1, end: 2 });
   assert.deepEqual(api.getSnapshot().loop, { start: 1, end: 2 });
   api.setLoop(undefined);

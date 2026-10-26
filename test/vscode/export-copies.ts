@@ -23,7 +23,7 @@ export async function testExportCopies(root: string): Promise<void> {
       const profile: Profile = { version: 'test', module: 'test', fps: 30, width, height, frameWidth: 16, frameHeight: 16 * height / width, seed: 0, configs: {}, videoEncoder: true };
       const result = { directory: run, source: sourceFile, sourceHash: 'a'.repeat(64), profile, outdated: false };
       const media = { duration: 1, rate: 30, hasAudio: false };
-      const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo',
+      const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo', time: 0,
         frame: { ...result, media: { ...media, kind: 'image', path: files.frame, capture: { requestedTime: 0, time: 0, frameIndex: 0 } } },
         video: { ...result, media: { ...media, kind: 'video', path: files.video } },
         timeline: { ...result, timeline: { duration: 1, entries: [{ kind: 'wait', start: 0, end: 1 }] } as unknown as TimelineResult['timeline'], file: files.timeline } };

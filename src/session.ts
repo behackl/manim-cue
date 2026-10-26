@@ -326,7 +326,7 @@ export class Session implements vscode.Disposable {
     await vscode.window.showTextDocument(doc, { viewColumn: target.column ?? vscode.ViewColumn.One, selection: new vscode.Range(site.line - 1, 0, site.line - 1, 0), preserveFocus: false });
   }
   private exportSource(): ExportSource | undefined {
-    return this.target && { uri: this.target.uri, scene: this.target.scene, frame: this.frame, video: this.video, timeline: this.timeline, job: this.job };
+    return this.target && { uri: this.target.uri, scene: this.target.scene, frame: this.frame, video: this.video, timeline: this.timeline, job: this.job, time: this.time };
   }
   async openExport(): Promise<void> {
     if (!this.target) { void vscode.window.showInformationMessage('Open a scene to export.'); return; }

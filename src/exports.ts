@@ -8,11 +8,12 @@ import { exportChoice, exportSize, type ExportChoice, type ExportModel } from '.
 import { copyExport, validateDestination } from './export-files';
 import { isCall } from './timeline';
 
-/** For a dialog, `frame` is the shown media: a frame or the video. */
+/** For a dialog, `frame` is the shown media: a frame or the video. `time` is the preview position. */
 export interface ExportSource {
-  uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult; job?: SceneJob;
+  uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult; job?: SceneJob; time: number;
 }
-interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string }
+/** `quick`: a save without the dialog, which keeps the stored dialog choice. */
+interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string; quick?: boolean }
 interface Active { source: ExportSource; abort: AbortController; native: boolean; started?: boolean; sourceHash?: string; job?: SceneJob }
 
 /** Owns dialog/file lifetimes, not the preview selection or render profile. */
@@ -76,22 +77,32 @@ export class Exports {
     if (choice.kind === 'video' && !this.hasVideo(source)) choice = { ...choice, kind: 'frame' };
     this.session = { id: randomUUID(), source, choice, time }; this.update();
   }
-  /** Saves the frame as PNG or the timeline as JSON, without the export dialog. */
-  async save(kind: 'frame' | 'timeline'): Promise<void> {
-    const source = this.source(), result = kind === 'frame' ? source?.frame : source?.timeline;
-    if (!source || !result) { if (kind === 'timeline') throw new Error('There is no timeline to save yet.'); return; }
-    // Read before the dialog: a newer frame can replace this file meanwhile.
-    const bytes = await fs.readFile('media' in result ? result.media.path : result.file);
-    const time = 'media' in result ? result.media.capture?.time : undefined;
-    const extension = kind === 'frame' ? '.png' : '.json';
-    const name = `${source.scene}-${kind === 'timeline' ? 'timeline' : time == null ? 'last' : time.toFixed(3) + 's'}${result.outdated ? '-outdated' : ''}${extension}`;
-    const destination = await vscode.window.showSaveDialog({ title: kind === 'frame' ? 'Save frame' : 'Save timeline',
-      defaultUri: vscode.Uri.file(path.join(path.dirname(source.uri.fsPath), name)), filters: { [extension.slice(1).toUpperCase()]: [extension.slice(1)] } });
+  /** Saves the frame at the preview position as PNG: the shown frame, or else a new frame for the position. */
+  async saveFrame(): Promise<void> {
+    const source = this.source();
+    if (!source || this.busy) return;
+    const shown = source.frame?.media.capture?.requestedTime === source.time ? source.frame : undefined;
+    if (!shown && !source.job) throw new Error('Refresh to update the frame first.');
+    if (!shown && !vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
+    const p = (source.frame ?? source.video)?.profile;
+    const settings = { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium' as const, options: '' };
+    const s: Session = { id: randomUUID(), source: { ...source, frame: shown ?? source.video ?? source.frame }, choice: { kind: 'frame', method: 'copy', settings }, time: source.time, quick: true };
+    const active: Active = { source: s.source, abort: new AbortController(), native: !shown };
+    this.active = active; this.task = this.run(s, active);
+    await this.task;
+  }
+  /** Saves the timeline as JSON, without the export dialog. */
+  async saveTimeline(): Promise<void> {
+    const source = this.source(), result = source?.timeline;
+    if (!source || !result) throw new Error('There is no timeline to save yet.');
+    const name = `${source.scene}-timeline${result.outdated ? '-outdated' : ''}.json`;
+    const destination = await vscode.window.showSaveDialog({ title: 'Save timeline',
+      defaultUri: vscode.Uri.file(path.join(path.dirname(source.uri.fsPath), name)), filters: { JSON: ['json'] } });
     if (!destination) return;
     if (destination.scheme !== 'file') throw new Error('Choose a file on this computer.');
-    const validate = () => validateDestination(destination.fsPath, extension, [source.uri.fsPath, this.scratch, ...Object.keys(result.profile.configs)]);
+    const validate = () => validateDestination(destination.fsPath, '.json', [source.uri.fsPath, this.scratch, ...Object.keys(result.profile.configs)]);
     await validate();
-    await copyExport(bytes, destination.fsPath, new AbortController().signal, validate);
+    await copyExport(result.file, destination.fsPath, new AbortController().signal, validate);
   }
   close(id?: string): void { if (!id || this.session?.id === id) { this.session = undefined; this.update(); } }
   /** The scene or its settings changed: stop a render for export. */
@@ -158,7 +169,7 @@ export class Exports {
       this.session = undefined;
       let preference: ExportChoice | undefined;
       try { preference = exportChoice(s.choice); } catch { /* A copy may carry an invalid render draft. Keep the last valid preference. */ }
-      if (preference) await this.context.workspaceState.update('exportChoice', preference);
+      if (preference && !s.quick) await this.context.workspaceState.update('exportChoice', preference);
       this.status = native ? (kind === 'frame' ? 'Updating frame for export…' : 'Rendering video for export…') : 'Saving…'; this.update();
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Manim Cue: ${this.status}`, cancellable: true }, async (_progress, cancellation) => {
         const subscription = cancellation.onCancellationRequested(() => this.cancel());

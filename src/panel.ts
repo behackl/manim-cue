@@ -37,7 +37,7 @@ export async function receive(s: Session, data: unknown, origin: 'timeline' | 'p
     case 'refresh': await s.refresh(); return;
     case 'cancel': s.cancel(); return;
     case 'preview': await s.renderVideo(); return;
-    case 'export': await s.exports.save('timeline'); return;
+    case 'export': await s.exports.saveTimeline(); return;
     case 'logs': await vscode.commands.executeCommand('manimCue.logs'); return;
     case 'doctor': await vscode.commands.executeCommand('manimCue.doctor'); return;
     case 'settings': await vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${s.extensionId}`); return;
