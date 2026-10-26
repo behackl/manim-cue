@@ -62,7 +62,7 @@ if (!process.env.CUE_TEST_PROFILE) {
   await fs.copyFile('examples/cue.wav', path.join(workspace, 'cue.wav'));
   await fs.writeFile(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({
     'manimCue.pythonPath': process.env.MANIM_PYTHON, 'manimCue.frameRate': 4,
-    'manimCue.previewWidth': 320, 'manimCue.autoPreview': false,
+    'manimCue.previewWidth': 320, 'manimCue.renderVideoAutomatically': false,
     'python.defaultInterpreterPath': process.env.MANIM_PYTHON,
     'python.analysis.enabled': false, 'python.useEnvironmentsExtension': false,
   }));

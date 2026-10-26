@@ -270,10 +270,10 @@ export async function run(): Promise<void> {
   assert.equal(await vscode.workspace.applyEdit(fix), true); await doc.save();
   await savedTimeline(); assert.equal(api.getSnapshot().error, undefined);
 
-  // Auto Preview renders the video at once; it does not start a new update.
+  // "Render Video Automatically" renders the video at once; it does not start a new update.
   const timelineBefore = revision();
-  await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', true, vscode.ConfigurationTarget.Workspace);
-  await until(() => api.getSnapshot().autoPreview && api.getSnapshot().video?.outdated === false, 'Auto Preview renders the video');
+  await vscode.workspace.getConfiguration('manimCue', uri).update('renderVideoAutomatically', true, vscode.ConfigurationTarget.Workspace);
+  await until(() => api.getSnapshot().autoRender && api.getSnapshot().video?.outdated === false, 'the setting renders the video');
   await api.whenIdle();
   assert.equal(revision(), timelineBefore);
   const oldVideo = api.getSnapshot().video?.id;

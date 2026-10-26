@@ -12,7 +12,7 @@ test('the preview plays the current video in scene time and reports its position
     await page.waitForFunction(() => { const v = document.querySelector('video'); return !!v && !v.style.visibility && Math.abs(v.currentTime - 1.375) < 1e-3; });
     assert.equal(await page.locator('.preview-controls .position').innerText(), '1.25 s / 3.00 s');
     assert.equal(await page.locator('.watermark').isVisible(), false);
-    assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), false, 'Auto Preview renders the video');
+    assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), false, 'the setting renders the video');
     // A seek from the timeline view moves the video and is not reported back.
     await w.send({ kind: 'seek', time: 2 });
     await page.waitForFunction(() => Math.abs(document.querySelector('video')!.currentTime - 2.125) < 1e-3);
@@ -67,46 +67,46 @@ test('the preview plays the current video in scene time and reports its position
 test('without a current video, the preview asks for the frame at its position', async () => {
   const w = await webview('preview'), { page } = w;
   try {
-    await w.publish(model({ time: 1, autoPreview: false }));
+    await w.publish(model({ time: 1, autoRender: false }));
     assert.equal((await w.message('frameNeeded')).time, 1);
     assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), true);
     const red = await frame(page, 1);
-    await w.publish(model({ time: 1, autoPreview: false, frame: red }));
+    await w.publish(model({ time: 1, autoRender: false, frame: red }));
     await page.waitForFunction(() => { const img = document.querySelector('.media-stage img') as HTMLImageElement | null; return !!img && !img.style.visibility; });
     assert.equal(await page.locator('.watermark').isVisible(), false);
     // A new position keeps the old frame until the new one is there.
     await page.getByRole('button', { name: 'Next frame', exact: true }).click();
     assert.equal((await w.message('frameNeeded')).time, 1.25);
     assert.equal(await page.locator('.watermark').innerText(), 'FRAME AT 1.00 S', 'the host is idle: the shown frame is for another time');
-    await w.publish(model({ time: 1.25, autoPreview: false, frame: red, busy: true }));
+    await w.publish(model({ time: 1.25, autoRender: false, frame: red, busy: true }));
     assert.equal(await page.locator('.watermark').innerText(), 'UPDATING FRAME');
     // After Cancel, the same position is asked for again when the user chooses it.
-    await w.publish(model({ time: 1.25, autoPreview: false, frame: red, status: 'Cancelled' }));
+    await w.publish(model({ time: 1.25, autoRender: false, frame: red, status: 'Cancelled' }));
     await w.send({ kind: 'seek', time: 1.25 });
     assert.equal((await w.messages()).filter(m => m.kind === 'frameNeeded' && m.time === 1.25).length, 2);
     const blue = await frame(page, 1.25, '#00f');
-    await w.publish(model({ time: 1.25, autoPreview: false, frame: blue }));
+    await w.publish(model({ time: 1.25, autoRender: false, frame: blue }));
     await page.waitForFunction(() => document.querySelector('.watermark')!.hasAttribute('hidden'));
     // Each position is asked for once in each job.
     const asked = (await w.messages()).filter(m => m.kind === 'frameNeeded').length;
-    await w.publish(model({ time: 1.25, autoPreview: false, frame: blue, status: 'Rendering video…' }));
+    await w.publish(model({ time: 1.25, autoRender: false, frame: blue, status: 'Rendering video…' }));
     assert.equal((await w.messages()).filter(m => m.kind === 'frameNeeded').length, asked);
     // After the end of the scene, the frame is the last frame.
-    await w.publish(model({ time: 1.25, autoPreview: false, duration: 1, frame: blue }));
+    await w.publish(model({ time: 1.25, autoRender: false, duration: 1, frame: blue }));
     assert.equal((await w.message('position')).time, .75, 'the position moves to the last frame');
     const last = await frame(page, .75, '#0f0', { time: null });
-    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last }));
+    await w.publish(model({ time: .75, autoRender: false, duration: 1, frame: last }));
     await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('last frame'));
     assert.equal(await page.locator('.preview-controls .position').innerText(), 'Last frame / 1.00 s');
     // Play without a video asks for one. A failed render ends the wait; a later video does not start by itself.
     await page.getByRole('button', { name: 'Play', exact: true }).click();
     assert.equal((await w.messages()).at(-1).kind, 'preview');
     assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).getAttribute('aria-busy'), 'true');
-    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last, videoWanted: true, busy: true }));
+    await w.publish(model({ time: .75, autoRender: false, duration: 1, frame: last, videoWanted: true, busy: true }));
     assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).getAttribute('aria-busy'), 'true');
-    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last, error: 'The video render failed: x' }));
+    await w.publish(model({ time: .75, autoRender: false, duration: 1, frame: last, error: 'The video render failed: x' }));
     assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).getAttribute('aria-busy'), 'false');
-    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last, video: video({ duration: 1 }) }));
+    await w.publish(model({ time: .75, autoRender: false, duration: 1, frame: last, video: video({ duration: 1 }) }));
     await page.waitForFunction(() => !!document.querySelector('video') && !(document.querySelector('video') as HTMLVideoElement).style.visibility);
     assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
     // A scene without plays has no positions to step to; an outdated scene waits for the next job.

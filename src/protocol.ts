@@ -16,7 +16,8 @@ export interface Model {
   status: string; busy: boolean; error?: string;
   /** The error comes from the Python environment. */
   pythonProblem: boolean;
-  autoPreview: boolean; fps: number; profile?: string;
+  /** "Render Video Automatically" is on. */
+  autoRender: boolean; fps: number; profile?: string;
   /** "Render video" or Play asked for a video that is not there yet. */
   videoWanted: boolean;
   /** The current job; frames can be made only while there is one. */

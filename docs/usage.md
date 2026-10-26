@@ -9,7 +9,7 @@ When you save the file, Cue updates:
 
 1. the frame at the selected time;
 2. the timeline;
-3. the video, when **Auto Preview** is on.
+3. the video, when **Render Video Automatically** is on.
 
 The previous frame stays visible with the label **OUTDATED** while Cue works. When you
 edit the file again or press **■ Cancel**, the running update stops. Press **↻ Refresh**
@@ -24,9 +24,9 @@ its start.
 - Drag the scrubber to choose a time.
 - Press **Play** or **Pause**, or **Space** in the preview.
 - Press **Left** or **Right** in the preview to step one frame.
-- When **Auto Preview** is off, click **Render video** to make the video.
+- When **Render Video Automatically** is off, click **Render video** to make the video.
 - Click **Settings** (the cog) to change the preview width, the frame rate and
-  **Auto Preview**.
+  **Render Video Automatically**.
 
 With a video, a new time shows the frame from the video. Without a video, Cue runs the
 scene up to that time and shows its frame. The time display shows the time of the frame

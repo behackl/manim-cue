@@ -10,7 +10,7 @@ When you open a scene or save its file, Cue:
 1. runs the scene once and shows the frame at the selected time as soon as the scene
    reaches that time;
 2. shows the timeline when the same run ends;
-3. renders the video when **Auto Preview** is on. The render also makes the timeline
+3. renders the video when **Render Video Automatically** is on. The render also makes the timeline
    of the video, and the timeline view shows that timeline.
 
 Each run starts a new Python process, so each run starts clean and you can cancel it.

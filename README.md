@@ -66,7 +66,7 @@ The buttons above the preview:
 - **Export…** saves the frame, the video or the timeline, or renders a new video.
 - **Compare** keeps a frame as the reference and compares later frames with it.
 - **Measure** shows scene coordinates and measures distances.
-- **Settings** (the cog) opens the preview width, the frame rate and **Auto Preview**.
+- **Settings** (the cog) opens the preview width, the frame rate and **Render Video Automatically**.
 
 The preview plays without sound. The timeline shows the sounds, and an exported video
 contains them. Measurement works for a centred 2D camera without rotation.

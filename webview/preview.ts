@@ -205,7 +205,7 @@ function sync(): void {
   if (!scrubbing) scrubber.value = String(time);
   scrubber.setAttribute('aria-valuetext', clock.textContent);
   previous.disabled = next.disabled = play.disabled = !movable || d === 0;
-  render.hidden = model.autoPreview || model.video?.outdated === false || comparison.enabled || d === 0;
+  render.hidden = model.autoRender || model.video?.outdated === false || comparison.enabled || d === 0;
   render.disabled = !model.scene;
   exportButton.disabled = !model.scene || !!model.exportState?.busy;
   const pausing = playing || playWanted;

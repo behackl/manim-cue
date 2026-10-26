@@ -98,7 +98,12 @@ export class Session implements vscode.Disposable {
         if (rendering) { this.done(); this.views.update(); }
       });
   }
-  get autoPreview(): boolean { return vscode.workspace.getConfiguration('manimCue', this.target?.uri).get('autoPreview', true); }
+  /** "Render Video Automatically"; the old key "autoPreview" counts while the new one is not set. */
+  get autoRender(): boolean {
+    const cfg = vscode.workspace.getConfiguration('manimCue', this.target?.uri), value = cfg.inspect<boolean>('renderVideoAutomatically');
+    const set = [value?.globalValue, value?.workspaceValue, value?.workspaceFolderValue].some(v => v !== undefined);
+    return set ? cfg.get('renderVideoAutomatically', true) : cfg.get('autoPreview', true);
+  }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
     const opening = ++this.opening;
     if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Trust this workspace to run Manim scenes.'); return; }
@@ -222,7 +227,7 @@ export class Session implements vscode.Disposable {
         if (result.timeline!.directory !== this.timeline?.directory) this.loop = undefined;
         this.timeline = result.timeline!; this.timeline.outdated = this.watch.edited;
         this.setError('Timeline'); this.done(); this.views.update();
-        if (frame && this.autoPreview || this.videoWanted) this.requestVideo();
+        if (frame && this.autoRender || this.videoWanted) this.requestVideo();
       } catch (e) { this.jobFailed(job, signal, 'Timeline', e); }
     });
   }
@@ -248,7 +253,7 @@ export class Session implements vscode.Disposable {
     await this.whenIdle();
   }
   /** The preview webview starts, also after it was closed: render the video if it is missing. */
-  previewReady(): void { if (this.autoPreview) this.requestVideo(); }
+  previewReady(): void { if (this.autoRender) this.requestVideo(); }
   /** Renders the video for the preview after the timeline, unless the scene has no plays or waits. */
   private requestVideo(): void {
     const job = this.job, timeline = this.timeline;
@@ -292,8 +297,8 @@ export class Session implements vscode.Disposable {
   }
   configurationChanged(event: vscode.ConfigurationChangeEvent): void {
     const uri = this.target?.uri;
-    if (event.affectsConfiguration('manimCue.autoPreview', uri)) {
-      if (this.autoPreview) this.requestVideo(); else if (!this.videoWanted) this.queue.remove('render');
+    if (['renderVideoAutomatically', 'autoPreview'].some(key => event.affectsConfiguration(`manimCue.${key}`, uri))) {
+      if (this.autoRender) this.requestVideo(); else if (!this.videoWanted) this.queue.remove('render');
     }
     if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true)) this.watch.stop();
     if (event.affectsConfiguration('python', uri) || ['pythonPath', 'frameRate', 'previewWidth', 'workingDirectory', 'timeoutSeconds'].some(key => event.affectsConfiguration(`manimCue.${key}`, uri))) {
