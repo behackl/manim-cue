@@ -12,13 +12,13 @@ import { isCall } from './timeline';
 export interface ExportSource {
   uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult; job?: SceneJob; time: number;
 }
-/** `quick`: a save without the dialog, which keeps the stored dialog choice. */
-interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string; quick?: boolean }
+/** The state of the export dialog. `quick`: a save without the dialog, which keeps the stored dialog choice. */
+interface Dialog { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string; quick?: boolean }
 interface Active { source: ExportSource; abort: AbortController; native: boolean; started?: boolean; sourceHash?: string; job?: SceneJob }
 
 /** Owns dialog/file lifetimes, not the preview selection or render profile. */
 export class Exports {
-  private session?: Session;
+  private dialog?: Dialog;
   private active?: Active;
   private task?: Promise<void>;
   private status?: string;
@@ -29,15 +29,15 @@ export class Exports {
   get busy(): boolean { return !!this.active; }
   get nativeBusy(): boolean { return this.active?.native === true && this.active.started === true; }
   get directories(): string[] {
-    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.directory, s?.video?.directory, s?.timeline?.directory, s?.job?.directory])
+    return [this.dialog?.source, this.active?.source].flatMap(s => [s?.frame?.directory, s?.video?.directory, s?.timeline?.directory, s?.job?.directory])
       .concat(this.active?.job?.directory).filter((p): p is string => !!p);
   }
   /** Results that an open dialog or a running export still uses. */
   get results(): (PreviewResult | TimelineResult)[] {
-    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame, s?.video, s?.timeline]).filter(r => r !== undefined);
+    return [this.dialog?.source, this.active?.source].flatMap(s => [s?.frame, s?.video, s?.timeline]).filter(r => r !== undefined);
   }
   get files(): string[] {
-    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.video?.media.path]).filter((p): p is string => !!p);
+    return [this.dialog?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.video?.media.path]).filter((p): p is string => !!p);
   }
   /** A scene without plays and waits has no video; its frame is the export. */
   private hasVideo(source: ExportSource): boolean { return !source.timeline || source.timeline.timeline.entries.some(isCall); }
@@ -49,7 +49,7 @@ export class Exports {
     return `${result.outdated ? 'Outdated · ' : ''}${time} · ${p.width} × ${p.height} · ${p.fps} fps${media?.kind === 'video' ? ` · ${media.hasAudio ? 'with sound' : 'no sound'}` : ''}`;
   }
   snapshot(webview?: vscode.Webview): ExportModel {
-    const s = this.session, current = this.source();
+    const s = this.dialog, current = this.source();
     const p = s?.source.frame?.profile ?? s?.source.timeline?.profile;
     return { busy: this.busy, nativeBusy: this.nativeBusy, status: this.status, requestOpen: this.requestOpen,
       dialog: s ? { id: s.id, scene: s.source.scene, choice: s.choice,
@@ -75,7 +75,7 @@ export class Exports {
       settings: { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium', options: '' } };
     try { choice = exportChoice(this.context.workspaceState.get('exportChoice')); } catch { /* First visit or incompatible stored preference. */ }
     if (choice.kind === 'video' && !this.hasVideo(source)) choice = { ...choice, kind: 'frame' };
-    this.session = { id: randomUUID(), source, choice, time }; this.update();
+    this.dialog = { id: randomUUID(), source, choice, time }; this.update();
   }
   /** Saves the frame at the preview position as PNG: the shown frame, or else a new frame for the position. */
   async saveFrame(): Promise<void> {
@@ -86,7 +86,7 @@ export class Exports {
     if (!shown && !vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
     const p = (source.frame ?? source.video)?.profile;
     const settings = { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium' as const, options: '' };
-    const s: Session = { id: randomUUID(), source: { ...source, frame: shown ?? source.video ?? source.frame }, choice: { kind: 'frame', method: 'copy', settings }, time: source.time, quick: true };
+    const s: Dialog = { id: randomUUID(), source: { ...source, frame: shown ?? source.video ?? source.frame }, choice: { kind: 'frame', method: 'copy', settings }, time: source.time, quick: true };
     const active: Active = { source: s.source, abort: new AbortController(), native: !shown };
     this.active = active; this.task = this.run(s, active);
     await this.task;
@@ -104,17 +104,17 @@ export class Exports {
     await validate();
     await copyExport(result.file, destination.fsPath, new AbortController().signal, validate);
   }
-  close(id?: string): void { if (!id || this.session?.id === id) { this.session = undefined; this.update(); } }
+  close(id?: string): void { if (!id || this.dialog?.id === id) { this.dialog = undefined; this.update(); } }
   /** The scene or its settings changed: stop a render for export. */
   invalidate(force = false, savedHash?: string): void {
     if (savedHash && savedHash === this.active?.sourceHash) return; // A delayed notification for the accepted save.
     if (this.active?.native && (force || this.active.started)) this.active.abort.abort(new Error('Export cancelled. The scene changed.'));
   }
   cancel(): void { this.active?.abort.abort(new Error('Export cancelled.')); }
-  dispose(): void { this.cancel(); this.session = undefined; }
+  dispose(): void { this.cancel(); this.dialog = undefined; }
   async whenIdle(): Promise<void> { await this.task; }
   async submit(id: string, value: unknown): Promise<void> {
-    const s = this.session;
+    const s = this.dialog;
     if (!s || s.id !== id || this.busy) return;
     try {
       // Copies do not depend on render controls, including oversized aspect-derived defaults.
@@ -131,11 +131,11 @@ export class Exports {
       this.task = this.run(s, active);
       await this.task;
     } catch (e) {
-      if (this.session === s) s.error = e instanceof Error ? e.message : String(e);
+      if (this.dialog === s) s.error = e instanceof Error ? e.message : String(e);
       this.update();
     }
   }
-  private async run(s: Session, active: Active): Promise<void> {
+  private async run(s: Dialog, active: Active): Promise<void> {
     const { kind, settings } = s.choice, signal = active.abort.signal;
     const native = active.native, source = s.source;
     const extension = kind === 'frame' ? '.png' : kind === 'timeline' ? '.json' : '.mp4';
@@ -166,7 +166,7 @@ export class Exports {
         active.started = true; signal.throwIfAborted();
         release = await this.suspend(); signal.throwIfAborted();
       }
-      this.session = undefined;
+      this.dialog = undefined;
       let preference: ExportChoice | undefined;
       try { preference = exportChoice(s.choice); } catch { /* A copy may carry an invalid render draft. Keep the last valid preference. */ }
       if (preference && !s.quick) await this.context.workspaceState.update('exportChoice', preference);
@@ -210,7 +210,7 @@ export class Exports {
       const detail = error instanceof Error ? error.message : String(error);
       this.log(`\nExport: ${detail}\n`);
       this.status = detail.split('\n')[0].slice(0, 300);
-      if (this.session === s) s.error = this.status;
+      if (this.dialog === s) s.error = this.status;
       else if (this.status !== 'Export cancelled.') void vscode.window.showErrorMessage(`Export failed: ${this.status}`, 'Show Log').then(action => { if (action) void vscode.commands.executeCommand('manimCue.logs'); });
     } finally {
       // No export output is published into the preview's resource root.
