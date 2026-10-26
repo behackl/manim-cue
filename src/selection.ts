@@ -1,4 +1,5 @@
 import { isCall, type Entry } from './timeline';
+import { videoTime } from './video-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 export type TimeRange = { start: number; end: number };
 
@@ -22,11 +23,14 @@ export function selectionRange(entries: Entry[], selected: number[]): TimeRange 
   const start = Math.min(...calls.map(e => e.start)), end = Math.max(...calls.map(e => e.end));
   return end > start ? { start, end } : undefined;
 }
-// Entry boundaries can carry floating-point roundoff. Only map intervals on the
-// frame cadence of the video.
-export function videoLoop(range: TimeRange, fps: number, frames: number): TimeRange | undefined {
+/**
+ * The loop range in scene time, on frame boundaries. Entry boundaries can carry
+ * floating-point roundoff. A range in skipped parts only has no video to loop.
+ */
+export function videoLoop(range: TimeRange, fps: number, frames: number, skipped: TimeRange[]): TimeRange | undefined {
   const first = Math.round(range.start * fps), stop = Math.round(range.end * fps);
   if (first < 0 || stop > frames || stop <= first ||
     Math.abs(first / fps - range.start) > 1e-6 || Math.abs(stop / fps - range.end) > 1e-6) return;
-  return { start: first / fps, end: stop / fps };
+  const loop = { start: first / fps, end: stop / fps };
+  return videoTime(skipped, loop.end) - videoTime(skipped, loop.start) > 1e-6 ? loop : undefined;
 }

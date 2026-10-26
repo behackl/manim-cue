@@ -16,6 +16,8 @@ export interface Model {
   exportState?: ExportModel;
   comparison?: { enabled: boolean; pending: boolean; reference?: Model['media'] };
   media?: { uri: string; kind: 'video' | 'image'; token: string; outdated: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; sourceHash?: string; loop?: TimeRange;
+    /** For a video, the scene-time parts that it leaves out. Positions in the model are scene times. */
+    skipped?: TimeRange[];
     capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; frame?: { width: number; height: number } };
 }
 export type HostMessage =

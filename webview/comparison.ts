@@ -60,7 +60,7 @@ export class Comparison {
     const target = this.target;
     if (target?.element instanceof HTMLVideoElement) target.element.pause();
     post({ kind: 'compare', generation: this.model.generation, enabled, replace,
-      token: target?.media.token, time: target?.element instanceof HTMLVideoElement ? target.time ?? target.element.currentTime : undefined });
+      token: target?.media.token, time: target?.element instanceof HTMLVideoElement ? target.time : undefined });
   }
   disable(): void { if (this.enabled) this.request(false, false); }
   private cancelPending(): void {

@@ -1,5 +1,6 @@
 import type { Model } from '../src/protocol';
 import { button, el, listen, post } from './shared';
+import { sceneTime, videoTime } from '../src/video-time';
 import { Measurement } from './measurement';
 import { Comparison } from './comparison';
 import { ExportDialog } from './export-dialog';
@@ -47,7 +48,7 @@ const previous = iconButton('Previous frame', icons.previous, () => step(-1)); p
 const next = iconButton('Next frame', icons.next, () => step(1)); next.title += ' (Right)';
 function openExport(): void {
   if (active?.element instanceof HTMLVideoElement) active.element.pause();
-  post({ kind: 'openExport', token: active?.media.token, time: active?.lastTime ?? model?.position?.time ?? 0 });
+  post({ kind: 'openExport', token: active?.media.token, time: (active ? shownTime(active) : undefined) ?? model?.position?.time ?? 0 });
 }
 const exportButton = button('Export…', openExport, 'Save a frame, video or timeline; or render a new video');
 controls.append(render, play, time, previous, next, exportButton);
@@ -85,7 +86,7 @@ function syncMeasurement(): void {
   play.setAttribute('aria-label', pausing ? 'Pause' : 'Play'); play.title = pausing ? 'Pause (Space)' : 'Play (Space)';
   play.querySelector('path')!.setAttribute('d', pausing ? icons.pause : icons.play);
   play.setAttribute('aria-busy', String(model?.playIntent !== undefined && !(usable && element instanceof HTMLVideoElement)));
-  comparison.update(model, item ? { element: item.element, media: item.media, restoring: item.restoring || !item.acknowledged, get time() { return item.lastTime; } } : undefined);
+  comparison.update(model, item ? { element: item.element, media: item.media, restoring: item.restoring || !item.acknowledged, get time() { return shownTime(item); } } : undefined);
   syncTime(); if (item) checkLoop(item);
 }
 function discard(item?: Item): void {
@@ -104,14 +105,22 @@ function emit(item: Item, value: number): void {
   if (checkLoop(item, value)) return;
   item.lastTime = value; syncTime();
   if (!ready() || item.media.token !== model?.media?.token || item.request !== model.position?.request) return;
-  post({ kind: 'playback', token: item.media.token, time: value, currentTime: video.currentTime, playing: !video.paused,
+  post({ kind: 'playback', token: item.media.token, time: toScene(item, value), currentTime: toScene(item, video.currentTime), playing: !video.paused,
     sequence: tick(), seekSequence: item.request });
 }
 // Seek to the middle of a frame: the timestamps in the file can differ slightly from
 // the nominal frame times.
 const middle = (item: Item, frameStart: number) => frameStart + .5 / item.media.rate;
+// The model gives scene times; the video element has video times.
+const toVideo = (item: Item, time: number) => videoTime(item.media.skipped ?? [], time);
+const toScene = (item: Item, time: number) => sceneTime(item.media.skipped ?? [], time);
+/** The scene time of what the item shows now. */
+function shownTime(item: Item): number | undefined {
+  const video = item.element;
+  return video instanceof HTMLVideoElement ? toScene(item, item.lastTime ?? video.currentTime) : item.lastTime;
+}
 function repeat(item: Item, start: number): void {
-  item.restoring = true; item.repeating = true; item.target = middle(item, start);
+  item.restoring = true; item.repeating = true; item.target = middle(item, toVideo(item, start));
   item.decodedTime = undefined; item.freshSeek = true;
   (item.element as HTMLVideoElement).pause(); showDecoded(item);
 }
@@ -122,10 +131,11 @@ function checkLoop(item: Item, presented?: number): boolean {
   const video = item.element, range = model?.media?.loop;
   if (!(video instanceof HTMLVideoElement) || item.disposed || item !== active || item.restoring || video.seeking || video.paused ||
     !ready() || !model?.followsVideo || item.media.token !== model.media?.token || !range) return false;
-  if (Math.max(video.currentTime, presented ?? 0) >= range.end) {
+  const end = toVideo(item, range.end);
+  if (Math.max(video.currentTime, presented ?? 0) >= end) {
     repeat(item, range.start); return true;
   }
-  item.loopTimer = setTimeout(() => checkLoop(item), Math.max(1, (range.end - video.currentTime) * 1000 / video.playbackRate));
+  item.loopTimer = setTimeout(() => checkLoop(item), Math.max(1, (end - video.currentTime) * 1000 / video.playbackRate));
   return false;
 }
 function frames(item: Item): void {
@@ -150,7 +160,7 @@ function applyPlay(item: Item): void {
   if (item !== active || item.disposed || item.restoring || !ready() || !(item.element instanceof HTMLVideoElement)) return;
   if (model?.playIntent !== undefined && (model.playIntent !== item.playIntent || item.repeating)) {
     const range = model.media?.loop;
-    if (range && (item.element.currentTime + .00001 < range.start || item.element.currentTime >= range.end)) {
+    if (range && (item.element.currentTime + .00001 < toVideo(item, range.start) || item.element.currentTime >= toVideo(item, range.end))) {
       repeat(item, range.start); return;
     }
     item.repeating = false; item.playIntent = model.playIntent;
@@ -203,7 +213,8 @@ function seek(item: Item): void {
   if (item.request === request) { applyPlay(item); return; }
   item.request = request;
   const seekTime = model.media.seekTime;
-  item.target = Math.max(0, Math.min(seekTime === undefined ? model.position?.time ?? 0 : middle(item, seekTime), Math.max(0, video.duration - .000001)));
+  item.target = Math.max(0, Math.min(seekTime === undefined ? toVideo(item, model.position?.time ?? 0) : middle(item, toVideo(item, seekTime)),
+    Math.max(0, video.duration - .000001)));
   clearTimeout(item.loopTimer); item.repeating = false;
   item.restoring = true; item.freshSeek = true; item.decodedTime = undefined; video.pause();
   if (item.callback !== undefined) video.cancelVideoFrameCallback(item.callback);
@@ -245,7 +256,7 @@ function create(media: Media): Item {
   return item;
 }
 function syncTime(): void {
-  const value = active?.lastTime ?? active?.media.capture?.time ?? model?.position?.time ?? 0;
+  const value = (active?.lastTime !== undefined ? shownTime(active) : undefined) ?? active?.media.capture?.time ?? model?.position?.time ?? 0;
   const total = active?.media.kind === 'video' ? active.media.duration
     : active?.media.token === model?.media?.token && !model?.media?.outdated ? model?.duration : undefined;
   time.textContent = `${active?.media.capture?.time === null ? 'End state' : value.toFixed(3) + ' s'} / ${total === undefined ? '—' : total.toFixed(3) + ' s'}`;

@@ -3,6 +3,7 @@ import type { Model } from './protocol';
 import type { PreviewResult } from './jobs';
 import type { Session } from './session';
 import { frameIndex, videoFrames } from './transport';
+import { isSkipped } from './video-time';
 
 const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const optional = <T>(x: unknown, check: (x: unknown) => x is T): x is T | undefined => x === undefined || check(x);
@@ -19,6 +20,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
   if (media && !fresh) notice = 'Old preview — source changed';
   else if (media?.capture?.time === null) notice = 'End state — requested frame unavailable';
   else if (media?.capture && s.frameSequence !== s.seekSequence) notice = 'Updating frame at the selected time…';
+  else if (media?.capture && video && isSkipped(video.media.skipped ?? [], media.capture.requestedTime)) notice = 'This part is skipped in the video.';
   const selection = s.selection();
   const cfg = vscode.workspace.getConfiguration('manimCue', s.target?.uri);
   const profile = s.timeline?.profile;
@@ -40,7 +42,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     canSeek: !!s.target, canPlay: timelineOutdated || !s.timeline || s.timeline.timeline.duration > 0, mediaReady: ready,
     profile: profile && `Cairo · ${profile.fps} fps · ${profile.width}×${profile.height} · seed ${profile.seed}`,
     media: preview && media && { uri: uri(media.path), kind: media.kind, token: media.path, outdated: !fresh, duration: media.duration, rate: media.rate,
-      capture: media.capture, sourceId: preview.directory, sourceHash: preview.sourceHash, frame: frame(preview),
+      capture: media.capture, skipped: media.skipped, sourceId: preview.directory, sourceHash: preview.sourceHash, frame: frame(preview),
       seekTime: media.kind === 'video' ? frameIndex(s.desiredTime, media.rate, videoFrames(media.duration, media.rate)) / media.rate : undefined,
       loop: followsVideo && s.loopEnabled ? selection?.loop : undefined },
   };

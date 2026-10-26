@@ -11,6 +11,7 @@ import { PreviewQueue } from './preview-queue';
 import { frameIndex, videoFrameIndex, videoFrames } from './transport';
 import { selectEvents, selectionRange, videoLoop, type SelectionMode, type TimeRange } from './selection';
 import { isCall } from './timeline';
+import { isSkipped } from './video-time';
 import { Views } from './views';
 import { Exports, type ExportSource } from './exports';
 import { model, receive } from './panel';
@@ -107,7 +108,7 @@ export class Session implements vscode.Disposable {
     const t = this.timeline, range = t && selectionRange(t.timeline.entries, this.selectedEvents);
     if (!range) return;
     const video = this.currentVideo()?.media;
-    const loop = video && videoLoop(range, video.rate, videoFrames(video.duration, video.rate));
+    const loop = video && videoLoop(range, video.rate, videoFrames(video.duration, video.rate), video.skipped ?? []);
     return { range, available: !t.outdated && (!video || !!loop), loop };
   }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
@@ -248,14 +249,15 @@ export class Session implements vscode.Disposable {
       } catch (e) { this.jobFailed(job, signal, phase, e); }
     }, delay);
   }
-  private showVideo(video: PreviewResult): void {
+  /** Unless playback starts, a frame from an inspection shows a time that is skipped in the video. */
+  private showVideo(video: PreviewResult, play = this.playIntent !== undefined): void {
     if (this.comparing) return;
     const fps = video.media.rate, frames = videoFrames(video.media.duration, fps);
     if (this.desiredTime >= frames / fps) {
       this.desiredTime = (frames - 1) / fps;
       ++this.seekSequence; this.positionClamped = true;
     }
-    this.offer(video);
+    if (play || !isSkipped(video.media.skipped ?? [], this.desiredTime)) this.offer(video);
   }
   async renderVideo(): Promise<void> {
     this.comparing = false; this.pinRequest = undefined;
@@ -299,7 +301,7 @@ export class Session implements vscode.Disposable {
     this.remember();
     if (!this.autoPreview) this.queue.remove('render');
     const video = this.currentVideo();
-    if (!this.comparing && video) this.showVideo(video);
+    if (!this.comparing && video && !isSkipped(video.media.skipped ?? [], this.desiredTime)) this.showVideo(video);
     else this.requestInspection(immediate ? 0 : 150);
     this.views.update();
   }

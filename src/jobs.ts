@@ -6,10 +6,13 @@ import { runProcess } from './process';
 import { readDiagnostic, RuntimeUnavailable } from './diagnostics';
 import { renderSettings, encoderOptions, type RenderSettings } from './export-settings';
 import { parseTimeline, type Timeline } from './timeline';
+import { skippedParts } from './video-time';
+import type { TimeRange } from './selection';
 
 export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; videoEncoder: boolean }
+/** For a video, `duration` is in scene time and `skipped` lists the scene-time parts that it leaves out. */
 export interface Media { path: string; kind: 'video' | 'image'; duration: number; rate: number; hasAudio: boolean;
-  capture?: { requestedTime: number; time: number | null; frameIndex: number | null } }
+  capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; skipped?: TimeRange[] }
 /** `outdated`: the source or the settings changed after the result started. */
 export interface Result { directory: string; source: string; sourceHash: string; profile: Profile; outdated: boolean }
 export interface PreviewResult extends Result { media: Media }
@@ -66,7 +69,6 @@ async function newResult(job: SceneJob): Promise<Result> {
   const profile: Profile = JSON.parse(await fs.readFile(path.join(job.directory, 'profile.json'), 'utf8'));
   return { directory: job.directory, source: job.options.source, sourceHash: job.sourceHash, profile, outdated: false };
 }
-const skipped = (t: Timeline) => t.entries.some(e => (e.kind === 'play' || e.kind === 'wait') && e.skipped);
 export interface Inspection { frame?: PreviewResult; timeline?: TimelineResult }
 /**
  * Evaluates the scene once. With a time, `frame` receives the frame as soon as Python
@@ -95,10 +97,8 @@ export async function renderPreview(job: SceneJob, signal: AbortSignal): Promise
   const token = randomUUID(), output = path.join(job.directory, 'media', `preview-${token}.mp4`), file = path.join(job.directory, `timeline-${token}.json`);
   await run(job, 'render', { output, timeline: file }, signal);
   const o = await newResult(job), t = parseTimeline(await fs.readFile(file, 'utf8'));
-  // Skipped plays are not in the video, so video time would no longer be scene time.
-  if (skipped(t)) throw new Error('The video leaves out skipped sections, so it cannot follow the timeline. Remove skip_animations to preview it.');
   return { timeline: { ...o, timeline: t, file }, video: { ...o, media: { path: output, kind: 'video', duration: t.duration, rate: t.frame_rate,
-    hasAudio: t.entries.some(e => e.kind === 'sound') } } };
+    hasAudio: t.entries.some(e => e.kind === 'sound'), skipped: skippedParts(t.entries) } } };
 }
 /** Independent production render: no timeline and no preview publication. */
 export async function renderExport(job: SceneJob, signal: AbortSignal): Promise<PreviewResult> {

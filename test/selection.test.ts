@@ -18,9 +18,11 @@ test('replace, toggle and anchored range selection describe one continuous inter
   assert.equal(selectionRange(entries, []), undefined);
 });
 test('loop mapping permits clock roundoff and rejects non-frame boundaries', () => {
-  assert.deepEqual(videoLoop({ start: .25, end: .75 }, 4, 4), { start: .25, end: .75 });
-  assert.deepEqual(videoLoop({ start: .5 - 1e-10, end: 1 }, 4, 4), { start: .5, end: 1 });
-  assert.equal(videoLoop({ start: .3, end: .75 }, 4, 4), undefined);
-  assert.equal(videoLoop({ start: 0, end: 2 }, 4, 4), undefined);
-  assert.equal(videoLoop({ start: 0, end: 0 }, 4, 4), undefined);
+  assert.deepEqual(videoLoop({ start: .25, end: .75 }, 4, 4, []), { start: .25, end: .75 });
+  assert.deepEqual(videoLoop({ start: .5 - 1e-10, end: 1 }, 4, 4, []), { start: .5, end: 1 });
+  assert.equal(videoLoop({ start: .3, end: .75 }, 4, 4, []), undefined);
+  assert.equal(videoLoop({ start: 0, end: 2 }, 4, 4, []), undefined);
+  assert.equal(videoLoop({ start: 0, end: 0 }, 4, 4, []), undefined);
+  assert.deepEqual(videoLoop({ start: .25, end: .75 }, 4, 4, [{ start: .5, end: .75 }]), { start: .25, end: .75 }, 'a loop can include a skipped part');
+  assert.equal(videoLoop({ start: .25, end: .75 }, 4, 4, [{ start: .25, end: .75 }]), undefined, 'a loop needs video');
 });

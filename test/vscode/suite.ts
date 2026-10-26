@@ -401,6 +401,21 @@ export async function run(): Promise<void> {
   await until(() => api.getSnapshot().playbackTime === .25, 'shortened movie presents its last frame');
   assert.equal(api.getSnapshot().position!.time, .25, 'clamp to the last verified frame, not the exclusive endpoint');
   assert.match(api.getSnapshot().status, /clamped/);
+  // A skipped section takes no video time: a frame from an inspection shows it.
+  const skipping = new vscode.WorkspaceEdit();
+  skipping.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
+    'from manim import Scene\nclass CueDemo(Scene):\n    def construct(self):\n        self.wait(.5, frozen_frame=False)\n' +
+    '        self.next_section(skip_animations=True)\n        self.wait(1, frozen_frame=False)\n        self.next_section()\n' +
+    '        self.wait(1, frozen_frame=False)\nclass Other(Scene):\n    def construct(self): pass\n');
+  await vscode.workspace.applyEdit(skipping); await doc.save();
+  await vscode.commands.executeCommand('manimCue.refresh'); await savedTimeline();
+  await until(() => api.getSnapshot().hasVideo === true, 'video of a scene with a skipped section');
+  assert.equal(api.getSnapshot().duration, 2.5, 'scene time');
+  api.seek(1);
+  await until(() => api.getSnapshot().media?.kind === 'image' && api.getSnapshot().media?.capture?.time === 1 && api.getSnapshot().mediaReady === true, 'frame of a skipped part');
+  assert.match(api.getSnapshot().notice, /skipped/);
+  api.seek(2);
+  await until(() => api.getSnapshot().media?.kind === 'video' && api.getSnapshot().playbackTime === 2, 'video after the skipped part');
   await vscode.commands.executeCommand('manimCue.open', uri, 'Other'); await api.whenIdle();
   assert.equal(api.getSnapshot().position?.time, 0, 'switching Scene resets selection');
   assert.equal(api.getSnapshot().comparison?.reference, undefined, 'switching Scene releases its reference');

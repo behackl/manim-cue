@@ -89,12 +89,16 @@ class Demo(Scene):
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('a render that skips a section is not used as a preview', async () => {
+test('a skipped section takes no video time', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-skipped-'));
   try {
     const source = path.join(root, 'scene.py');
-    await fs.writeFile(source, 'from manim import Scene\nclass Demo(Scene):\n    def construct(self):\n        self.next_section(skip_animations=True)\n        self.wait(1)\n        self.next_section()\n        self.wait(1)\n');
-    await assert.rejects(render(options(source, path.join(root, 'runs'))), /skipped sections/);
+    await fs.writeFile(source, 'from manim import Scene\nclass Demo(Scene):\n    def construct(self):\n        self.wait(.5, frozen_frame=False)\n        self.next_section(skip_animations=True)\n        self.wait(1)\n        self.next_section()\n        self.wait(1, frozen_frame=False)\n');
+    const { video, timeline } = await render(options(source, path.join(root, 'runs')));
+    assert.deepEqual(timeline.timeline.entries.filter(isCall).map(e => e.skipped), [false, true, false]);
+    assert.equal(video.media.duration, 2.5, 'scene time');
+    assert.deepEqual(video.media.skipped, [{ start: .5, end: 1.5 }]);
+    assert.equal((await probe(video.media.path)).frames, 6, 'the video has 1.5 s');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
