@@ -237,8 +237,8 @@ export class Session implements vscode.Disposable {
     const job = this.job;
     if (!job || !this.views.previewOpen || this.watch.edited) return;
     this.queue.enqueue('frame', async signal => {
-      const frame = this.frame?.media.capture;
-      if (!this.current(job, signal) || frame?.requestedTime === time && !this.frame!.outdated) return;
+      // A frame of this job is the result, also when an unsaved edit made it outdated.
+      if (!this.current(job, signal) || this.frame?.directory === job.directory && this.frame.media.capture?.requestedTime === time) return;
       this.status = 'Updating frame…'; this.views.update();
       try {
         await inspect(job, { time, timeline: false }, signal, frame => this.current(job, signal) ? this.publishFrame(job, signal, frame) : undefined);
