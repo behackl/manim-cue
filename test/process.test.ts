@@ -14,7 +14,7 @@ test('failed processes report the executable and stderr rather than publishing s
 test('timeouts only advertise a setting when the caller made it configurable', async () => {
   const hang = ['-e', 'setInterval(()=>{},1000)'];
   await assert.rejects(runProcess(process.execPath, hang, { ...defaults(), timeout: 100 }),
-    error => error instanceof Error && /^Process exceeded 0\.1s\.$/.test(error.message));
+    error => error instanceof Error && /^The process did not finish within 0\.1 s\.$/.test(error.message));
   await assert.rejects(runProcess(process.execPath, hang, { ...defaults(), timeout: 100, timeoutHint: 'Increase manimCue.timeoutSeconds if needed.' }),
     /manimCue\.timeoutSeconds/);
 });
@@ -23,7 +23,7 @@ test('cancellation and timeout settle even with a waiting process', async () => 
   const job = runProcess(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { ...defaults(), signal: controller.signal });
   setTimeout(() => controller.abort(), 100);
   await assert.rejects(job, Cancelled);
-  await assert.rejects(runProcess(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { ...defaults(), timeout: 100 }), /exceeded/);
+  await assert.rejects(runProcess(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { ...defaults(), timeout: 100 }), /did not finish/);
 });
 test('a process that fails to start does not leave a pending job', async () => {
   await assert.rejects(runProcess('/no/such/python', [], defaults()), /ENOENT/);

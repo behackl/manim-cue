@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
 
 export class Cancelled extends Error { constructor() { super('Cancelled'); } }
+/** A process ended with an error. `detail` is its error output, or its output if that is empty. */
+export class ProcessFailed extends Error {
+  constructor(readonly detail: string, executable: string, code: number | null) { super(`Process exited with code ${code}.\nExecutable: ${executable}\n${detail}`); }
+}
 export interface ProcessOptions {
   cwd: string; env?: NodeJS.ProcessEnv; signal: AbortSignal; timeout: number;
   input?: string; log?: (text: string) => void;
@@ -39,7 +43,7 @@ export function runProcess(executable: string, args: string[], options: ProcessO
       if (cancelled) kill('SIGKILL');
       clearTimeout(timeout); escalation.forEach(clearTimeout);
       options.signal.removeEventListener('abort', stop);
-      if (timedOut) reject(new Error(`Process exceeded ${options.timeout / 1000}s.${options.timeoutHint ? ` ${options.timeoutHint}` : ''}`));
+      if (timedOut) reject(new Error(`The process did not finish within ${options.timeout / 1000} s.${options.timeoutHint ? ` ${options.timeoutHint}` : ''}`));
       else if (cancelled) reject(new Cancelled());
       else if (error) reject(error);
       else resolve(output);
@@ -61,7 +65,7 @@ export function runProcess(executable: string, args: string[], options: ProcessO
     child.stdin.on('error', () => {}); // Early exits may close stdin before AST input is sent.
     child.stdin.end(options.input);
     child.on('error', error => finish(error));
-    child.on('close', code => finish(code === 0 ? undefined : new Error(`Process exited with code ${code}.\nExecutable: ${executable}\n${errors || output}`)));
+    child.on('close', code => finish(code === 0 ? undefined : new ProcessFailed(errors || output, executable, code)));
     // Cancellation must also settle if an escaped descendant retained a stdout pipe.
     child.on('exit', () => { if (cancelled) finish(); });
   });

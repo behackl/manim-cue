@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import * as path from 'node:path';
-import { runProcess } from './process';
+import { ProcessFailed, runProcess } from './process';
 import { readDiagnostic, RuntimeUnavailable } from './diagnostics';
 import { renderSettings, encoderOptions, type RenderSettings } from './export-settings';
 import { parseTimeline, type Timeline } from './timeline';
@@ -48,7 +48,7 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
     await runProcess(o.python, ['-B', '--check-hash-based-pycs', 'always', '-X', `pycache_prefix=${path.join(job.cache, 'bytecode')}`,
       path.join(o.helpers, 'cache_runner.py'), path.join(o.helpers, 'support.py'), command, request], {
       cwd: o.cwd, env: { ...o.env, PYTHONIOENCODING: 'utf-8' }, signal, timeout: o.timeout, log: o.log, line,
-      timeoutHint: 'Increase manimCue.timeoutSeconds if needed.',
+      timeoutHint: 'Increase “Manim Cue: Timeout Seconds” to wait longer.',
     });
   } catch (error) {
     // Workers are serialized; clear partial typesetting output before the next job.
@@ -59,11 +59,22 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
       const diagnostic = await readDiagnostic(path.join(job.directory, 'diagnostic.json')).catch(() => undefined);
       if (diagnostic && (o.exportSettings ? !diagnostic.video_encoder : !diagnostic.timeline || !diagnostic.capture_frame)) throw new RuntimeUnavailable(diagnostic);
     }
+    if (error instanceof ProcessFailed) throw new Error(errorLine(error.detail));
     throw error;
   } finally {
     await fs.rm(request, { force: true });
-    o.log(`\n[Cue timing] ${command === 'inspect' ? 'Scene evaluation' : 'Scene render'}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`);
+    o.log(`\n[Cue timing] ${command === 'inspect' ? 'Scene inspection' : 'Scene render'}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`);
   }
+}
+/**
+ * The error for the UI; the log has the complete output. A traceback ends with the
+ * exception line, which a terminal-width console can wrap over more lines.
+ */
+function errorLine(output: string): string {
+  const lines = output.trim().split('\n').map(line => line.trim()).filter(Boolean);
+  let start = lines.length - 1;
+  while (start >= 0 && !/^[A-Za-z_][\w.]*(Error|Exception|Exit|Interrupt)\b/u.test(lines[start])) start--;
+  return (start < 0 ? lines.at(-1) : lines.slice(start).join(' '))?.slice(0, 500) || 'Python stopped with an error. See the log.';
 }
 async function newResult(job: SceneJob): Promise<Result> {
   const profile: Profile = JSON.parse(await fs.readFile(path.join(job.directory, 'profile.json'), 'utf8'));
@@ -104,7 +115,7 @@ export async function renderPreview(job: SceneJob, signal: AbortSignal): Promise
 export async function renderExport(job: SceneJob, signal: AbortSignal): Promise<PreviewResult> {
   const output = path.join(job.directory, 'media', `export-${randomUUID()}.mp4`);
   await run(job, 'render', { output }, signal);
-  if (!await fs.stat(output).then(s => s.size > 0, () => false)) throw new Error('Scene produced no video. Save the current frame as PNG instead.');
+  if (!await fs.stat(output).then(s => s.size > 0, () => false)) throw new Error('The scene has no video. Save its frame as PNG.');
   return { ...await newResult(job), media: { path: output, kind: 'video', duration: 0, rate: job.options.fps, hasAudio: false } };
 }
 // Only completed media enters this stable webview root; profiles, source and caches stay private.
