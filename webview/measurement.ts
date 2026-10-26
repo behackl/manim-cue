@@ -1,4 +1,4 @@
-import { contain, coordinate, rulerTicks, scenePoint, validSize, type Point, type Rect, type Size } from '../src/measurement';
+import { contain, coordinate, reading, rulerTicks, scenePoint, validSize, type Point, type Rect, type Size } from '../src/measurement';
 import { button, el, post, saved, save } from './shared';
 const ns = 'http://www.w3.org/2000/svg';
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attributes: Record<string, string | number> = {}): SVGElementTagNameMap[K] {
@@ -25,7 +25,7 @@ export class Measurement {
   private copy = button('Copy point', () => {
     const p = this.end ?? this.anchor ?? this.cursor;
     if (p && this.target) post({ kind: 'copyPoint', ...p });
-  }, 'Copy the point as [x, y, 0]');
+  }, 'Copy the point as [x, y, 0], with 4 decimals');
   constructor(private stage: HTMLElement, controls: HTMLElement, private changed: () => void, private onEnable: () => void = () => {}) {
     this.toggle = button('Measure', () => this.setEnabled(!this.enabled), 'Show scene coordinates and measure distances');
     this.toggle.classList.add('measure-toggle');
@@ -118,15 +118,15 @@ export class Measurement {
       line(r.x, py(this.cursor.y), r.x + r.width, py(this.cursor.y), 'measure-crosshair');
     }
     if (this.anchor) this.ink.append(svg('circle', { cx: px(this.anchor.x), cy: py(this.anchor.y), r: 4, class: 'measure-pin' }));
-    this.readout.textContent = p ? `(${coordinate(p.x)}, ${coordinate(p.y)})` : 'Move the pointer to read coordinates. Click to pin a point. Drag to measure.';
+    this.readout.textContent = p ? `(${reading(p.x)}, ${reading(p.y)})` : 'Move the pointer to read coordinates. Click to pin a point. Drag to measure.';
     if (this.cursor && this.anchor && (this.cursor.x !== p?.x || this.cursor.y !== p?.y)) {
-      this.readout.textContent += ` · pointer (${coordinate(this.cursor.x)}, ${coordinate(this.cursor.y)})`;
+      this.readout.textContent += ` · pointer (${reading(this.cursor.x)}, ${reading(this.cursor.y)})`;
     }
     if (this.anchor && this.end) {
       const dx = this.end.x - this.anchor.x, dy = this.end.y - this.anchor.y;
       line(px(this.anchor.x), py(this.anchor.y), px(this.end.x), py(this.end.y), 'measure-distance');
       this.ink.append(svg('circle', { cx: px(this.end.x), cy: py(this.end.y), r: 3, class: 'measure-pin' }));
-      this.readout.textContent += ` · Δx ${coordinate(dx)} · Δy ${coordinate(dy)} · distance ${coordinate(Math.hypot(dx, dy))}`;
+      this.readout.textContent += ` · Δx ${reading(dx)} · Δy ${reading(dy)} · distance ${reading(Math.hypot(dx, dy))}`;
     }
   }
 }

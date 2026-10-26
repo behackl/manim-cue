@@ -29,3 +29,7 @@ export function rulerTicks(span: number, pixels: number): number[] {
   return ticks;
 }
 export const coordinate = (value: number): string => String(Number(value.toPrecision(6)));
+/** A measured value with 2 decimals; rounding errors near 0 show as 0. */
+export const reading = (value: number): string => (Math.abs(value) < .005 ? 0 : value).toFixed(2);
+/** A point to copy: 4 decimals, without rounding errors and without -0. */
+export const copied = (value: number): string => String(Number(value.toFixed(4)) || 0);

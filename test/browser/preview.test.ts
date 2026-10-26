@@ -46,9 +46,9 @@ test('the preview plays the current video in scene time and reports its position
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
     const box = (await page.locator('.measure-surface').boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
+    await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0.00, 0.00)');
     await page.mouse.down(); await page.mouse.move(box.x + box.width * .75, box.y + box.height * .25, { steps: 3 }); await page.mouse.up();
-    assert.match(await page.locator('.measure-readout').innerText(), /Δx 2 · Δy 1 · distance 2.23607/);
+    assert.match(await page.locator('.measure-readout').innerText(), /Δx 2.00 · Δy 1.00 · distance 2.24/);
     await page.getByRole('button', { name: 'Copy point', exact: true }).click();
     assert.deepEqual((await w.messages()).at(-1), { kind: 'copyPoint', x: 2, y: 1 });
     await page.getByRole('button', { name: 'Export…', exact: true }).click();

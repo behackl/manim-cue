@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contain, coordinate, rulerTicks, scenePoint } from '../src/measurement';
+import { contain, coordinate, copied, reading, rulerTicks, scenePoint } from '../src/measurement';
 
 test('contained media excludes pillarboxing and letterboxing', () => {
   assert.deepEqual(contain({ x: 10, y: 20, width: 800, height: 200 }, { width: 400, height: 400 }), { x: 310, y: 20, width: 200, height: 200 });
@@ -20,5 +20,7 @@ test('rulers are bounded and coordinates preserve small units without negative z
   assert.deepEqual(rulerTicks(8, 400), [-4, -2, 0, 2, 4]);
   assert.ok(rulerTicks(1e10, 100000).length <= 100);
   assert.deepEqual(rulerTicks(Infinity, 100), []);
-  assert.equal(coordinate(-0), '0'); assert.equal(coordinate(0.000000125), '1.25e-7');
+  assert.equal(coordinate(-0), '0'); assert.equal(coordinate(2.5), '2.5');
+  assert.equal(reading(-3.44826e-7), '0.00'); assert.equal(reading(2.236068), '2.24'); assert.equal(reading(-1.5), '-1.50');
+  assert.equal(copied(-3.44826e-7), '0'); assert.equal(copied(1.234567), '1.2346');
 });

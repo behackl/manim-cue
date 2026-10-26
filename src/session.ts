@@ -8,6 +8,7 @@ import { inspect, renderPreview, publishPreview, fileHash, type TimelineResult, 
 import { PreviewQueue } from './preview-queue';
 import type { TimeRange } from './selection';
 import { Views } from './views';
+import { copied } from './measurement';
 import { Exports, type ExportSource } from './exports';
 import { SourceWatch } from './source-watch';
 import { model, receive } from './panel';
@@ -301,7 +302,7 @@ export class Session implements vscode.Disposable {
     this.views.update();
   }
   async copyPoint(x: number, y: number): Promise<void> {
-    await vscode.env.clipboard.writeText(`[${Number(x.toPrecision(6))}, ${Number(y.toPrecision(6))}, 0]`);
+    await vscode.env.clipboard.writeText(`[${copied(x)}, ${copied(y)}, 0]`);
   }
   async clearCaches(): Promise<void> {
     if (this.exports.busy) throw new Error('Wait for the export to finish, or cancel it, to clear the caches.');
