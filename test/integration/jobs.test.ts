@@ -160,11 +160,13 @@ test('warm caches reuse typesetting but reload same-size/same-mtime primary and 
     await fs.writeFile(path.join(root, 'manim.cfg'), '[CLI]\nseed=17\n');
     assert.equal((await evaluate(o)).profile.seed, 17);
     assert.ok((await collect(cache, '.svg')).length > 1, 'changed config gets a new asset cache namespace');
-    const kept = (await collect(cache, '.svg')).length;
     await pause(1100); // The files of the failed run are the files that change during it.
     await fs.writeFile(source, code.replace('self.wait(duration * 1, frozen_frame=False)', 'self.add(Text("only in a failed run")); raise RuntimeError("failed after a new layout")'));
+    const started = Date.now();
     await assert.rejects(evaluate(o), /failed after a new layout/);
-    assert.equal((await collect(cache, '.svg')).length, kept, 'a failed run keeps the cache and removes only its own files');
+    // Manim rewrites a text layout each time it uses it, so the failed run removes the layouts that it used, too.
+    assert.ok(await fs.stat(svg), 'a failed run keeps the layouts of other runs');
+    for (const file of await collect(cache, '.svg')) assert.ok((await fs.stat(file)).mtimeMs < started - 1000, 'a failed run removes its own layouts');
     assert.ok((await collect(cache, '.pyc')).length > 0, 'atomic checked bytecode remains reusable');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });

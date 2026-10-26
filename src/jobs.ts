@@ -53,7 +53,8 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
     });
   } catch (error) {
     // A stopped or failed run can leave a partial typesetting file. Jobs run one at a
-    // time, so the files that changed during this run are the files of this run.
+    // time, so the files that changed during this run are the files of this run. These
+    // include the layouts that it used, because Manim rewrites them; the next run makes them again.
     await removeNewer(path.join(job.cache, 'typesetting'), started - 1000).catch(() => {
       o.log('\n[Cue cache] Could not clear the typesetting files of the failed run; use Clear Caches before retrying.\n');
     });
