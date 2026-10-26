@@ -90,12 +90,12 @@ export function activate(context: vscode.ExtensionContext) {
     command('manimCue.refresh', () => session.refresh()), command('manimCue.refreshTimeline', () => session.refresh(false)),
     command('manimCue.preview', () => session.renderVideo()),
     command('manimCue.cancel', () => session.cancel()), command('manimCue.logs', () => output.show(true)),
-    command('manimCue.export', () => session.exportTimeline()),
+    command('manimCue.export', () => session.exports.save('timeline')),
     command('manimCue.doctor', (uri?: vscode.Uri) => python.doctor(uri)),
     command('manimCue.selectPython', (uri?: vscode.Uri) => python.select(uri)),
     command('manimCue.setupPython', (uri?: vscode.Uri) => python.setup(uri)),
     command('manimCue.clearCaches', () => session.clearCaches()),
-    command('manimCue.saveFrame', () => session.saveFrame()), command('manimCue.openExport', () => session.openExport()),
+    command('manimCue.saveFrame', () => session.exports.save('frame')), command('manimCue.openExport', () => session.openExport()),
     command('manimCue.previousFrame', () => session.views.step(-1)), command('manimCue.nextFrame', () => session.views.step(1)),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (!e.contentChanges.length) return;

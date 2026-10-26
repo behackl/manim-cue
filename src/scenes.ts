@@ -32,6 +32,13 @@ export class Scenes implements vscode.CodeLensProvider, vscode.Disposable {
       return scenes;
     } finally { subscription?.dispose(); this.active.delete(abort); }
   }
+  /** The scene class of the file: the only one, or the one that the user selects or enters. */
+  async pick(document: vscode.TextDocument): Promise<string | undefined> {
+    const candidates = await this.candidates(document);
+    let scene = candidates.length === 1 ? candidates[0].name : await vscode.window.showQuickPick([...candidates.map(c => c.name), 'Enter scene name…'], { placeHolder: 'Select a scene' });
+    if (scene === 'Enter scene name…') scene = await vscode.window.showInputBox({ prompt: 'Name of the scene class' });
+    return scene;
+  }
   async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {
     try {
       return (await this.candidates(document, token)).map(scene => new vscode.CodeLens(new vscode.Range(scene.line - 1, 0, scene.line - 1, 0), {

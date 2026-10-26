@@ -3,7 +3,6 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { environmentFor, workingDirectoryFor } from './environment';
 import { RuntimeUnavailable } from './diagnostics';
-import { copyExport, validateDestination } from './export-files';
 import { Scenes } from './scenes';
 import { insideEnvironment } from './setup-plan';
 import { createJob, inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
@@ -92,12 +91,7 @@ export class Session implements vscode.Disposable {
       if (!await document.save()) return;
     }
     if (!scene && remembered?.uri === document.uri.toString()) scene = remembered.scene;
-    if (!scene) {
-      const candidates = await this.scenes.candidates(document);
-      if (opening !== this.opening) return;
-      scene = candidates.length === 1 ? candidates[0].name : await vscode.window.showQuickPick([...candidates.map(c => c.name), 'Enter scene name…'], { placeHolder: 'Select a scene' });
-      if (scene === 'Enter scene name…') scene = await vscode.window.showInputBox({ prompt: 'Name of the scene class' });
-    }
+    scene ??= await this.scenes.pick(document);
     if (!scene || opening !== this.opening) return;
     if (!/^[\p{ID_Start}_][\p{ID_Continue}]*$/u.test(scene)) throw new Error('Enter the name of a Python class.');
     const different = !this.target || this.target.uri.toString() !== document.uri.toString() || this.target.scene !== scene;
@@ -273,26 +267,6 @@ export class Session implements vscode.Disposable {
   async copyPoint(x: number, y: number): Promise<void> {
     await vscode.env.clipboard.writeText(`[${Number(x.toPrecision(6))}, ${Number(y.toPrecision(6))}, 0]`);
   }
-  async saveFrame(): Promise<void> {
-    const result = this.frame;
-    if (!result) return;
-    // Read before the dialog: a newer frame can replace this file meanwhile.
-    const bytes = await fs.readFile(result.media.path);
-    const stamp = result.media.capture?.time;
-    const name = `${path.parse(result.source).name}-${this.target?.scene ?? 'frame'}-${stamp == null ? 'last' : stamp.toFixed(3) + 's'}${result.outdated ? '-outdated' : ''}.png`;
-    const uri = await vscode.window.showSaveDialog({ title: 'Save frame', defaultUri: vscode.Uri.file(path.join(path.dirname(result.source), name)), filters: { 'PNG image': ['png'] } });
-    if (uri) await this.saveArtifact(bytes, uri, '.png', result);
-  }
-  private async saveArtifact(bytes: Uint8Array, destination: vscode.Uri, extension: string, result: PreviewResult | TimelineResult): Promise<void> {
-    if (destination.scheme !== 'file') throw new Error('Choose a file on this computer.');
-    const validate = async () => {
-      if (this.disposed) throw new Error('Export cancelled.');
-      await validateDestination(destination.fsPath, extension, [result.source, this.scratch,
-        ...Object.keys(result.profile.configs), ...(this.target ? [this.target.uri.fsPath] : [])]);
-    };
-    await validate();
-    await copyExport(bytes, destination.fsPath, new AbortController().signal, validate);
-  }
   async clearCaches(): Promise<void> {
     if (this.exports.busy) throw new Error('Wait for the export to finish, or cancel it, to clear the caches.');
     this.cancel(false); const generation = this.generation;
@@ -400,13 +374,6 @@ export class Session implements vscode.Disposable {
   async openExport(): Promise<void> {
     if (!this.target) { void vscode.window.showInformationMessage('Open a scene to export.'); return; }
     this.exports.requestOpen = true; await this.views.open(); this.views.update();
-  }
-  async exportTimeline(): Promise<void> {
-    if (!this.timeline) throw new Error('There is no timeline to save yet.');
-    const result = this.timeline;
-    const bytes = await fs.readFile(result.file);
-    const target = await vscode.window.showSaveDialog({ filters: { 'Timeline JSON': ['json'] }, saveLabel: 'Save timeline' });
-    if (target) await this.saveArtifact(bytes, target, '.json', result);
   }
   failAction(e: unknown): void { if (!this.disposed) void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e)); }
   /** Removes the run folders and media files that no result and no export uses. */

@@ -76,6 +76,23 @@ export class Exports {
     if (choice.kind === 'video' && !this.hasVideo(source)) choice = { ...choice, kind: 'frame' };
     this.session = { id: randomUUID(), source, choice, time }; this.update();
   }
+  /** Saves the frame as PNG or the timeline as JSON, without the export dialog. */
+  async save(kind: 'frame' | 'timeline'): Promise<void> {
+    const source = this.source(), result = kind === 'frame' ? source?.frame : source?.timeline;
+    if (!source || !result) { if (kind === 'timeline') throw new Error('There is no timeline to save yet.'); return; }
+    // Read before the dialog: a newer frame can replace this file meanwhile.
+    const bytes = await fs.readFile('media' in result ? result.media.path : result.file);
+    const time = 'media' in result ? result.media.capture?.time : undefined;
+    const extension = kind === 'frame' ? '.png' : '.json';
+    const name = `${source.scene}-${kind === 'timeline' ? 'timeline' : time == null ? 'last' : time.toFixed(3) + 's'}${result.outdated ? '-outdated' : ''}${extension}`;
+    const destination = await vscode.window.showSaveDialog({ title: kind === 'frame' ? 'Save frame' : 'Save timeline',
+      defaultUri: vscode.Uri.file(path.join(path.dirname(source.uri.fsPath), name)), filters: { [extension.slice(1).toUpperCase()]: [extension.slice(1)] } });
+    if (!destination) return;
+    if (destination.scheme !== 'file') throw new Error('Choose a file on this computer.');
+    const validate = () => validateDestination(destination.fsPath, extension, [source.uri.fsPath, this.scratch, ...Object.keys(result.profile.configs)]);
+    await validate();
+    await copyExport(bytes, destination.fsPath, new AbortController().signal, validate);
+  }
   close(id?: string): void { if (!id || this.session?.id === id) { this.session = undefined; this.update(); } }
   /** The scene or its settings changed: stop a render for export. */
   invalidate(force = false, savedHash?: string): void {
