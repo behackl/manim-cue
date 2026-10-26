@@ -5,7 +5,9 @@ import type { Timeline } from '../../src/timeline';
 
 /** A webview page with a fake VS Code API. `messages()` returns what the webview sent. */
 export async function webview(script: 'preview' | 'timeline', viewport = { width: 900, height: 600 }) {
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  // Chrome plays the H.264 test video. CUE_CHROMIUM can name another build that does, for example a Linux Chromium.
+  const executablePath = process.env.CUE_CHROMIUM;
+  const browser = await chromium.launch(executablePath ? { executablePath, headless: true } : { channel: 'chrome', headless: true });
   const page = await browser.newPage({ viewport });
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   const movie = await readFile('test/fixtures/seek.mp4');

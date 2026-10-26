@@ -1,23 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { chromium } from 'playwright-core';
-import type { Model } from '../../src/protocol';
 import type { ExportDialogModel } from '../../src/export-settings';
+import { model as base, webview } from './page';
 
 test('export dialog separates copies from renders, validates settings, and keeps focus/keyboard behavior local', async () => {
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const w = await webview('preview', { width: 600, height: 700 }), { page, errors } = w;
   try {
-    const page = await browser.newPage({ viewport: { width: 600, height: 700 } });
-    const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
-    await page.setContent('<main id="app"></main>');
-    await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
-    await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
-    await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
-    const model: Model = { scene: 'Demo', sceneKey: 'file:///scene.py#Demo', status: 'Up to date', busy: false, pythonProblem: false, timelineOutdated: false, autoRender: false, videoWanted: false, fps: 4, time: 0 };
-    const publish = (m: Model) => page.evaluate(model => new Promise<void>(resolve => {
-      window.addEventListener('message', () => resolve(), { once: true }); window.postMessage({ kind: 'state', model }, '*');
-    }), m);
+    const model = base({ autoRender: false, timeline: undefined, timelineId: undefined, duration: undefined, job: undefined });
+    const publish = w.publish;
     await publish(model);
     const opener = page.getByRole('button', { name: 'Export…', exact: true });
     await opener.click();
@@ -84,5 +74,5 @@ test('export dialog separates copies from renders, validates settings, and keeps
     await page.getByRole('button', { name: 'Cancel export', exact: true }).click();
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'cancelExport');
     assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
+  } finally { await w.browser.close(); }
 });

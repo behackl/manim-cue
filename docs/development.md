@@ -13,7 +13,12 @@ pnpm build
 
 On Linux, `playwright-core install chrome` installs Google Chrome with the system package
 manager and asks for administrator rights. The interface tests use Chrome because it
-plays the H.264 test video.
+plays the H.264 test video. To use another browser that plays H.264, for example the
+Chromium of a Linux distribution, set `CUE_CHROMIUM` to its executable:
+
+```sh
+CUE_CHROMIUM=/usr/bin/chromium pnpm test:ui
+```
 
 For the tests with Manim, create an environment with the `refactor/audio-mixer` branch
 (see the [README](../README.md#get-started)) and set `MANIM_PYTHON` to the Python
