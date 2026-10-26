@@ -28,3 +28,9 @@ test('cancellation and timeout settle even with a waiting process', async () => 
 test('a process that fails to start does not leave a pending job', async () => {
   await assert.rejects(runProcess('/no/such/python', [], defaults()), /ENOENT/);
 });
+test('stdout lines arrive while the process still runs', async () => {
+  const lines: string[] = [];
+  const output = await runProcess(process.execPath, ['-e', 'process.stdout.write("a\\r\\nb");setTimeout(()=>console.log("c"),50)'], { ...defaults(), line: line => lines.push(line) });
+  assert.deepEqual(lines, ['a', 'bc']);
+  assert.equal(output, 'a\r\nbc\n');
+});

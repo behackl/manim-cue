@@ -4,6 +4,8 @@ export class Cancelled extends Error { constructor() { super('Cancelled'); } }
 export interface ProcessOptions {
   cwd: string; env?: NodeJS.ProcessEnv; signal: AbortSignal; timeout: number;
   input?: string; log?: (text: string) => void;
+  /** Called with each complete line of standard output. */
+  line?: (text: string) => void;
   /** Appended to the timeout error; only callers whose timeout is configurable should set it. */
   timeoutHint?: string;
 }
@@ -12,7 +14,7 @@ export function runProcess(executable: string, args: string[], options: ProcessO
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: options.cwd, env: options.env,
       shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
-    let output = '', errors = '', logged = 0, timedOut = false, cancelled = false, settled = false;
+    let output = '', errors = '', partial = '', logged = 0, timedOut = false, cancelled = false, settled = false;
     const escalation: NodeJS.Timeout[] = [];
     const kill = (signal: NodeJS.Signals) => {
       if (!child.pid) return;
@@ -44,7 +46,14 @@ export function runProcess(executable: string, args: string[], options: ProcessO
     };
     const consume = (text: string, stderr: boolean) => {
       if (stderr) errors = (errors + text).slice(-16000);
-      else output = (output + text).slice(-128000);
+      else {
+        output = (output + text).slice(-128000);
+        if (options.line) {
+          const lines = (partial + text).split('\n');
+          partial = lines.pop()!;
+          lines.forEach(line => options.line!(line.replace(/\r$/, '')));
+        }
+      }
       if (logged < 1024 * 1024) { options.log?.(text); logged += text.length; }
     };
     child.stdout.setEncoding('utf8').on('data', text => consume(text, false));
