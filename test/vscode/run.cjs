@@ -1,15 +1,44 @@
 const { runTests, downloadAndUnzipVSCode, runVSCodeCommand } = require('@vscode/test-electron');
 const { build } = require('esbuild');
 const fs = require('node:fs/promises');
+const { mkdtempSync } = require('node:fs');
+const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const os = require('node:os');
+
+// The test profile (user data, extensions with a copy of the Python extension, the
+// workspace, and the temporary files of VS Code) is one folder of several hundred
+// megabytes. A supervisor runs the test in its own process group and deletes the folder
+// when the test ends, also after a failure or a stop signal.
+if (!process.env.CUE_TEST_PROFILE) {
+  const scratch = mkdtempSync(path.join(os.tmpdir(), 'cue-vscode-'));
+  const temporary = path.join(scratch, 'tmp');
+  const child = spawn(process.execPath, process.argv.slice(1), { stdio: 'inherit', detached: process.platform !== 'win32',
+    env: { ...process.env, CUE_TEST_PROFILE: scratch, TMPDIR: temporary, TMP: temporary, TEMP: temporary } });
+  const stop = () => {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f']);
+    else {
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* The group has ended. */ }
+      setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* The group has ended. */ } }, 5000).unref();
+    }
+  };
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, stop);
+  child.on('exit', async code => {
+    if (process.platform !== 'win32') try { process.kill(-child.pid, 'SIGKILL'); } catch { /* The group has ended. */ }
+    // VS Code processes of a stopped test can still write to the profile for some seconds.
+    await fs.rm(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }).catch(error => console.error(`Delete ${scratch} by hand: ${error}`));
+    process.exit(code ?? 1);
+  });
+  return;
+}
 (async () => {
   const activation = process.argv.includes('--activation');
   if (!activation && !process.env.MANIM_PYTHON) throw new Error('Set MANIM_PYTHON to the supported Manim executable.');
   const version = process.env.VSCODE_VERSION;
   if (version && process.env.VSCODE_EXECUTABLE) throw new Error('Choose VSCODE_VERSION or VSCODE_EXECUTABLE, not both.');
   const root = process.cwd();
-  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-vscode-'));
+  const scratch = process.env.CUE_TEST_PROFILE;
+  await fs.mkdir(process.env.TMPDIR);
   const workspace = path.join(scratch, 'workspace'); await fs.mkdir(path.join(workspace, '.vscode'), { recursive: true });
   const extensions = path.join(scratch, 'extensions'); await fs.mkdir(extensions);
   const profileArgs = ['--extensions-dir', extensions, '--user-data-dir', path.join(scratch, 'user-data')];
@@ -46,14 +75,9 @@ const os = require('node:os');
       try { await fs.access(candidate); local = candidate; break; } catch { /* Try next binary name. */ }
     }
   }
-  try {
-    await runTests({ vscodeExecutablePath: local, extensionDevelopmentPath: root,
-      extensionTestsPath: path.join(root, 'dist', 'smoke.cjs'),
-      launchArgs: [workspace, ...profileArgs, '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates'],
-    });
-    console.log(await fs.readFile(path.join(workspace, 'smoke-success.json'), 'utf8'));
-  } finally {
-    // The test profile holds a copy of the Python extension: several hundred megabytes.
-    await fs.rm(scratch, { recursive: true, force: true });
-  }
+  await runTests({ vscodeExecutablePath: local, extensionDevelopmentPath: root,
+    extensionTestsPath: path.join(root, 'dist', 'smoke.cjs'),
+    launchArgs: [workspace, ...profileArgs, '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates'],
+  });
+  console.log(await fs.readFile(path.join(workspace, 'smoke-success.json'), 'utf8'));
 })().catch(error => { console.error(error); process.exitCode = 1; });
