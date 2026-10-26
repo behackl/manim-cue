@@ -23,7 +23,7 @@ export async function testExportCopies(root: string): Promise<void> {
       const profile: Profile = { version: 'test', module: 'test', fps: 30, width, height, frameWidth: 16, frameHeight: 16 * height / width, seed: 0, configs: {}, videoEncoder: true };
       const result = { directory: run, source: sourceFile, sourceHash: 'a'.repeat(64), profile, outdated: false };
       const media = { duration: 1, rate: 30, hasAudio: false };
-      const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo', time: 0,
+      const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo',
         frame: { ...result, media: { ...media, kind: 'image', path: files.frame, capture: { requestedTime: 0, time: 0, frameIndex: 0 } } },
         video: { ...result, media: { ...media, kind: 'video', path: files.video } },
         timeline: { ...result, timeline: { duration: 1, entries: [{ kind: 'wait', start: 0, end: 1 }] } as unknown as TimelineResult['timeline'], file: files.timeline } };
@@ -34,7 +34,7 @@ export async function testExportCopies(root: string): Promise<void> {
           const destination = path.join(dir, `copy-${width}-${kind}${path.extname(files[kind])}`);
           await fs.writeFile(destination, 'previous export');
           Object.assign(vscode.window, { showSaveDialog: async () => { ++pickers; return vscode.Uri.file(destination); } });
-          exports.open(source.frame!.media.path, 0);
+          exports.open(0, false);
           const dialog = exports.snapshot().dialog!;
           assert.equal(Math.max(dialog.choice.settings.width, dialog.choice.settings.height), 8640);
           await exports.submit(dialog.id, { ...dialog.choice, kind, method: 'copy', settings: null });
@@ -43,7 +43,7 @@ export async function testExportCopies(root: string): Promise<void> {
           assert.equal(memory.has('exportChoice'), false, 'invalid render drafts are not persisted');
         }
         assert.equal(pickers, 3);
-        exports.open(source.frame!.media.path, 0);
+        exports.open(0, false);
         const dialog = exports.snapshot().dialog!;
         await exports.submit(dialog.id, { ...dialog.choice, kind: 'video', method: 'render' } satisfies ExportChoice);
         assert.match(exports.snapshot().dialog?.error ?? '', /Width and height/);

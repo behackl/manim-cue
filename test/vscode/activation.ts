@@ -17,7 +17,7 @@ export async function run(): Promise<void> {
   for (const { command } of manifest.contributes.commands) assert.ok(commands.includes(command), `${command} registered`);
   assert.equal(api.getSnapshot().scene, '', 'activation must not open/execute a Scene');
   assert.equal(api.getSnapshot().busy, false);
-  assert.equal(api.getSnapshot().media, undefined);
+  assert.equal(api.getSnapshot().frame, undefined);
   assert.equal(api.getSnapshot().timeline, undefined);
   await vscode.commands.executeCommand('manimCue.cancel');
   await vscode.commands.executeCommand('manimCue.clearCaches');

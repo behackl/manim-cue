@@ -24,7 +24,7 @@ export class Measurement {
   private toggle: HTMLButtonElement;
   private copy = button('Copy point', () => {
     const p = this.end ?? this.anchor ?? this.cursor;
-    if (p && this.target) post({ kind: 'copyPoint', token: this.target.token, ...p });
+    if (p && this.target) post({ kind: 'copyPoint', ...p });
   }, 'Copy the point as [x, y, 0]');
   constructor(private stage: HTMLElement, controls: HTMLElement, private changed: () => void, private onEnable: () => void = () => {}) {
     this.toggle = button('Measure', () => this.setEnabled(!this.enabled), 'Show scene coordinates and measure distances');

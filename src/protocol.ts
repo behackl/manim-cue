@@ -1,45 +1,50 @@
 import type { ExportChoice, ExportModel } from './export-settings';
 import type { Timeline } from './timeline';
-import type { SelectionMode, TimeRange } from './selection';
+import type { TimeRange } from './selection';
+
+/** A result file for a webview. `id` is the file path; `frame` is the frame size in scene units. */
+interface Media { id: string; uri: string; outdated: boolean; frame: { width: number; height: number } }
+/** `time` is the start of the frame, or null for the last frame when the scene ends before `requestedTime`. */
+export interface FrameMedia extends Media { requestedTime: number; time: number | null }
+/** A video in scene time: `duration` includes the `skipped` parts that the file leaves out. */
+export interface VideoMedia extends Media { duration: number; rate: number; skipped: TimeRange[] }
+
 export interface Model {
-  generation: number; scene: string; status: string; busy: boolean; timelineOutdated: boolean;
-  autoPreview: boolean; timeline?: Timeline; selected?: number; selectedEvents?: number[]; error?: string; python?: string;
-  selection?: TimeRange & { enabled: boolean; available: boolean };
-  profile?: string; playbackTime?: number;
-  /** The preview shows the current video, so positions are video positions. */
-  followsVideo: boolean;
-  /** Why the preview is outdated, updating or the final frame. */
-  notice: string;
-  canSeek?: boolean; canPlay?: boolean; mediaReady?: boolean; playIntent?: number;
-  duration?: number; fps?: number; previewWidth?: number; hasVideo?: boolean;
-  position?: { time: number; request: number };
+  scene: string; status: string; busy: boolean; error?: string;
+  autoPreview: boolean; fps: number; profile?: string;
+  /** The current job; frames can be made only while there is one. */
+  job?: string;
+  /** The last position. A new webview starts here. */
+  time: number;
+  timeline?: Timeline;
+  /** The selection of the timeline stays while this key stays. */
+  timelineKey?: string;
+  timelineOutdated: boolean;
+  frame?: FrameMedia; video?: VideoMedia;
+  /** The comparison reference. */
+  reference?: FrameMedia;
+  /** The plays to loop, from the timeline view. */
+  loop?: TimeRange;
   exportState?: ExportModel;
-  comparison?: { enabled: boolean; pending: boolean; reference?: Model['media'] };
-  media?: { uri: string; kind: 'video' | 'image'; token: string; outdated: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; sourceHash?: string; loop?: TimeRange;
-    /** For a video, the scene-time parts that it leaves out. Positions in the model are scene times. */
-    skipped?: TimeRange[];
-    capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; frame?: { width: number; height: number } };
 }
 export type HostMessage =
   | { kind: 'state'; model: Model }
-  | { kind: 'position'; generation: number; time: number };
+  /** To the preview: the timeline view chose a time. */
+  | { kind: 'seek'; time: number }
+  | { kind: 'step'; direction: -1 | 1 }
+  /** To the timeline view: the preview moved. */
+  | { kind: 'position'; time: number };
 export type ViewMessage =
   | { kind: 'ready' }
   | { kind: 'refresh' | 'cancel' | 'preview' | 'logs' | 'export' | 'doctor' | 'settings' }
-  | { kind: 'loopSelection'; generation: number; enabled: boolean }
-  | { kind: 'step'; generation: number; direction: -1 | 1 }
-  | { kind: 'saveFrame'; token: string }
-  | { kind: 'openExport'; token?: string; time?: number }
+  | { kind: 'seek'; time: number }
+  | { kind: 'loop'; range?: TimeRange }
+  | { kind: 'navigate'; index: number }
+  | { kind: 'position'; time: number }
+  | { kind: 'frameNeeded'; time: number }
+  | { kind: 'pin'; id: string }
+  | { kind: 'copyPoint'; x: number; y: number }
+  | { kind: 'openExport'; time: number; video: boolean }
   | { kind: 'closeExport'; id: string }
   | { kind: 'submitExport'; id: string; choice: ExportChoice }
-  | { kind: 'cancelExport' }
-  | { kind: 'compare'; generation: number; enabled: boolean; token?: string; time?: number; replace?: boolean }
-  | { kind: 'referenceDisplayed'; token: string }
-  | { kind: 'referenceError'; token: string; message: string }
-  | { kind: 'select' | 'navigate'; generation: number; index: number; mode?: SelectionMode }
-  | { kind: 'seek'; generation: number; time: number; immediate?: boolean }
-  | { kind: 'play' | 'pause'; generation: number; request: number; token?: string }
-  | { kind: 'displayed'; token: string; request: number; sequence: number }
-  | { kind: 'playback'; token: string; time: number; currentTime: number; sequence: number; seekSequence: number; playing?: boolean }
-  | { kind: 'copyPoint'; token: string; x: number; y: number }
-  | { kind: 'mediaError'; token: string; message: string };
+  | { kind: 'cancelExport' };

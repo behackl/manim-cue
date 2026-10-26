@@ -1,18 +1,20 @@
-import type { Model } from '../src/protocol';
+import type { FrameMedia, VideoMedia } from '../src/protocol';
 import { contain } from '../src/measurement';
 import { button, el, post, saved, save } from './shared';
 
-type Media = NonNullable<Model['media']>;
-type Target = { element: HTMLImageElement | HTMLVideoElement; media: Media; restoring: boolean; time?: number };
+/** What the preview shows; `current` is false while it waits for a newer result. */
+export type Shown = { element: HTMLImageElement | HTMLVideoElement; media: FrameMedia | VideoMedia; current: boolean };
 
-/** UI-only compositing. The host owns pinned files and acknowledges their lifetime. */
+/** Shows the shown frame against a reference frame. The host keeps the reference file. */
 export class Comparison {
-  enabled = false;
-  private model?: Model;
-  private target?: Target;
-  private reference?: { image: HTMLImageElement; media: Media };
-  private pending?: { image: HTMLImageElement; media: Media; timeout?: ReturnType<typeof setTimeout> };
+  enabled = (saved() as { compare?: boolean } | undefined)?.compare === true;
+  private shown?: Shown;
+  private referenceMedia?: FrameMedia;
+  private reference?: { image: HTMLImageElement; media: FrameMedia };
+  private loading?: { image: HTMLImageElement; media: FrameMedia };
   private failed?: string;
+  /** Pin the next current frame: comparison started from a video. */
+  private pinWanted = false;
   private mode: 'wipe' | 'overlay' = (saved() as { compareMode?: string } | undefined)?.compareMode === 'overlay' ? 'overlay' : 'wipe';
   private wipeValue = 50;
   private overlayValue = 50;
@@ -24,12 +26,12 @@ export class Comparison {
   private value = el('output', 'compare-value');
   private wipe = button('Wipe', () => this.setMode('wipe'), 'The reference on the left, the current frame on the right');
   private overlay = button('Overlay', () => this.setMode('overlay'), 'Blend the reference and the current frame');
-  private replace = button('Replace reference', () => this.request(true), 'Use the shown frame as the reference');
+  private replace = button('Replace reference', () => this.request(true, true), 'Use the shown frame as the reference');
   private canvas = el('canvas', 'compare-canvas');
   private composite = document.createElement('canvas');
   private divider = el('div', 'compare-divider');
   private rect?: { x: number; y: number; width: number; height: number };
-  constructor(private stage: HTMLElement, controls: HTMLElement, private activate: () => void) {
+  constructor(private stage: HTMLElement, controls: HTMLElement, private changed: (enabled: boolean) => void) {
     this.toggle = button('Compare', () => this.request(!this.enabled, false), 'Keep this frame as the reference and compare other frames with it');
     this.toggle.setAttribute('aria-pressed', 'false'); controls.append(this.toggle);
     this.slider.type = 'range'; this.slider.min = '0'; this.slider.max = '100'; this.slider.step = '1';
@@ -53,50 +55,36 @@ export class Comparison {
     });
     new ResizeObserver(() => this.draw()).observe(stage);
   }
-  private request(enabled: boolean, replace = true): void {
-    if (!this.model) return;
-    if (enabled) this.activate();
-    if (replace) this.failed = undefined;
-    const target = this.target;
-    if (target?.element instanceof HTMLVideoElement) target.element.pause();
-    post({ kind: 'compare', generation: this.model.generation, enabled, replace,
-      token: target?.media.token, time: target?.element instanceof HTMLVideoElement ? target.time : undefined });
+  private request(enabled: boolean, replace: boolean): void {
+    this.enabled = enabled; this.pinWanted = false; save({ compare: enabled });
+    if (enabled && (replace || !this.referenceMedia)) {
+      const shown = this.shown;
+      // A shown frame is the reference, also when it is outdated. A video gets a new frame first.
+      if (shown?.element instanceof HTMLImageElement) { this.failed = undefined; post({ kind: 'pin', id: shown.media.id }); } else this.pinWanted = true;
+    }
+    this.changed(enabled); this.draw();
   }
   disable(): void { if (this.enabled) this.request(false, false); }
-  private cancelPending(): void {
-    if (!this.pending) return;
-    clearTimeout(this.pending.timeout); this.pending.image.onload = this.pending.image.onerror = null;
-    this.pending.image.removeAttribute('src'); this.pending = undefined;
-  }
-  update(model: Model | undefined, target?: Target): void {
-    this.model = model; this.target = target;
-    this.enabled = model?.comparison?.enabled === true;
+  update(reference: FrameMedia | undefined, shown: Shown | undefined): void {
+    this.referenceMedia = reference; this.shown = shown;
+    if (this.pinWanted && shown?.element instanceof HTMLImageElement && shown.current) {
+      this.pinWanted = false; post({ kind: 'pin', id: shown.media.id });
+    }
     this.toggle.setAttribute('aria-pressed', String(this.enabled)); this.bar.hidden = !this.enabled;
-    if (this.enabled && target?.element instanceof HTMLVideoElement) target.element.pause();
-    const usable = !!target && !target.restoring && (target.element instanceof HTMLImageElement ||
-      model?.mediaReady === true && target.media.token === model.media?.token);
-    this.toggle.disabled = !this.enabled && !usable;
-    this.replace.disabled = !usable || !!model?.comparison?.pending;
-    this.replace.textContent = model?.comparison?.reference ? 'Replace reference' : 'Pin reference';
-    const media = model?.comparison?.reference;
-    if (!media) {
-      this.cancelPending(); this.reference = undefined; this.failed = undefined;
-    } else if (media.token !== this.reference?.media.token && media.token !== this.pending?.media.token && media.token !== this.failed) {
-      this.cancelPending();
-      const image = new Image(), candidate: NonNullable<Comparison['pending']> = this.pending = { image, media };
-      const fail = () => {
-        if (this.pending !== candidate) return;
-        this.cancelPending(); this.failed = media.token; this.draw();
-        post({ kind: 'referenceError', token: media.token, message: 'The reference did not load.' });
-      };
-      candidate.timeout = setTimeout(fail, 15000);
+    this.toggle.disabled = !this.enabled && !shown;
+    this.replace.disabled = !shown || this.pinWanted;
+    this.replace.textContent = reference ? 'Replace reference' : 'Pin reference';
+    if (!reference) {
+      this.loading = this.reference = this.failed = undefined;
+    } else if (reference.id !== this.reference?.media.id && reference.id !== this.loading?.media.id && reference.id !== this.failed) {
+      const image = new Image(), candidate = this.loading = { image, media: reference };
+      const fail = () => { if (this.loading === candidate) { this.loading = undefined; this.failed = reference.id; this.draw(); } };
       image.onload = () => { void image.decode().then(() => {
-        if (this.pending !== candidate) return;
-        clearTimeout(candidate.timeout); this.reference = candidate; this.pending = undefined; this.failed = undefined;
-        this.draw(); post({ kind: 'referenceDisplayed', token: media.token });
+        if (this.loading !== candidate) return;
+        this.reference = candidate; this.loading = undefined; this.draw();
       }).catch(fail); };
-      image.onerror = fail; image.src = media.uri;
-    } else if (media.token === this.reference?.media.token) this.cancelPending();
+      image.onerror = fail; image.src = reference.uri;
+    }
     this.draw();
   }
   private setMode(mode: 'wipe' | 'overlay'): void { this.mode = mode; save({ compareMode: mode }); this.draw(); }
@@ -109,10 +97,10 @@ export class Comparison {
     if (!this.rect) return;
     this.setValue((e.clientX - this.stage.getBoundingClientRect().left - this.rect.x) / this.rect.width * 100);
   }
-  private label(name: string, media?: Media): string {
+  private label(name: string, media?: FrameMedia | VideoMedia): string {
     if (!media) return `${name}: —`;
-    const capture = media.capture;
-    return `${name}: ${capture?.time == null ? 'last frame' : capture.time.toFixed(3) + ' s'}`;
+    if (!('requestedTime' in media)) return `${name}: video`;
+    return `${name}: ${media.time === null ? 'last frame' : media.time.toFixed(2) + ' s'}`;
   }
   private draw(): void {
     this.wipe.setAttribute('aria-pressed', String(this.mode === 'wipe')); this.overlay.setAttribute('aria-pressed', String(this.mode === 'overlay'));
@@ -124,14 +112,12 @@ export class Comparison {
     this.rect = undefined;
     if (!this.enabled) { this.canvas.hidden = this.divider.hidden = true; return; }
     let visible = false;
-    const target = this.target, reference = this.reference;
-    const current = target?.element instanceof HTMLImageElement ? target : undefined;
-    const outdated = !!target && (this.model?.media?.outdated || target.media.sourceId !== this.model?.media?.sourceId);
-    const updating = !!target && (!this.model?.mediaReady || target.media.token !== this.model?.media?.token || target.restoring);
-    this.labels.textContent = `${this.label('Reference', reference?.media)}  |  ${current ? this.label('Current', current.media) : 'Current: video'}${outdated ? ' · Outdated' : updating ? ' · Updating' : ''}`;
+    const shown = this.shown, reference = this.reference;
+    const current = shown?.element instanceof HTMLImageElement ? shown : undefined;
+    this.labels.textContent = `${this.label('Reference', reference?.media)}  |  ${this.label('Current', shown?.media)}${shown?.media.outdated ? ' · Outdated' : shown && !shown.current ? ' · Updating' : ''}`;
     const notes: string[] = [];
-    if (this.model?.comparison?.pending) notes.push('Updating frame…');
-    else if (this.pending) notes.push('Loading the reference…');
+    if (this.pinWanted) notes.push('Updating frame…');
+    else if (this.loading) notes.push('Loading the reference…');
     else if (this.failed) notes.push('The reference did not load. Use “Replace reference” to try again.');
     else if (!reference) notes.push('No reference. Use “Pin reference”.');
     if (current && reference) {

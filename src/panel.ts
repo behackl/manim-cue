@@ -1,57 +1,37 @@
 import * as vscode from 'vscode';
-import type { Model } from './protocol';
+import type { FrameMedia, Model } from './protocol';
 import type { PreviewResult } from './jobs';
 import type { Session } from './session';
-import { frameIndex, videoFrames } from './transport';
-import { isSkipped } from './video-time';
 
 const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
-const optional = <T>(x: unknown, check: (x: unknown) => x is T): x is T | undefined => x === undefined || check(x);
 const text = (x: unknown): x is string => typeof x === 'string';
+const range = (x: unknown) => {
+  const r = x as { start?: unknown; end?: unknown } | undefined;
+  return r && finite(r.start) && finite(r.end) ? { start: r.start, end: r.end } : undefined;
+};
 
 /** The state that both webviews show. */
 export function model(s: Session, webview?: vscode.Webview): Model {
-  const uri = (file: string) => webview ? webview.asWebviewUri(vscode.Uri.file(file)).toString() : '';
-  const frame = (r: PreviewResult) => ({ width: r.profile.frameWidth, height: r.profile.frameHeight });
-  const preview = s.preview, media = preview?.media, fresh = !!preview && !preview.outdated;
-  const ready = s.mediaReady(), timelineOutdated = !!s.timeline?.outdated, video = s.currentVideo();
-  const followsVideo = fresh && !timelineOutdated && media?.kind === 'video' && !s.mediaError;
-  let notice = s.mediaError ?? '';
-  if (media && !fresh) notice = 'Outdated';
-  else if (media?.capture?.time === null) notice = 'The scene ends before this time. This is its last frame.';
-  else if (media?.capture && s.frameSequence !== s.seekSequence) notice = 'Updating frame…';
-  else if (media?.capture && video && isSkipped(video.media.skipped ?? [], media.capture.requestedTime)) notice = 'This part is skipped in the video.';
-  const selection = s.selection();
-  const cfg = vscode.workspace.getConfiguration('manimCue', s.target?.uri);
-  const profile = s.timeline?.profile;
+  const media = (r: PreviewResult) => ({ id: r.media.path, uri: webview ? webview.asWebviewUri(vscode.Uri.file(r.media.path)).toString() : '',
+    outdated: r.outdated, frame: { width: r.profile.frameWidth, height: r.profile.frameHeight } });
+  const frame = (r?: PreviewResult): FrameMedia | undefined => r && { ...media(r), requestedTime: r.media.capture!.requestedTime, time: r.media.capture!.time };
+  const profile = s.timeline?.profile, video = s.video?.media;
   return {
-    exportState: s.exports.snapshot(webview),
-    generation: s.generation, scene: s.target?.scene ?? '',
-    status: (s.exports.nativeBusy ? 'Rendering for export…' : s.status) + (s.positionClamped ? ' · Moved to the last frame' : ''),
-    busy: s.busy, timelineOutdated, error: s.error, autoPreview: s.autoPreview, python: s.pythonInUse,
-    timeline: s.timeline?.timeline, selected: s.selected, selectedEvents: s.selectedEvents,
-    selection: selection && { ...selection.range, enabled: s.loopEnabled && !timelineOutdated, available: selection.available },
-    followsVideo, notice, playbackTime: s.playbackTime,
-    position: { time: s.desiredTime, request: s.seekSequence }, playIntent: s.playIntent,
-    comparison: { enabled: s.comparing, pending: !!s.pinRequest, reference: s.reference && {
-      uri: uri(s.reference.media.path), token: s.reference.media.path, kind: 'image', outdated: false, duration: 0, rate: s.reference.media.rate,
-      capture: s.reference.media.capture, sourceId: s.reference.directory, sourceHash: s.reference.sourceHash, frame: frame(s.reference),
-    } },
-    duration: video ? video.media.duration : !timelineOutdated ? s.timeline?.timeline.duration : undefined,
-    fps: s.job?.options.fps ?? cfg.get<number>('frameRate', 30), previewWidth: cfg.get<number>('previewWidth', 960), hasVideo: !!video,
-    canSeek: !!s.target, canPlay: timelineOutdated || !s.timeline || s.timeline.timeline.duration > 0, mediaReady: ready,
+    scene: s.target?.scene ?? '', status: s.exports.nativeBusy ? 'Rendering for export…' : s.status, busy: s.busy, error: s.error,
+    autoPreview: s.autoPreview, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
     profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
-    media: preview && media && { uri: uri(media.path), kind: media.kind, token: media.path, outdated: !fresh, duration: media.duration, rate: media.rate,
-      capture: media.capture, skipped: media.skipped, sourceId: preview.directory, sourceHash: preview.sourceHash, frame: frame(preview),
-      seekTime: media.kind === 'video' ? frameIndex(s.desiredTime, media.rate, videoFrames(media.duration, media.rate)) / media.rate : undefined,
-      loop: followsVideo && s.loopEnabled ? selection?.loop : undefined },
+    job: s.job?.directory, time: s.time,
+    timeline: s.timeline?.timeline, timelineKey: s.timeline?.directory, timelineOutdated: !!s.timeline?.outdated,
+    frame: frame(s.frame), reference: frame(s.reference),
+    video: video && { ...media(s.video!), duration: video.duration, rate: video.rate, skipped: video.skipped ?? [] },
+    loop: s.loop, exportState: s.exports.snapshot(webview),
   };
 }
 
 /** Checks a message from a webview and passes it to the session. */
 export async function receive(s: Session, data: unknown, origin: 'timeline' | 'preview'): Promise<void> {
   if (!data || typeof data !== 'object') return;
-  const m = data as Record<string, unknown>, current = m.generation === s.generation;
+  const m = data as Record<string, unknown>;
   switch (m.kind) {
     case 'ready': s.views.update(); return;
     case 'refresh': await s.refresh(); return;
@@ -61,37 +41,21 @@ export async function receive(s: Session, data: unknown, origin: 'timeline' | 'p
     case 'logs': await vscode.commands.executeCommand('manimCue.logs'); return;
     case 'doctor': await vscode.commands.executeCommand('manimCue.doctor'); return;
     case 'settings': await vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${s.extensionId}`); return;
-    case 'seek': if (current && finite(m.time)) s.seek(m.time, m.immediate === true); return;
   }
   if (origin === 'timeline') {
-    if (!current) return;
-    if (m.kind === 'loopSelection' && typeof m.enabled === 'boolean') s.setLoop(m.enabled);
-    if (m.kind === 'select' && finite(m.index)) s.select(m.index, m.mode === 'toggle' || m.mode === 'range' ? m.mode : 'replace');
+    if (m.kind === 'seek' && finite(m.time) && m.time >= 0) s.seek(m.time);
+    if (m.kind === 'loop') s.setLoop(range(m.range));
     if (m.kind === 'navigate' && finite(m.index)) await s.navigate(m.index);
     return;
   }
   switch (m.kind) {
-    case 'openExport': if (optional(m.token, text) && optional(m.time, finite)) s.openExportDialog(m.token, m.time); return;
+    case 'position': if (finite(m.time) && m.time >= 0) s.position(m.time); return;
+    case 'frameNeeded': if (finite(m.time) && m.time >= 0) s.requestFrame(m.time); return;
+    case 'pin': if (text(m.id)) s.pin(m.id); return;
+    case 'copyPoint': if (finite(m.x) && finite(m.y)) await s.copyPoint(m.x, m.y); return;
+    case 'openExport': if (finite(m.time) && m.time >= 0) s.exports.open(m.time, m.video === true); return;
     case 'closeExport': if (text(m.id)) s.exports.close(m.id); return;
     case 'submitExport': if (text(m.id)) await s.exports.submit(m.id, m.choice); return;
     case 'cancelExport': s.exports.cancel(); return;
-    case 'saveFrame': if (text(m.token)) await s.saveFrame(m.token); return;
-    case 'referenceError': if (text(m.token) && text(m.message)) await s.referenceFailed(m.token, m.message); return;
-    case 'referenceDisplayed': if (text(m.token)) await s.referencePresented(m.token); return;
-    case 'displayed': if (text(m.token) && finite(m.request) && finite(m.sequence)) await s.presented(m.token, m.request, m.sequence); return;
-    case 'mediaError': if (text(m.token) && text(m.message)) s.mediaFailed(m.token, m.message); return;
-    case 'copyPoint': if (text(m.token) && finite(m.x) && finite(m.y)) await s.copyPoint(m.token, m.x, m.y); return;
-    case 'playback':
-      if (text(m.token) && finite(m.seekSequence) && finite(m.time) && finite(m.sequence) && optional(m.currentTime, finite)) {
-        s.playback(m.token, m.seekSequence, m.time, m.currentTime, typeof m.playing === 'boolean' ? m.playing : undefined, m.sequence);
-      }
-      return;
-  }
-  if (!current) return;
-  if (m.kind === 'compare' && typeof m.enabled === 'boolean' && optional(m.token, text) && optional(m.time, finite)) s.setComparison(m.enabled, m.token, m.time, m.replace === true);
-  if (m.kind === 'step' && (m.direction === -1 || m.direction === 1)) s.step(m.direction);
-  // A play or pause request belongs to the position and media that the user saw.
-  if ((m.kind === 'play' || m.kind === 'pause') && m.request === s.seekSequence && (m.token === undefined || m.token === s.preview?.media.path)) {
-    if (m.kind === 'play') s.play(); else s.pause();
   }
 }

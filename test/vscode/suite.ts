@@ -13,7 +13,8 @@ export async function run(): Promise<void> {
   const manifest = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
   const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
   assert.ok(extension, 'development extension registered');
-  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void; select(index: number, mode?: 'replace' | 'toggle' | 'range'): void; setLoop(enabled: boolean): void; setComparison(enabled: boolean, token?: string, time?: number, replace?: boolean): void; submitExport(id: string, choice: unknown): Promise<void> };
+  const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void;
+    setLoop(range?: { start: number; end: number }): void; pin(id: string): void; submitExport(id: string, choice: unknown): Promise<void> };
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   await testExportCopies(root);
   const uri = vscode.Uri.file(path.join(root, 'cue_demo.py'));
@@ -31,21 +32,34 @@ export async function run(): Promise<void> {
   const overrideDiagnostic = await vscode.commands.executeCommand<PythonDiagnostic>('manimCue.doctor', uri);
   assert.equal(overrideDiagnostic.status, 'ready', JSON.stringify(overrideDiagnostic));
   await vscode.commands.executeCommand('manimCue.open', uri, 'CueDemo'); await api.whenIdle();
+  const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const until = async (predicate: () => boolean, reason: string) => {
+    for (let i = 0; i < 600 && !predicate(); i++) await pause(100);
+    assert.ok(predicate(), `${reason}: ${JSON.stringify({ ...api.getSnapshot(), timeline: undefined })}`);
+  };
+  const insert = async (text: string) => {
+    const change = new vscode.WorkspaceEdit(); change.insert(uri, new vscode.Position(0, 0), text);
+    assert.equal(await vscode.workspace.applyEdit(change), true);
+  };
+  const revision = () => api.getSnapshot().timeline?.source?.sha256;
+  const savedTimeline = async () => {
+    const hash = createHash('sha256').update(await fs.readFile(uri.fsPath)).digest('hex');
+    await until(() => !api.getSnapshot().busy && !api.getSnapshot().timelineOutdated && api.getSnapshot().timeline?.source?.sha256 === hash, 'latest saved source published');
+  };
+  const frameAt = (time: number) => () => api.getSnapshot().frame?.requestedTime === time && !api.getSnapshot().frame?.outdated;
   let state = api.getSnapshot();
   assert.ok(state.timeline, JSON.stringify(state));
   assert.equal(state.timeline.duration, 3.5); assert.equal(state.timeline.entries.filter(isCall).length, 6);
   assert.equal(state.busy, false); assert.equal(state.timelineOutdated, false);
-  assert.equal(state.media?.kind, 'image'); assert.equal(state.media?.capture?.time, 0);
-  assert.equal(state.mediaReady, true);
-  for (let i = 0; i < 100 && api.getSnapshot().playbackTime === undefined; i++) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(state.frame?.requestedTime, 0); assert.equal(state.frame?.time, 0);
   const saveDialog = vscode.window.showSaveDialog, png = vscode.Uri.file(path.join(root, 'captured.png'));
   try {
     Object.assign(vscode.window, { showSaveDialog: async () => png });
     await vscode.commands.executeCommand('manimCue.saveFrame');
-    assert.deepEqual(await fs.readFile(png.fsPath), await fs.readFile(api.getSnapshot().media!.token), 'PNG export copies displayed pixels');
+    assert.deepEqual(await fs.readFile(png.fsPath), await fs.readFile(api.getSnapshot().frame!.id), 'PNG export copies the frame');
     const original = await fs.readFile(png.fsPath);
-    // A private artifact is never a valid destination, even with the right suffix.
-    const token = api.getSnapshot().media!.token, captured = await fs.readFile(token);
+    // A private file is never a valid destination, even with the right suffix.
+    const token = api.getSnapshot().frame!.id, captured = await fs.readFile(token);
     const errorDialog = vscode.window.showErrorMessage;
     const failures: string[] = [];
     try {
@@ -64,138 +78,67 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('manimCue.export');
     assert.deepEqual(JSON.parse(await fs.readFile(json.fsPath, 'utf8')), api.getSnapshot().timeline, 'direct timeline save writes the shown timeline');
   } finally { Object.assign(vscode.window, { showSaveDialog: saveDialog }); }
-  const firstFrame = api.getSnapshot().media!.token, firstBytes = await fs.readFile(firstFrame);
-  api.setComparison(true);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'activation pins the displayed still without rerendering');
-  assert.equal(api.getSnapshot().comparison?.enabled, true);
-  assert.equal(api.getSnapshot().comparison?.pending, false);
-  api.setComparison(false); api.setComparison(true);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'toggle keeps reference');
-  api.setComparison(true, '/not/a/displayed/file', undefined, true);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'unowned tokens cannot be pinned');
+  // The host keeps the comparison reference through refreshes.
+  const firstFrame = api.getSnapshot().frame!.id, firstBytes = await fs.readFile(firstFrame);
+  api.pin(firstFrame);
+  assert.equal(api.getSnapshot().reference?.id, firstFrame);
+  api.pin('/not/a/frame.png');
+  assert.equal(api.getSnapshot().reference?.id, firstFrame, 'only the current frame can be the reference');
   await vscode.workspace.getConfiguration('manimCue', uri).update('previewWidth', 480, vscode.ConfigurationTarget.WorkspaceFolder);
   await vscode.commands.executeCommand('manimCue.refresh'); await api.whenIdle();
-  assert.equal(api.getSnapshot().previewWidth, 480);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame);
-  assert.deepEqual(await fs.readFile(firstFrame), firstBytes, 'profile refresh retains original reference pixels');
-  assert.equal(api.getSnapshot().fps, 4, 'preview width setting does not change execution FPS');
+  assert.equal(api.getSnapshot().reference?.id, firstFrame);
+  assert.deepEqual(await fs.readFile(firstFrame), firstBytes, 'a refresh keeps the reference file');
+  assert.equal(api.getSnapshot().fps, 4, 'the preview width does not change the frame rate');
   await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
-  for (let attempt = 0; attempt < 100 && api.getSnapshot().playbackTime === undefined; attempt++) await new Promise(resolve => setTimeout(resolve, 100));
   state = api.getSnapshot();
-  assert.ok(state.playbackTime !== undefined, `Webview must present a decoded frame: ${JSON.stringify(state)}`);
-  assert.equal(state.media?.kind, 'video', JSON.stringify(state));
-  assert.equal(state.comparison?.enabled, false, 'explicit movie rendering exits still comparison');
-  assert.equal(state.media?.frame?.height, 8);
-  assert.ok(Math.abs(state.media!.frame!.width - 128 / 9) < 1e-8, 'preview carries configured scene units');
-  assert.equal(state.followsVideo, true); assert.equal(state.notice, '', 'no permanent alignment disclaimer');
-  api.seek(1.25);
-  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
-  assert.equal(api.getSnapshot().playbackTime, 1.25, 'seek presents the selected frame');
+  assert.ok(state.video && !state.video.outdated, JSON.stringify(state.video));
+  assert.equal(state.video.duration, 3.5); assert.equal(state.video.frame.height, 8);
+  assert.ok(Math.abs(state.video.frame.width - 128 / 9) < 1e-8, 'scene units of the configuration');
+  // With a video, a seek needs no frame; the preview steps by itself and reports the position.
+  const frameBefore = api.getSnapshot().frame?.id;
+  api.seek(1.25); await pause(1500); await api.whenIdle();
+  assert.equal(api.getSnapshot().time, 1.25);
+  assert.equal(api.getSnapshot().frame?.id, frameBefore, 'the video has the frame');
   await vscode.commands.executeCommand('manimCue.nextFrame');
-  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.5; i++) await new Promise(resolve => setTimeout(resolve, 100));
-  assert.equal(api.getSnapshot().playbackTime, 1.5);
+  await until(() => api.getSnapshot().time === 1.5, 'the preview steps one frame');
   await vscode.commands.executeCommand('manimCue.previousFrame');
-  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
-  assert.equal(api.getSnapshot().playbackTime, 1.25);
-  const entries = state.timeline!.entries, events = entries.map((_, i) => i).filter(i => isCall(entries[i]));
-  api.select(events[1]); api.select(events[2], 'toggle'); api.setLoop(true);
-  assert.deepEqual(api.getSnapshot().selectedEvents, [events[1], events[2]]);
-  assert.equal(api.getSnapshot().selection?.start, 1); assert.equal(api.getSnapshot().selection?.end, 2);
-  assert.deepEqual(api.getSnapshot().media?.loop, { start: 1, end: 2 });
-  assert.equal(api.getSnapshot().playIntent, undefined, 'selection and loop toggle do not start playback');
-  api.select(events[5], 'range');
-  assert.equal(api.getSnapshot().selectedEvents?.length, 4);
-  api.seek(1.25);
-  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
-  // The webview acknowledges a displayed video two animation frames after it reports its position.
-  const compareVideo = async (token: string) => {
-    for (let i = 0; i < 100; i++) {
-      api.setComparison(true, token, 1.25, true);
-      if (api.getSnapshot().comparison?.enabled) return;
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    assert.fail('Compare did not start from the displayed video');
-  };
-  const movieToken = api.getSnapshot().media!.token;
-  await compareVideo(movieToken);
-  assert.equal(api.getSnapshot().comparison?.pending, true);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, firstFrame, 'movie entry does not substitute an older capture');
-  await api.whenIdle();
-  for (let i = 0; i < 100 && api.getSnapshot().comparison?.pending; i++) await new Promise(resolve => setTimeout(resolve, 100));
-  const pinned = api.getSnapshot().comparison!.reference!, pinnedBytes = await fs.readFile(pinned.token);
-  assert.equal(api.getSnapshot().media?.kind, 'image');
-  assert.equal(pinned.token, api.getSnapshot().media?.token, 'pin follows the decoded fresh capture acknowledgement');
-  assert.equal(pinned.capture?.time, 1.25);
-  assert.notEqual(pinned.token, firstFrame); assert.notEqual(pinned.token, movieToken);
-  assert.equal(pinned.sourceHash, api.getSnapshot().timeline?.source?.sha256);
-  await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
-  for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
-  await compareVideo(api.getSnapshot().media!.token);
-  api.seek(1.5); // Superseding selection cancels pin intent, not the existing reference.
-  await api.whenIdle();
-  assert.equal(api.getSnapshot().comparison?.pending, false);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
-  api.seek(1.25); await api.whenIdle();
-  await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', true, vscode.ConfigurationTarget.Workspace);
-  await api.whenIdle();
-  assert.equal(api.getSnapshot().media?.kind, 'image', 'Auto video cannot replace a comparison still');
+  await until(() => api.getSnapshot().time === 1.25, 'the preview steps back');
+  api.setLoop({ start: 1, end: 2 });
+  assert.deepEqual(api.getSnapshot().loop, { start: 1, end: 2 });
+  api.setLoop(undefined);
   const edit = new vscode.WorkspaceEdit(); edit.insert(uri, new vscode.Position(0, 0), '# changed\n');
   const waitCall = 'self.wait(0.35, frozen_frame=False)';
   const offset = doc.getText().indexOf(waitCall); assert.ok(offset >= 0);
   edit.replace(uri, new vscode.Range(doc.positionAt(offset), doc.positionAt(offset + waitCall.length)), 'self.wait(0.85, frozen_frame=False)');
   assert.equal(await vscode.workspace.applyEdit(edit), true);
-  assert.equal(api.getSnapshot().timelineOutdated, true); assert.equal(api.getSnapshot().followsVideo, false);
-  assert.equal(api.getSnapshot().selection?.enabled, false, 'source changes disarm the old loop');
-  assert.equal(api.getSnapshot().media?.loop, undefined);
-  const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-  const until = async (predicate: () => boolean, reason: string) => {
-    for (let i = 0; i < 600 && !predicate(); i++) await pause(100);
-    assert.ok(predicate(), `${reason}: ${JSON.stringify(api.getSnapshot())}`);
-  };
-  const insert = async (text: string) => {
-    const change = new vscode.WorkspaceEdit(); change.insert(uri, new vscode.Position(0, 0), text);
-    assert.equal(await vscode.workspace.applyEdit(change), true);
-  };
-  const revision = () => api.getSnapshot().timeline?.source?.sha256;
-  const savedTimeline = async () => {
-    const hash = createHash('sha256').update(await fs.readFile(uri.fsPath)).digest('hex');
-    await until(() => !api.getSnapshot().busy && !api.getSnapshot().timelineOutdated && api.getSnapshot().timeline?.source?.sha256 === hash, 'latest saved source published');
-  };
-  // Dirty buffers are never executed. With Auto video off, saving refreshes the
-  // selected frame and timeline, while leaving complete movie generation explicit.
+  state = api.getSnapshot();
+  assert.equal(state.timelineOutdated, true); assert.equal(state.video?.outdated, true); assert.equal(state.frame?.outdated, true);
+  assert.equal(state.job, undefined, 'an unsaved scene makes no frames');
+  // Unsaved files never run. A save updates the frame before the timeline.
   const originalRevision = revision();
   await pause(800);
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), originalRevision);
   assert.equal(await doc.save(), true);
-  await until(() => api.getSnapshot().media?.kind === 'image' && api.getSnapshot().media?.capture?.time === 1.25 &&
-    api.getSnapshot().mediaReady === true && api.getSnapshot().playbackTime === 1.25, 'saved frame is decoded before timeline completion');
-  assert.equal(api.getSnapshot().timelineOutdated, true, 'new frame is usable while the previous timeline is outdated');
-  const stillToken = api.getSnapshot().media!.token, stillBytes = await fs.readFile(stillToken);
+  await until(frameAt(1.25), 'the frame for the position comes first');
+  assert.equal(api.getSnapshot().timelineOutdated, true, 'the timeline is still outdated');
+  const stillToken = api.getSnapshot().frame!.id, stillBytes = await fs.readFile(stillToken);
   assert.equal(path.basename(path.dirname(stillToken)), 'preview-media');
-  await insert('# edit again while only the still is ready\n');
+  await insert('# edit again while only the frame is ready\n');
   await api.whenIdle();
-  assert.equal(api.getSnapshot().media?.token, stillToken, 'editing during timeline evaluation retains the still');
-  assert.equal(api.getSnapshot().media?.outdated, true);
-  assert.deepEqual(await fs.readFile(stillToken), stillBytes, 'cancellation cleanup preserves displayed pixels');
+  assert.equal(api.getSnapshot().frame?.id, stillToken, 'an edit keeps the frame');
+  assert.equal(api.getSnapshot().frame?.outdated, true);
+  assert.deepEqual(await fs.readFile(stillToken), stillBytes, 'the cleanup keeps the frame file');
   await doc.save(); await savedTimeline();
-  assert.equal(path.dirname(api.getSnapshot().media!.token), path.dirname(stillToken), 'replacement uses the same webview resource root');
   assert.notEqual(revision(), originalRevision);
-  assert.equal(api.getSnapshot().position?.time, 1.25, 'frame-first refresh retains the timestamp');
-  assert.equal(api.getSnapshot().timeline?.duration, 4, 'automatic refresh executes changed timing, not just new labels');
-  assert.equal(api.getSnapshot().followsVideo, false); assert.equal(api.getSnapshot().media?.outdated, false);
-  assert.equal(api.getSnapshot().media?.kind, 'image'); assert.equal(api.getSnapshot().media?.capture?.time, 1.25);
-  assert.equal(api.getSnapshot().mediaReady, true);
-  assert.deepEqual(api.getSnapshot().media?.frame, state.media?.frame, 'capture carries its own reference dimensions');
-  const afterSave = api.getSnapshot().generation;
+  assert.equal(api.getSnapshot().time, 1.25, 'the update keeps the position');
+  assert.equal(api.getSnapshot().timeline?.duration, 4, 'the update runs the changed timing');
+  assert.ok(frameAt(1.25)());
+  const afterSave = api.getSnapshot().frame!.id;
   await pause(900);
-  assert.equal(api.getSnapshot().generation, afterSave, 'duplicate watcher notification must not restart a completed run');
-  assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
-  assert.deepEqual(await fs.readFile(pinned.token), pinnedBytes, 'reference survives saves, cancellation and acknowledged current-media cleanup');
-  assert.equal(api.getSnapshot().hasVideo, false, 'saving in Compare suppresses movie work without changing Auto video');
-  assert.equal(api.getSnapshot().autoPreview, true);
-  await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', false, vscode.ConfigurationTarget.Workspace);
-  api.setComparison(false);
-  assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
+  assert.equal(api.getSnapshot().frame!.id, afterSave, 'a duplicate watcher notification does not start a new update');
+  assert.equal(api.getSnapshot().busy, false);
+  assert.equal(api.getSnapshot().reference?.id, firstFrame);
+  assert.deepEqual(await fs.readFile(firstFrame), firstBytes, 'the reference survives saves and cleanups');
 
   // Export holds exact artifacts across a native Save As dialog and unrelated seeks.
   const exportDialog = async () => {
@@ -206,7 +149,7 @@ export async function run(): Promise<void> {
   const originalSave = vscode.window.showSaveDialog;
   const output = vscode.Uri.file(path.join(root, 'export.png'));
   try {
-    const held = api.getSnapshot().media!.token, bytes = await fs.readFile(held);
+    const held = api.getSnapshot().frame!.id, bytes = await fs.readFile(held);
     let release!: () => void, entered = false;
     const picker = new Promise<void>(resolve => { release = resolve; });
     Object.assign(vscode.window, { showSaveDialog: async () => { entered = true; await picker; return output; } });
@@ -214,30 +157,31 @@ export async function run(): Promise<void> {
     const saving = api.submitExport(dialog.id, { ...dialog.choice, kind: 'frame', method: 'copy' });
     await until(() => entered, 'native Save As opened');
     api.seek(1.5);
-    await until(() => api.getSnapshot().playbackTime === 1.5, 'copy export does not block preview updates');
+    await until(frameAt(1.5), 'a copy export does not block preview updates');
     assert.deepEqual(await fs.readFile(held), bytes, 'held frame survives preview replacement while Save As is open');
     release(); await saving;
     assert.deepEqual(await fs.readFile(output.fsPath), bytes, 'PNG copies the held pixels, not the replacement');
     api.seek(1.25); await api.whenIdle();
-    await until(() => api.getSnapshot().playbackTime === 1.25, 'restore selected frame');
+    await until(frameAt(1.25), 'back to the frame at 1.25 s');
     Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(path.join(root, 'export.json')) });
     dialog = await exportDialog();
     await api.submitExport(dialog.id, { ...dialog.choice, kind: 'timeline', method: 'copy' });
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(root, 'export.json'), 'utf8')), api.getSnapshot().timeline, 'JSON is the shown timeline');
     await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
-    await until(() => api.getSnapshot().media?.kind === 'video' && api.getSnapshot().playbackTime === 1.25, 'movie ready for export');
-    const movieBytes = await fs.readFile(api.getSnapshot().media!.token);
+    await until(() => api.getSnapshot().video?.outdated === false, 'video ready for export');
+    const movieBytes = await fs.readFile(api.getSnapshot().video!.id);
     Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(path.join(root, 'export.mp4')) });
     dialog = await exportDialog();
     await api.submitExport(dialog.id, { ...dialog.choice, kind: 'video', method: 'copy' });
     assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), movieBytes, 'existing video copies without rerendering');
     Object.assign(vscode.window, { showSaveDialog: async () => output });
-    dialog = await exportDialog();
+    // The preview opens the dialog for the video once it shows the video.
+    for (let i = 0; i < 50 && !(dialog = await exportDialog()).canCapture; i++) await pause(200);
     assert.equal(dialog.canCapture, true);
     await api.submitExport(dialog.id, { ...dialog.choice, kind: 'frame', method: 'copy' });
     const capturedPng = await fs.readFile(output.fsPath);
     assert.equal(capturedPng.readUInt32BE(16), 480); assert.equal(capturedPng.readUInt32BE(20), 270);
-    assert.equal(api.getSnapshot().media?.kind, 'video', 'capture-and-save does not replace the displayed movie');
+    assert.ok(frameAt(1.25)(), 'a frame for export does not replace the preview frame');
     Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(path.join(root, 'export.mp4')) });
     dialog = await exportDialog();
     const settings = { width: 320, height: 180, fps: 8, crf: 18, preset: 'medium', options: 'threads=1' };
@@ -247,9 +191,9 @@ export async function run(): Promise<void> {
     await rendering; await api.whenIdle();
     assert.match(api.getSnapshot().exportState?.status ?? '', /^Saved /);
     assert.notDeepEqual(await fs.readFile(path.join(root, 'export.mp4')), movieBytes, 'new render has independent output');
-    assert.equal(api.getSnapshot().fps, 4); assert.equal(api.getSnapshot().previewWidth, 480);
-    assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
-    assert.equal(api.getSnapshot().media?.kind, 'video', 'export output does not replace the preview');
+    assert.equal(api.getSnapshot().fps, 4);
+    assert.equal(api.getSnapshot().reference?.id, firstFrame);
+    assert.equal(api.getSnapshot().video?.outdated, false, 'the export does not replace the preview video');
     const validExport = await fs.readFile(path.join(root, 'export.mp4'));
     dialog = await exportDialog();
     await api.submitExport(dialog.id, { kind: 'video', method: 'render', settings: { ...settings, options: 'profile=not-a-profile' } });
@@ -301,9 +245,7 @@ export async function run(): Promise<void> {
   await insert('# cancel queued refresh\n'); await doc.save();
   await until(() => api.getSnapshot().status.includes('Update queued'), 'save is debounced');
   await vscode.commands.executeCommand('manimCue.cancel');
-  const cancelledGeneration = api.getSnapshot().generation;
   await pause(900); await api.whenIdle();
-  assert.equal(api.getSnapshot().generation, cancelledGeneration);
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), beforeCancel);
   assert.match(api.getSnapshot().status, /Cancelled/);
 
@@ -312,29 +254,25 @@ export async function run(): Promise<void> {
   await insert('raise RuntimeError("automatic scene failure")\n'); await doc.save();
   await until(() => !api.getSnapshot().busy && !!api.getSnapshot().error?.includes('automatic scene failure'), 'automatic failure reported in panel');
   assert.equal(revision(), beforeCancel); assert.equal(api.getSnapshot().timelineOutdated, true);
-  assert.equal(api.getSnapshot().position?.time, 1.25, 'failure retains selection');
+  assert.equal(api.getSnapshot().time, 1.25, 'a failure keeps the position');
   const fix = new vscode.WorkspaceEdit();
   fix.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), goodSource);
   assert.equal(await vscode.workspace.applyEdit(fix), true); await doc.save();
   await savedTimeline(); assert.equal(api.getSnapshot().error, undefined);
 
-  // Auto video settings take effect immediately without reopening or staling current data.
-  const settingsGeneration = api.getSnapshot().generation;
+  // Auto Preview renders the video at once; it does not start a new update.
+  const timelineBefore = revision();
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', true, vscode.ConfigurationTarget.Workspace);
-  await until(() => api.getSnapshot().autoPreview && api.getSnapshot().followsVideo, 'Auto video setting prepares the current movie');
+  await until(() => api.getSnapshot().autoPreview && api.getSnapshot().video?.outdated === false, 'Auto Preview renders the video');
   await api.whenIdle();
-  assert.equal(api.getSnapshot().generation, settingsGeneration, 'Auto video is not an execution-profile change');
-  const oldMedia = api.getSnapshot().media?.token;
-  assert.equal(api.getSnapshot().followsVideo, true);
-  await until(() => api.getSnapshot().playbackTime === 1.25, 'replacement video restores selected frame');
+  assert.equal(revision(), timelineBefore);
+  const oldVideo = api.getSnapshot().video?.id;
   await insert('# refresh video too\n'); await doc.save();
   await until(() => api.getSnapshot().busy, 'refresh queued');
-  api.seek(2.25); // Latest user choice during the run wins over its initial position.
+  api.seek(2.25); // The latest position during the update wins.
   await savedTimeline();
-  await until(() => api.getSnapshot().playbackTime === 2.25, 'automatic video restores latest selection');
-  assert.equal(api.getSnapshot().followsVideo, true);
-  assert.notEqual(api.getSnapshot().media?.token, oldMedia);
-  assert.equal(api.getSnapshot().notice, '');
+  await until(() => api.getSnapshot().video?.outdated === false && api.getSnapshot().video?.id !== oldVideo, 'the update renders a new video');
+  assert.equal(api.getSnapshot().time, 2.25);
 
   // Opt-out keeps manual refresh available, without executing on a saved edit.
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoRefreshOnSave', false, vscode.ConfigurationTarget.Workspace);
@@ -390,17 +328,14 @@ export async function run(): Promise<void> {
   await vscode.workspace.applyEdit(lateFailure); await doc.save();
   await vscode.commands.executeCommand('manimCue.refresh'); await api.whenIdle();
   assert.match(api.getSnapshot().error ?? '', /after selected frame/);
-  assert.equal(api.getSnapshot().media?.capture?.time, 3);
-  assert.equal(api.getSnapshot().mediaReady, true, 'later timeline failure preserves the completed frame');
+  assert.ok(frameAt(3)(), 'a later failure keeps the frame');
   assert.equal(api.getSnapshot().timelineOutdated, true, 'the old timeline stays outdated');
   const shorter = new vscode.WorkspaceEdit();
   shorter.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
     'from manim import Scene\nclass CueDemo(Scene):\n    def construct(self): self.wait(.5)\nclass Other(Scene):\n    def construct(self): pass\n');
   await vscode.workspace.applyEdit(shorter); await doc.save();
   await vscode.commands.executeCommand('manimCue.refresh'); await savedTimeline();
-  await until(() => api.getSnapshot().playbackTime === .25, 'shortened movie presents its last frame');
-  assert.equal(api.getSnapshot().position!.time, .25, 'clamp to the last verified frame, not the exclusive endpoint');
-  assert.match(api.getSnapshot().status, /Moved to the last frame/);
+  await until(() => api.getSnapshot().time === .25, 'the preview moves to the last frame of a shorter scene');
   // A skipped section takes no video time: a frame from an inspection shows it.
   const skipping = new vscode.WorkspaceEdit();
   skipping.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
@@ -409,23 +344,20 @@ export async function run(): Promise<void> {
     '        self.wait(1, frozen_frame=False)\nclass Other(Scene):\n    def construct(self): pass\n');
   await vscode.workspace.applyEdit(skipping); await doc.save();
   await vscode.commands.executeCommand('manimCue.refresh'); await savedTimeline();
-  await until(() => api.getSnapshot().hasVideo === true, 'video of a scene with a skipped section');
-  assert.equal(api.getSnapshot().duration, 2.5, 'scene time');
+  await until(() => api.getSnapshot().video?.outdated === false, 'video of a scene with a skipped section');
+  assert.equal(api.getSnapshot().video?.duration, 2.5, 'scene time');
+  assert.deepEqual(api.getSnapshot().video?.skipped, [{ start: .5, end: 1.5 }]);
   api.seek(1);
-  await until(() => api.getSnapshot().media?.kind === 'image' && api.getSnapshot().media?.capture?.time === 1 && api.getSnapshot().mediaReady === true, 'frame of a skipped part');
-  assert.match(api.getSnapshot().notice, /skipped/);
-  api.seek(2);
-  await until(() => api.getSnapshot().media?.kind === 'video' && api.getSnapshot().playbackTime === 2, 'video after the skipped part');
+  await until(frameAt(1), 'the preview asks for the frame of a skipped part');
   await vscode.commands.executeCommand('manimCue.open', uri, 'Other'); await api.whenIdle();
-  assert.equal(api.getSnapshot().position?.time, 0, 'switching Scene resets selection');
-  assert.equal(api.getSnapshot().comparison?.reference, undefined, 'switching Scene releases its reference');
-  assert.equal(api.getSnapshot().comparison?.enabled, false);
-  assert.equal(api.getSnapshot().canPlay, false, 'static scenes keep an untimed snapshot');
-  assert.equal(api.getSnapshot().media?.capture?.time, null);
+  assert.equal(api.getSnapshot().time, 0, 'another scene starts at 0');
+  assert.equal(api.getSnapshot().reference, undefined, 'another scene has no reference');
+  assert.equal(api.getSnapshot().timeline?.duration, 0);
+  assert.equal(api.getSnapshot().frame?.time, null, 'the last frame of a scene without plays');
   assert.equal((await exportDialog()).canExportVideo, false, 'a scene without plays exports its frame only');
   await vscode.commands.executeCommand('manimCue.clearCaches');
   assert.match(api.getSnapshot().status, /Caches cleared/);
 
-  await fs.writeFile(path.join(root, 'smoke-success.json'), JSON.stringify({ timelineEnd: state.timeline?.duration, events: state.timeline?.entries.filter(isCall).length, preview: state.media?.kind }));
+  await fs.writeFile(path.join(root, 'smoke-success.json'), JSON.stringify({ timelineEnd: state.timeline?.duration, events: state.timeline?.entries.filter(isCall).length, video: !!state.video }));
   console.log('MANIM CUE VS CODE SMOKE PASSED');
 }

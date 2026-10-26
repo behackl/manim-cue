@@ -4,7 +4,7 @@ import { environmentFor, workingDirectoryFor } from './environment';
 import { checkPython, diagnosticSummary, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
 import { selectPythonFor } from './python-picker';
 import { setupPythonEnvironment } from './setup';
-import type { SelectionMode } from './selection';
+import type { TimeRange } from './selection';
 import { Session } from './session';
 import { model } from './panel';
 
@@ -96,7 +96,7 @@ export function activate(context: vscode.ExtensionContext) {
     command('manimCue.setupPython', (uri?: vscode.Uri) => python.setup(uri)),
     command('manimCue.clearCaches', () => session.clearCaches()),
     command('manimCue.saveFrame', () => session.saveFrame()), command('manimCue.openExport', () => session.openExport()),
-    command('manimCue.previousFrame', () => session.step(-1)), command('manimCue.nextFrame', () => session.step(1)),
+    command('manimCue.previousFrame', () => session.views.step(-1)), command('manimCue.nextFrame', () => session.views.step(1)),
     vscode.workspace.onDidChangeTextDocument(e => {
       if (!e.contentChanges.length) return;
       // VS Code can deliver content changes before updating isDirty. Invalidate
@@ -114,7 +114,6 @@ export function activate(context: vscode.ExtensionContext) {
   }).catch(() => {});
   // Small diagnostic API for integration tests/consumers; no mutable scene or renderer objects.
   return { getSnapshot: () => model(session), whenIdle: () => session.whenIdle(), seek: (time: number) => session.seek(time),
-    select: (index: number, mode?: SelectionMode) => session.select(index, mode), setLoop: (enabled: boolean) => session.setLoop(enabled),
-    setComparison: (enabled: boolean, token?: string, time?: number, replace?: boolean) => session.setComparison(enabled, token, time, replace),
+    setLoop: (range?: TimeRange) => session.setLoop(range), pin: (id: string) => session.pin(id),
     submitExport: (id: string, choice: unknown) => session.exports.submit(id, choice) };
 }

@@ -1,17 +1,21 @@
 import { extent, isCall, type Call, type Source, type Timeline } from '../src/timeline';
 import type { Model } from '../src/protocol';
-import { button, el, listen, post, saved, save, seconds, time } from './shared';
+import { selectEvents, selectionRange, videoLoop, type SelectionMode } from '../src/selection';
+import { videoFrames } from '../src/transport';
+import { button, el, listen, post, saved, save, time } from './shared';
+
+// The timeline view owns the selection: the inspected entry, the selected plays, and the
+// loop. A click or a scrub asks the host to move the preview.
 
 const app = document.getElementById('app')!; app.classList.add('timeline-app');
 const header = el('header', 'toolbar');
 const sceneName = el('span', 'scene-name');
-const status = el('span', 'status');
 const refresh = button('↻ Refresh', () => post({ kind: 'refresh' }));
 const cancel = button('■ Cancel', () => post({ kind: 'cancel' }));
-const loop = button('Loop selection', () => { if (model) post({ kind: 'loopSelection', generation: model.generation, enabled: !model.selection?.enabled }); });
+const loop = button('Loop selection', () => { looping = !looping; keep(); render(); });
 const rangeLabel = el('span', 'selection-range');
 const endedEarly = el('span', 'muted', 'The scene ended early.');
-header.append(sceneName, refresh, cancel, loop, rangeLabel, endedEarly, status);
+header.append(sceneName, refresh, cancel, loop, rangeLabel, endedEarly);
 const banner = el('div', 'banner warning');
 const workspace = el('div', 'workspace');
 const chart = el('section', 'chart');
@@ -35,9 +39,13 @@ const checkPython = button('Check Python', () => post({ kind: 'doctor' }));
 errorActions.append(button('Show Log', () => post({ kind: 'logs' })), checkPython);
 app.append(header, banner, workspace, error, errorActions);
 let model: Model | undefined;
+/** The selection belongs to one timeline key: the render's timeline keeps the entries of the inspection. */
+let key: string | undefined, inspected: number | undefined, selectedEvents: number[] = [], anchor: number | undefined, looping = false;
+const restored = saved() as { key?: string; inspected?: number; selectedEvents?: number[]; looping?: boolean } | undefined;
+const keep = () => save({ key, inspected, selectedEvents, looping });
 let zoom = Math.max(1, Math.min(128, Number((saved() as { zoom?: number } | undefined)?.zoom) || 1));
 let scale = 1, lo = 0, width = 1, cursor = 0;
-let marker: SVGLineElement | undefined, ghost: SVGLineElement | undefined;
+let marker: SVGLineElement | undefined;
 const left = 88;
 function node<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, text?: string): SVGElementTagNameMap[K] {
   const n = document.createElementNS(svg.namespaceURI, tag) as SVGElementTagNameMap[K];
@@ -53,21 +61,36 @@ function changeZoom(value: number): void {
   viewport.scrollLeft = Math.max(0, x(center) - viewport.clientWidth / 2);
 }
 function select(index: number, event?: MouseEvent | KeyboardEvent): void {
-  if (!model) return;
-  const mode = isCall(model.timeline?.entries[index]) ? event?.shiftKey ? 'range' : event?.metaKey || event?.ctrlKey ? 'toggle' : 'replace' : 'replace';
-  post({ kind: 'select', generation: model.generation, index, mode });
+  const entries = model?.timeline?.entries, entry = entries?.[index];
+  if (!entries || !entry) return;
+  inspected = index;
+  if (!model!.timelineOutdated) {
+    if (isCall(entry)) {
+      const mode: SelectionMode = event?.shiftKey ? 'range' : event?.metaKey || event?.ctrlKey ? 'toggle' : 'replace';
+      selectedEvents = selectEvents(entries, selectedEvents, index, mode, anchor);
+      if (mode !== 'range') anchor = index;
+      if (mode === 'replace') seek(entry.start);
+    } else { selectedEvents = []; anchor = undefined; seek(entry.start); }
+  }
+  keep(); render();
 }
-function seek(time: number): void {
-  if (!model?.timeline) return;
-  if (model.followsVideo) {
-    ghost?.setAttribute('x1', String(x(time))); ghost?.setAttribute('x2', String(x(time))); ghost?.setAttribute('visibility', 'visible');
-    post({ kind: 'seek', generation: model.generation, time });
-  } else { moveCursor(time); post({ kind: 'seek', generation: model.generation, time }); }
+function seek(time: number): void { moveCursor(time); post({ kind: 'seek', time }); }
+function moveCursor(value: number): void {
+  cursor = value;
+  marker?.setAttribute('x1', String(x(value))); marker?.setAttribute('x2', String(x(value)));
+  position.textContent = time(value);
 }
-function moveCursor(time: number): void {
-  cursor = time;
-  marker?.setAttribute('x1', String(x(time))); marker?.setAttribute('x2', String(x(time)));
-  position.textContent = seconds(time);
+/** The selected range, and the part of it that the current video can loop. */
+function selection(): { start: number; end: number; loop?: { start: number; end: number } } | undefined {
+  const range = model?.timeline && selectionRange(model.timeline.entries, selectedEvents);
+  if (!range || model!.timelineOutdated) return range;
+  const video = model!.video;
+  return { ...range, loop: !video || video.outdated ? range : videoLoop(range, video.rate, videoFrames(video.duration, video.rate), video.skipped) };
+}
+/** The host keeps the loop for the preview. */
+function sendLoop(): void {
+  const range = looping ? selection()?.loop : undefined;
+  if (JSON.stringify(range) !== JSON.stringify(model?.loop)) post({ kind: 'loop', range });
 }
 function siteLabel(site: Source | null): string {
   if (!site) return 'No source line';
@@ -84,24 +107,28 @@ function row(title: string, y: number): void {
   svg.append(node('line', { x1: 0, x2: width, y1: y + 31, y2: y + 31, class: 'lane-rule' }), node('text', { x: 10, y: y + 20, class: 'lane-label' }, title));
 }
 function selectable(g: SVGGElement, index: number, title: string): void {
-  const selected = isCall(model?.timeline?.entries[index]) ? model?.selectedEvents?.includes(index) : model?.selected === index;
+  const selected = isCall(model?.timeline?.entries[index]) ? selectedEvents.includes(index) : inspected === index;
   g.classList.add('selectable'); if (selected) g.classList.add('selected');
   g.setAttribute('aria-pressed', String(!!selected));
   g.setAttribute('role', 'button'); g.setAttribute('tabindex', '0'); g.setAttribute('aria-label', title);
   g.append(node('title', {}, title));
   g.addEventListener('click', e => { e.stopPropagation(); select(index, e); });
-  g.addEventListener('dblclick', () => { if (model) post({ kind: 'navigate', generation: model.generation, index }); });
+  g.addEventListener('dblclick', () => post({ kind: 'navigate', index }));
   g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); select(index, e); } });
 }
 function render(): void {
   if (!model) return;
   const t = model.timeline;
   sceneName.textContent = model.scene;
-  status.textContent = model.status; status.classList.toggle('busy', model.busy);
   refresh.disabled = !model.scene; cancel.hidden = !model.busy;
-  loop.disabled = !model.selection?.available; loop.setAttribute('aria-pressed', String(!!model.selection?.enabled));
-  loop.title = model.timelineOutdated ? 'Refresh to loop the selection.' : model.selection && !model.selection.available ? 'The video has no frames for this selection.' : 'Select plays and waits: click, Cmd/Ctrl-click to add one, Shift-click for a range. Then press Play.';
-  rangeLabel.textContent = model.selection ? `${timeRange(model.selection.start, model.selection.end)}${model.timelineOutdated ? ' · Outdated' : ''}` : 'Select plays to loop';
+  const range = selection(), available = !!range?.loop;
+  if (!available) looping = false;
+  loop.disabled = !available; loop.setAttribute('aria-pressed', String(looping));
+  loop.title = model.timelineOutdated ? 'Refresh to loop the selection.' : range && !available ? 'The video has no frames for this selection.' : 'Select plays and waits: click, Cmd/Ctrl-click to add one, Shift-click for a range. Then press Play.';
+  rangeLabel.textContent = range ? timeRange(range.start, range.end) : 'Select plays to loop';
+  rangeLabel.classList.toggle('muted', !range);
+  chart.classList.toggle('outdated', model.timelineOutdated);
+  sendLoop();
   profile.textContent = model.profile ?? '';
   endedEarly.hidden = !t?.ended_early;
   banner.textContent = 'This timeline is outdated.';
@@ -143,12 +170,11 @@ function render(): void {
   // Only draw the visible grid ticks.
   for (let tick = Math.ceil(minVisible / step) * step, count = 0; tick <= hi && count < 400; tick += step, count++) {
     if (x(tick) > viewport.scrollLeft + viewport.clientWidth + 100) break;
-    svg.append(node('line', { x1: x(tick), x2: x(tick), y1: 23, y2: height, class: 'grid-line' }), node('text', { x: x(tick) + 4, y: 17, class: 'tick-label' }, seconds(tick)));
+    svg.append(node('line', { x1: x(tick), x2: x(tick), y1: 23, y2: height, class: 'grid-line' }), node('text', { x: x(tick) + 4, y: 17, class: 'tick-label' }, time(tick)));
   }
-  if (model.selection) {
-    const r = model.selection;
-    svg.append(node('rect', { x: x(r.start), y: 24, width: Math.max(0, x(r.end) - x(r.start)), height: height - 24,
-      class: `loop-region${r.enabled ? ' enabled' : ''}${model.timelineOutdated ? ' outdated' : ''}`, 'aria-label': `Selection ${timeRange(r.start, r.end)}` }));
+  if (range) {
+    svg.append(node('rect', { x: x(range.start), y: 24, width: Math.max(0, x(range.end) - x(range.start)), height: height - 24,
+      class: `loop-region${looping ? ' enabled' : ''}`, 'aria-label': `Selection ${timeRange(range.start, range.end)}` }));
   }
   row('Sections', sectionY); row('Plays & waits', eventY);
   for (let lane = 0; lane < Math.max(1, ends.caption.length); lane++) row(lane ? '' : 'Captions', captionY + lane * 32);
@@ -175,20 +201,22 @@ function render(): void {
         if (w > 30) g.append(node('text', { x: x(start) + 5, y: y + 20 }, d.content.slice(0, Math.max(1, Math.floor((w - 14) / 7)))));
       } else {
         label = `${fileName(d.file)} · ${d.duration === null ? time(start) : timeRange(start, start + d.duration)}`;
-        if (d.duration !== null) g.append(node('rect', { x: x(start), y: y + 6, width: Math.max(3, d.duration * scale), height: 20, rx: 3 }));
+        const w = d.duration === null ? 0 : Math.max(3, d.duration * scale);
+        if (w) g.append(node('rect', { x: x(start), y: y + 6, width: w, height: 20, rx: 3 }));
         g.append(node('path', { d: `M${x(start)},${y + 8}l7,8 -7,8 -7,-8z` }));
+        const name = fileName(d.file);
+        if (w > 30) g.append(node('text', { x: x(start) + 10, y: y + 20 }, name.slice(0, Math.max(1, Math.floor((w - 18) / 7)))));
       }
     }
     selectable(g, index, `${label}${d.kind === 'sound' ? '' : ` · ${d.kind === 'caption' ? timeRange(d.start, d.end) : time(start)}`} · ${siteLabel(d.source)}`);
     svg.append(g);
   });
-  marker = node('line', { x1: x(cursor), x2: x(cursor), y1: 0, y2: height, class: model.followsVideo ? 'playhead video-playhead' : 'playhead' });
-  ghost = node('line', { x1: 0, x2: 0, y1: 0, y2: height, class: 'ghost', visibility: 'hidden' });
-  svg.append(marker, ghost); moveCursor(cursor); details(t);
+  marker = node('line', { x1: x(cursor), x2: x(cursor), y1: 0, y2: height, class: 'playhead' });
+  svg.append(marker); moveCursor(cursor); details(t);
 }
 function details(t: Timeline): void {
   inspector.replaceChildren();
-  const index = model?.selected, entry = index === undefined ? undefined : t.entries[index];
+  const index = inspected, entry = index === undefined ? undefined : t.entries[index];
   const detail = (label: string, value: string) => inspector.append(el('dt', '', label), el('dd', '', value));
   const note = (text: string) => inspector.append(el('p', 'note', text));
   if (!entry) {
@@ -219,7 +247,7 @@ function details(t: Timeline): void {
     if (entry.gain_to_background !== null) detail('Gain to background', `${entry.gain_to_background} dB`);
   }
   detail('Source', siteLabel(entry.source));
-  const source = button('Go to source', () => post({ kind: 'navigate', generation: model!.generation, index: index! }));
+  const source = button('Go to source', () => post({ kind: 'navigate', index: index! }));
   source.disabled = !entry.source?.path || !!model?.timelineOutdated; inspector.append(source);
 }
 let dragging = false, nextSeek: number | undefined, scheduled = false;
@@ -235,27 +263,31 @@ viewport.addEventListener('pointermove', e => {
 viewport.addEventListener('pointerup', e => {
   if (!dragging) return;
   dragging = false; nextSeek = undefined;
-  if (model?.timeline) post({ kind: 'seek', generation: model.generation, time: timeAt(e.clientX), immediate: true });
+  if (model?.timeline) seek(timeAt(e.clientX));
 });
 viewport.addEventListener('pointercancel', () => { dragging = false; });
 viewport.addEventListener('keydown', e => {
   if (!model?.timeline || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
   e.preventDefault(); const entries = model.timeline.entries, calls = entries.map((_, i) => i).filter(i => isCall(entries[i]));
   if (!calls.length) return;
-  const current = calls.indexOf(model.selected ?? -1);
+  const current = calls.indexOf(inspected ?? -1);
   select(calls[Math.max(0, Math.min(calls.length - 1, current + (e.key === 'ArrowRight' ? 1 : -1)))], e);
 });
 let scrollFrame = false;
 viewport.addEventListener('scroll', () => { if (!scrollFrame) { scrollFrame = true; requestAnimationFrame(() => { scrollFrame = false; render(); }); } });
 new ResizeObserver(() => render()).observe(viewport);
 listen(message => {
-  if (message.kind === 'state') {
-    model = message.model;
-    cursor = model.position?.time ?? model.playbackTime ?? 0;
-    if (model.followsVideo && model.mediaReady !== false && model.playbackTime !== undefined) cursor = model.playbackTime;
-    render();
-  } else if (message.kind === 'position' && message.generation === model?.generation && model.followsVideo) {
-    moveCursor(message.time); ghost?.setAttribute('visibility', 'hidden');
+  if (message.kind === 'position') moveCursor(message.time);
+  if (message.kind !== 'state') return;
+  const first = !model;
+  model = message.model;
+  if (first) cursor = model.time;
+  if (model.timelineKey !== key) {
+    const same = first && restored?.key !== undefined && restored.key === model.timelineKey;
+    key = model.timelineKey; inspected = same ? restored!.inspected : undefined;
+    selectedEvents = same ? restored!.selectedEvents ?? [] : []; looping = same && !!restored!.looping; anchor = undefined;
+    keep();
   }
+  render();
 });
 post({ kind: 'ready' });

@@ -6,12 +6,11 @@ import { environmentFor, workingDirectoryFor } from './environment';
 import { createJob, fileHash, inspect, renderExport, type PreviewResult, type TimelineResult, type SceneJob } from './jobs';
 import { exportChoice, exportSize, type ExportChoice, type ExportModel } from './export-settings';
 import { copyExport, validateDestination } from './export-files';
-import { videoFrameIndex, videoFrames } from './transport';
 import { isCall } from './timeline';
 
+/** For a dialog, `frame` is the shown media: a frame or the video. */
 export interface ExportSource {
-  uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult;
-  job?: SceneJob; time: number;
+  uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult; job?: SceneJob;
 }
 interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string }
 interface Active { source: ExportSource; abort: AbortController; native: boolean; started?: boolean; sourceHash?: string; job?: SceneJob }
@@ -60,24 +59,22 @@ export class Exports {
         timeline: s.source.timeline ? this.description(s.source.timeline) : undefined,
         canExportVideo: this.hasVideo(s.source),
         canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !s.source.frame.outdated,
-        dirty: this.dirty(s.source), newer: current?.frame?.media.path !== s.source.frame?.media.path || current?.video?.media.path !== s.source.video?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
+        dirty: this.dirty(s.source), newer: s.source.frame !== current?.frame && s.source.frame !== current?.video || current?.video?.media.path !== s.source.video?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
         error: s.error } : undefined };
   }
-  open(token?: string, time?: number): void {
+  /** Opens the dialog for the frame or the video that the preview shows at `time`. */
+  open(time: number, video: boolean): void {
     this.requestOpen = false;
     if (this.busy) { this.update(); return; }
-    const source = this.source();
-    if (!source) { this.update(); return; }
-    if (token !== undefined && token !== source.frame?.media.path) return;
+    const current = this.source();
+    if (!current) { this.update(); return; }
+    const source = { ...current, frame: video ? current.video : current.frame };
     const p = source.frame?.profile ?? source.timeline?.profile;
     let choice: ExportChoice = { kind: source.frame?.media.kind === 'video' ? 'video' : 'frame', method: source.video && !source.video.outdated ? 'copy' : 'render',
       settings: { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium', options: '' } };
     try { choice = exportChoice(this.context.workspaceState.get('exportChoice')); } catch { /* First visit or incompatible stored preference. */ }
     if (choice.kind === 'video' && !this.hasVideo(source)) choice = { ...choice, kind: 'frame' };
-    const media = source.frame?.media, value = time ?? source.time;
-    if (!Number.isFinite(value) || value < 0 || media?.kind === 'video' && value > media.duration) return;
-    const selected = media?.kind === 'video' ? videoFrameIndex(value, media.rate, videoFrames(media.duration, media.rate)) / media.rate : value;
-    this.session = { id: randomUUID(), source, choice, time: selected }; this.update();
+    this.session = { id: randomUUID(), source, choice, time }; this.update();
   }
   close(id?: string): void { if (!id || this.session?.id === id) { this.session = undefined; this.update(); } }
   /** The scene or its settings changed: stop a render for export. */

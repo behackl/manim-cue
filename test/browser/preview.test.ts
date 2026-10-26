@@ -1,179 +1,132 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { chromium } from 'playwright-core';
-import type { Model } from '../../src/protocol';
+import { frame, model, timeline, video, webview } from './page';
 
-test('preview swaps at the selected position, paused, without reporting initial frame zero', async () => {
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const positions = async (w: Awaited<ReturnType<typeof webview>>) => (await w.messages()).filter(m => m.kind === 'position').map(m => m.time);
+const currentTime = (w: Awaited<ReturnType<typeof webview>>) => w.page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime);
+
+test('the preview plays the current video in scene time and reports its position', async () => {
+  const w = await webview('preview'), { page } = w;
   try {
-    const page = await browser.newPage({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });
-    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-    const movie = await readFile('test/fixtures/seek.mp4');
-    let releaseMovie!: () => void;
-    const movieGate = new Promise<void>(resolve => { releaseMovie = resolve; });
-    await page.route('https://cue.test/*.mp4', async route => {
-      if (route.request().url().endsWith('/b.mp4')) await movieGate;
-      const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers().range ?? '');
-      const start = range ? Number(range[1]) : 0, end = range?.[2] ? Number(range[2]) : movie.length - 1;
-      return route.fulfill({ status: range ? 206 : 200, contentType: 'video/mp4', body: movie.subarray(start, end + 1),
-        headers: { 'accept-ranges': 'bytes', ...(range ? { 'content-range': `bytes ${start}-${end}/${movie.length}` } : {}) } });
-    });
-    await page.setContent('<main id="app"></main>');
-    await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
-    await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
-    await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
-    const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, timelineOutdated: false, autoPreview: true,
-      followsVideo: true, notice: '', canSeek: true, duration: 3, fps: 4, previewWidth: 960, hasVideo: true, position: { time: 1.25, request: 1 },
-      media: { uri: 'https://cue.test/a.mp4', kind: 'video', token: 'a', outdated: false, duration: 3, rate: 4, seekTime: 1.25, frame: { width: 8, height: 4 } } };
-    const publish = (m: Model) => page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), m);
-    await publish(model);
-    await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.time === 1.25), undefined, { timeout: 5000 }).catch(async e => {
-      console.error(await page.evaluate(() => ({ messages: (window as any).messages, videos: [...document.querySelectorAll('video')].map(v => ({ time: v.currentTime, ready: v.readyState, seeking: v.seeking, style: v.getAttribute('style') })) })));
-      throw e;
-    });
-    assert.equal(await page.locator('.preview-controls input[type=number]').count(), 0);
-    assert.equal(await page.locator('.preview-controls .position').innerText(), '1.250 s / 3.000 s');
-    assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), false);
+    await w.publish(model({ time: 1.25, video: video() }));
+    await page.waitForFunction(() => { const v = document.querySelector('video'); return !!v && !v.style.visibility && Math.abs(v.currentTime - 1.375) < 1e-3; });
+    assert.equal(await page.locator('.preview-controls .position').innerText(), '1.25 s / 3.00 s');
+    assert.equal(await page.locator('.watermark').isVisible(), false);
+    assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), false, 'Auto Preview renders the video');
+    // A seek from the timeline view moves the video and is not reported back.
+    await w.send({ kind: 'seek', time: 2 });
+    await page.waitForFunction(() => Math.abs(document.querySelector('video')!.currentTime - 2.125) < 1e-3);
+    assert.deepEqual(await positions(w), []);
     await page.getByRole('button', { name: 'Next frame', exact: true }).click();
-    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).direction), 1);
-    await page.locator('.media-stage').focus(); await page.keyboard.press('ArrowLeft');
-    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).direction), -1);
-    assert.equal(await page.locator('.preview-controls select').count(), 0);
-    assert.equal(await page.getByRole('button', { name: 'Loop', exact: true }).count(), 0);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'settings');
-    await page.getByLabel('Position', { exact: true }).focus(); await page.keyboard.press('ArrowRight');
-    assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'seek', generation: 1, time: 1.5, immediate: true });
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.loop), false);
+    assert.deepEqual(await positions(w), [2.25]);
+    await page.getByLabel('Position', { exact: true }).focus(); await page.keyboard.press('ArrowLeft');
+    assert.deepEqual(await positions(w), [2.25, 2]);
+    await page.locator('.media-stage').focus(); await page.keyboard.press('ArrowRight');
+    assert.deepEqual((await positions(w)).at(-1), 2.25);
+    assert.deepEqual((await w.messages()).filter(m => m.kind === 'frameNeeded'), [], 'the video has every frame');
+    // Playback reports frame times; Pause keeps the last one.
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await page.waitForFunction(() => (window as any).messages.filter((m: any) => m.kind === 'position').at(-1).time > 2.5);
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    const paused = (await positions(w)).at(-1)!;
+    assert.equal(paused * 4 % 1, 0, 'a frame start');
+    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
+    // A loop from the timeline view repeats in scene time.
+    await w.publish(model({ time: paused, video: video(), loop: { start: 1, end: 2 } }));
+    const before = (await w.messages()).length;
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await page.waitForFunction(before => {
+      const times = (window as any).messages.slice(before).filter((m: any) => m.kind === 'position').map((m: any) => m.time);
+      return times.some((t: number, i: number) => i > 0 && t < times[i - 1]);
+    }, before);
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    const looped = (await w.messages()).slice(before).filter(m => m.kind === 'position').map(m => m.time);
+    assert.ok(looped.every(t => t >= 1 && t < 2), `only the loop plays: ${looped}`);
+    // Measurement uses the shown video.
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector('.measure-layer')?.hasAttribute('hidden'));
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.controls), false);
-    const hit = page.locator('.measure-surface');
-    let box = (await hit.boundingBox())!;
-    const videoBox = (await page.locator('video').boundingBox())!;
-    assert.ok(Math.abs(box.width - box.height) < .01, 'square content, not the wide letterboxed element');
-    assert.ok(box.width < videoBox.width, 'pillarbox margins are excluded');
+    const box = (await page.locator('.measure-surface').boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * .75, box.y + box.height * .25, { steps: 3 });
-    await page.mouse.up();
+    await page.mouse.down(); await page.mouse.move(box.x + box.width * .75, box.y + box.height * .25, { steps: 3 }); await page.mouse.up();
     assert.match(await page.locator('.measure-readout').innerText(), /Δx 2 · Δy 1 · distance 2.23607/);
     await page.getByRole('button', { name: 'Copy point', exact: true }).click();
-    const copied = await page.evaluate(() => (window as any).messages.findLast((m: any) => m.kind === 'copyPoint'));
-    assert.deepEqual(copied, { kind: 'copyPoint', token: 'a', x: 2, y: 1 });
-    await page.setViewportSize({ width: 650, height: 800 });
-    await page.waitForTimeout(100);
-    box = (await hit.boundingBox())!;
-    assert.ok(Math.abs(box.width - box.height) < .01, 'resize preserves content mapping at device scale 2');
-    await hit.focus(); await page.keyboard.press('Escape');
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
-    await publish({ ...model, busy: true, timelineOutdated: true, followsVideo: false, position: { time: 1.25, request: 2 }, media: { ...model.media!, outdated: true } });
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
-    await page.waitForFunction(() => document.querySelector('.measure-layer')?.hasAttribute('hidden'));
-    assert.equal(await page.getByRole('button', { name: 'Copy point', exact: true }).isDisabled(), true);
-    const captured = await page.evaluate(() => {
-      const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 400;
-      canvas.getContext('2d')!.fillRect(0, 0, 400, 400); return canvas.toDataURL();
-    });
-    const frameModel: Model = { ...model, generation: 2, busy: true, timelineOutdated: true, followsVideo: false, mediaReady: true, autoPreview: false, hasVideo: false,
-      position: { time: 1.25, request: 2 }, media: { ...model.media!, kind: 'image', uri: captured, token: 'frame', sourceId: 'new',
-        capture: { requestedTime: 1.25, time: 1.25, frameIndex: 5 } } };
-    await publish(frameModel);
-    await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'displayed' && m.token === 'frame'));
-    assert.equal(await page.locator('video').count(), 0);
-    assert.equal(await page.locator('.preview-controls > :first-child').innerText(), 'Render video');
-    assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), true);
-    assert.equal(await page.locator('.measure-layer').isVisible(), true, 'fresh frame remains measurable while the timeline updates');
-    const oldFrame = { ...frameModel, generation: 3, mediaReady: false, position: { time: 1.25, request: 3 },
-      media: { ...frameModel.media!, outdated: true } };
-    await publish(oldFrame);
-    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'editing again retains the still');
-    assert.equal(await page.locator('.watermark').innerText(), 'OUTDATED');
-    // A hidden or recreated VS Code webview must also restore outdated media.
-    await page.reload();
-    await page.setContent('<main id="app"></main>');
-    await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
-    await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
-    await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
-    await publish(oldFrame);
-    await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'displayed' && m.token === 'frame'), undefined, { timeout: 5000 });
-    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'outdated still restored after view recreation');
-    assert.equal(await page.locator('.watermark').isVisible(), true);
-    assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).isDisabled(), true);
+    assert.deepEqual((await w.messages()).at(-1), { kind: 'copyPoint', x: 2, y: 1 });
     await page.getByRole('button', { name: 'Export…', exact: true }).click();
-    assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'openExport', token: 'frame', time: 1.25 });
-    await page.getByRole('button', { name: 'Measure', exact: true }).click();
-    assert.equal(await page.locator('.measure-layer').isVisible(), false, 'outdated image is display-only');
-    const movieModel: Model = { ...model, generation: 3, mediaReady: true, position: { time: 1.25, request: 3 },
-      media: { ...model.media!, uri: 'https://cue.test/b.mp4', token: 'b', sourceId: 'new', seekTime: undefined, frame: { width: 12, height: 6 } } };
-    await publish(movieModel);
-    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'still stays mounted while movie loads');
-    await publish({ ...movieModel, position: { time: 2.25, request: 4 } });
-    releaseMovie();
-    await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.token === 'b' && m.time === 2.25));
-    assert.equal(await page.locator('video').count(), 1);
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
-    await page.waitForFunction(() => document.querySelector('.measure-assumption')?.textContent?.includes('12 × 6'));
-    assert.equal(await page.locator('.measure-pin').count(), 0, 'old measurement cleared on replacement');
-    await page.getByRole('button', { name: 'Measure', exact: true }).click();
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.controls), false, 'native controls stay disabled outside measurement');
-    const positions = await page.evaluate(() => (window as any).messages.filter((m: any) => m.kind === 'playback'));
-    assert.ok(positions.every((m: any) => m.time > 0), 'no initial frame-zero messages escape');
-    const loopModel: Model = { ...movieModel, position: { time: 2.25, request: 4 }, media: { ...movieModel.media!, loop: { start: 1, end: 2 } } };
-    await publish(loopModel);
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true, 'arming a selection does not play');
-    await page.locator('.media-stage').focus(); await page.keyboard.press('Space');
-    assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'play');
-    await publish({ ...loopModel, position: { time: .75, request: 5 }, playIntent: 1 });
-    await page.waitForFunction(() => !document.querySelector('video')?.paused);
-    await page.waitForFunction(() => {
-      const times = (window as any).messages.filter((m: any) => m.kind === 'playback' && m.seekSequence === 5).map((m: any) => m.time);
-      return times.some((t: number, i: number) => i > 0 && t < times[i - 1]);
-    });
-    const loopTimes = await page.evaluate(() => (window as any).messages.filter((m: any) => m.kind === 'playback' && m.seekSequence === 5).map((m: any) => m.time));
-    assert.ok(loopTimes.some((t: number) => t > 1) && loopTimes.every((t: number) => t >= 1 && t < 2), 'only the selected interval repeats');
-    await page.getByRole('button', { name: 'Pause', exact: true }).click();
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
-    await publish({ ...movieModel, position: { time: 2.5, request: 6 }, playIntent: 2, media: { ...movieModel.media!, loop: { start: 2.5, end: 3 } } });
-    await page.waitForFunction(() => {
-      const times = (window as any).messages.filter((m: any) => m.kind === 'playback' && m.seekSequence === 6).map((m: any) => m.time);
-      return times.some((t: number, i: number) => i > 0 && t < times[i - 1]);
-    });
-    await publish({ ...movieModel, generation: 4, timelineOutdated: true, followsVideo: false, mediaReady: false, position: { time: 2.5, request: 7 }, media: { ...movieModel.media!, outdated: true } });
-    await page.waitForFunction(() => { const v = document.querySelector('video'); return v?.paused && !v.seeking; });
-    const stopped = await page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime);
-    await page.waitForTimeout(600);
-    assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime), stopped, 'invalidation disarms repeat timers');
-    await page.route('https://cue.test/broken.png', route => route.fulfill({ status: 404, body: '' }));
-    await publish({ ...model, generation: 2, mediaReady: true, followsVideo: false, position: { time: 2.25, request: 4 },
-      media: { ...model.media!, kind: 'image', token: 'broken', uri: 'https://cue.test/broken.png' } });
-    await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'mediaError' && m.token === 'broken'));
-    assert.equal(await page.locator('video').isVisible(), true, 'candidate failure retains the displayed movie');
-    const still = await page.evaluate(() => {
-      const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 200; return canvas.toDataURL();
-    });
-    await publish({ ...model, followsVideo: false, media: { ...model.media!, kind: 'image', uri: still, token: 'still', frame: { width: 10, height: 5 } } });
-    await page.waitForFunction(() => !document.querySelector<HTMLImageElement>('.media-stage img')?.hidden);
-    await page.getByRole('button', { name: 'Measure', exact: true }).click();
-    await page.waitForFunction(() => !document.querySelector('.measure-layer')?.hasAttribute('hidden'));
-    box = (await hit.boundingBox())!;
-    assert.ok(Math.abs(box.width / box.height - 2) < .001, 'still uses its own intrinsic aspect');
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
-    for (const value of [9.75, 10]) {
-      await publish({ ...model, duration: 30, followsVideo: false, mediaReady: true, position: { time: value, request: 10 },
-        media: { ...model.media!, kind: 'image', uri: still, token: String(value), capture: { requestedTime: value, time: value, frameIndex: value * 4 } } });
-      await page.waitForFunction(token => (window as any).messages.some((m: any) => m.kind === 'displayed' && m.token === token), String(value));
-      if (value === 9.75) box = (await page.getByRole('button', { name: 'Next frame', exact: true }).boundingBox())!;
-      else assert.equal((await page.getByRole('button', { name: 'Next frame', exact: true }).boundingBox())!.x, box.x, 'digit rollover does not move the controls');
+    assert.deepEqual((await w.messages()).at(-1), { kind: 'openExport', time: (await positions(w)).at(-1), video: true });
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    assert.equal((await w.messages()).at(-1).kind, 'settings');
+    // An outdated video stays with a watermark; the controls wait for the next update.
+    await w.publish(model({ time: 1, video: video({ outdated: true }), timelineOutdated: true, job: undefined }));
+    await page.waitForFunction(() => document.querySelector('.watermark')?.textContent === 'OUTDATED');
+    assert.equal(await page.locator('.preview-controls .position').innerText(), `${Number((await positions(w)).at(-1)).toFixed(2)} s / 3.00 s`, 'the duration stays');
+    assert.equal(await page.getByRole('button', { name: 'Next frame', exact: true }).isDisabled(), true);
+    assert.deepEqual(w.errors, []);
+  } finally { await w.browser.close(); }
+});
+
+test('without a current video, the preview asks for the frame at its position', async () => {
+  const w = await webview('preview'), { page } = w;
+  try {
+    await w.publish(model({ time: 1, autoPreview: false }));
+    assert.equal((await w.message('frameNeeded')).time, 1);
+    assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), true);
+    const red = await frame(page, 1);
+    await w.publish(model({ time: 1, autoPreview: false, frame: red }));
+    await page.waitForFunction(() => { const img = document.querySelector('.media-stage img') as HTMLImageElement | null; return !!img && !img.style.visibility; });
+    assert.equal(await page.locator('.watermark').isVisible(), false);
+    // A new position keeps the old frame until the new one is there.
+    await page.getByRole('button', { name: 'Next frame', exact: true }).click();
+    assert.equal((await w.message('frameNeeded')).time, 1.25);
+    assert.equal(await page.locator('.watermark').innerText(), 'UPDATING FRAME');
+    const blue = await frame(page, 1.25, '#00f');
+    await w.publish(model({ time: 1.25, autoPreview: false, frame: blue }));
+    await page.waitForFunction(() => document.querySelector('.watermark')!.hasAttribute('hidden'));
+    // Each position is asked for once in each job.
+    const asked = (await w.messages()).filter(m => m.kind === 'frameNeeded').length;
+    await w.publish(model({ time: 1.25, autoPreview: false, frame: blue, status: 'Rendering video…' }));
+    assert.equal((await w.messages()).filter(m => m.kind === 'frameNeeded').length, asked);
+    // After the end of the scene, the frame is the last frame.
+    await w.publish(model({ time: 1.25, autoPreview: false, timeline: timeline(1), frame: blue }));
+    assert.equal((await w.message('position')).time, .75, 'the position moves to the last frame');
+    const last = await frame(page, .75, '#0f0', { time: null });
+    await w.publish(model({ time: .75, autoPreview: false, timeline: timeline(1), frame: last }));
+    await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('last frame'));
+    assert.equal(await page.locator('.preview-controls .position').innerText(), 'Last frame / 1.00 s');
+    // Play without a video asks for one.
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    assert.equal((await w.messages()).at(-1).kind, 'preview');
+    assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).getAttribute('aria-busy'), 'true');
+    // A scene without plays has no positions to step to; an outdated scene waits for the next job.
+    for (const blocked of [model({ timeline: timeline(0), frame: last }), model({ job: undefined, frame: { ...last, outdated: true } })]) {
+      await w.publish(blocked);
+      assert.equal(await page.getByRole('button', { name: 'Next frame', exact: true }).isDisabled(), true);
     }
-    assert.equal(await page.locator('.preview-controls .position').innerText(), '10.000 s / 30.000 s');
-    await publish({ ...model, media: { ...model.media!, frame: undefined } });
-    await page.waitForFunction(() => document.querySelector('.measure-layer')?.hasAttribute('hidden'));
-    assert.equal(await page.getByRole('button', { name: 'Copy point', exact: true }).isDisabled(), true, 'never invent dimensions');
-    assert.deepEqual(errors, []);
-  } finally { await browser.close(); }
+    assert.equal(await page.locator('.watermark').innerText(), 'OUTDATED');
+    assert.deepEqual(w.errors, []);
+  } finally { await w.browser.close(); }
+});
+
+test('in a skipped part, the preview shows a frame; playback goes over the skipped part', async () => {
+  const w = await webview('preview'), { page } = w;
+  try {
+    // The 3 s video leaves out the scene time 1–2 s, so the scene has 4 s.
+    const skipped = video({ duration: 4, skipped: [{ start: 1, end: 2 }] });
+    await w.publish(model({ time: 2.25, timeline: timeline(4), video: skipped }));
+    await page.waitForFunction(() => { const v = document.querySelector('video'); return !!v && !v.style.visibility && Math.abs(v.currentTime - 1.375) < 1e-3; });
+    assert.equal(await page.locator('.preview-controls .position').innerText(), '2.25 s / 4.00 s');
+    await w.send({ kind: 'seek', time: 1.5 });
+    assert.equal((await w.message('frameNeeded')).time, 1.5);
+    assert.equal(await page.locator('.banner').innerText(), 'This part is skipped in the video.');
+    await w.publish(model({ time: 1.5, timeline: timeline(4), video: skipped, frame: await frame(page, 1.5) }));
+    await page.waitForFunction(() => !!document.querySelector('.media-stage img') && !document.querySelector('video'));
+    await w.send({ kind: 'seek', time: .5 });
+    await page.waitForFunction(() => !!document.querySelector('video'));
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await page.waitForFunction(() => (window as any).messages.filter((m: any) => m.kind === 'position').at(-1)?.time >= 2.5);
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    const played = await positions(w);
+    assert.ok(played.some(t => t < 1) && played.every(t => t < 1 || t >= 2), `playback goes over the skipped part: ${played}`);
+    assert.ok(await currentTime(w) < 2, 'video time');
+    assert.deepEqual(w.errors, []);
+  } finally { await w.browser.close(); }
 });

@@ -8,65 +8,47 @@ import { Scenes } from './scenes';
 import { insideEnvironment } from './setup-plan';
 import { createJob, inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
 import { PreviewQueue } from './preview-queue';
-import { frameIndex, videoFrameIndex, videoFrames } from './transport';
-import { selectEvents, selectionRange, videoLoop, type SelectionMode, type TimeRange } from './selection';
-import { isCall } from './timeline';
-import { isSkipped } from './video-time';
+import type { TimeRange } from './selection';
 import { Views } from './views';
 import { Exports, type ExportSource } from './exports';
 import { model, receive } from './panel';
 
+type Topic = 'Frame' | 'Timeline' | 'Video';
+
 /**
- * The open Scene: its jobs, its results (frame, timeline, video) and the state of the
- * preview. Fields without `private` are read by the panel; only this class changes them.
+ * The open scene: its jobs and its results (frame, timeline, video). The webviews own
+ * the playback; this class makes the results that they ask for. Fields without
+ * `private` are read by the panel; only this class changes them.
  */
 export class Session implements vscode.Disposable {
-  generation = 0;
   target?: { uri: vscode.Uri; scene: string; column?: vscode.ViewColumn };
   job?: SceneJob;
-  /** The media offered to the preview: a frame or the video. */
-  preview?: PreviewResult;
+  frame?: PreviewResult;
   video?: PreviewResult;
   timeline?: TimelineResult;
-  /** Offered media by path, until the preview acknowledges a newer one. */
-  readonly retained = new Map<string, PreviewResult>();
-  displayed?: string;
-  comparing = false;
+  /** The comparison reference, kept here so that its file stays. */
   reference?: PreviewResult;
-  pinRequest?: { sequence: number; token?: string };
-  selected?: number;
-  selectedEvents: number[] = [];
-  loopEnabled = false;
+  /** The plays to loop, chosen in the timeline view. */
+  loop?: TimeRange;
+  /** The last position: the next update starts there, and the next session too. */
+  time = 0;
   status = 'Open a scene to see its frames and its timeline.';
   error?: string;
   busy = false;
-  autoPreview = true;
-  seekSequence = 0;
-  frameSequence = -1;
-  desiredTime = 0;
-  playbackTime?: number;
-  playIntent?: number;
-  positionClamped = false;
-  mediaError?: string;
   pythonInUse?: string;
   readonly extensionId: string;
   readonly views: Views;
   readonly scenes: Scenes;
   readonly exports: Exports;
+  /** Increments to stop the async work of an older refresh. */
+  private generation = 0;
   private opening = 0;
   private abort?: AbortController;
   private pending: Promise<void> = Promise.resolve();
-  private references = new Map<string, PreviewResult>();
-  private displayedReference?: string;
-  private displaySequence = -1;
-  private playbackSequence = -1;
-  private lastInteraction = 0;
-  private playSequence = 0;
   private preparing = false;
-  private selectionAnchor?: number;
-  private phaseErrors = new Map<string, string>();
-  private frameStarted = 0;
-  private displayTiming?: { token: string; started: number; produced: number };
+  /** "Render video" or Play came before the timeline: render when it is ready. */
+  private videoWanted = false;
+  private errors = new Map<string, string>();
   private saveTimer?: ReturnType<typeof setTimeout>;
   private saveCheck = 0;
   private diskHash?: string;
@@ -90,27 +72,10 @@ export class Session implements vscode.Disposable {
       () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); });
     this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python', 'discover.py').fsPath);
     this.views = new Views(context.extensionUri, [vscode.Uri.file(this.mediaRoot)],
-      (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, webview => model(this, webview), () => {
-        this.queue.remove('render'); this.playIntent = undefined;
-        this.preview = undefined; this.displayed = undefined; this.retained.clear();
-        this.exports.close(); this.clearComparison(); this.views.update(); void this.cleanup();
-      });
+      (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, webview => model(this, webview),
+      () => { this.queue.remove('frame'); this.queue.remove('render'); this.reference = undefined; this.exports.close(); });
   }
-  /** The video, if it shows the current source. */
-  currentVideo(): PreviewResult | undefined { return this.video && !this.video.outdated ? this.video : undefined; }
-  /** The offered media is current and, for a frame, at the selected time. */
-  mediaReady(): boolean {
-    const p = this.preview;
-    return !!p && !p.outdated && (!p.media.capture || this.frameSequence === this.seekSequence) && !this.mediaError;
-  }
-  /** The selected range of plays and waits; a current video can loop it only on its frame boundaries. */
-  selection(): { range: TimeRange; available: boolean; loop?: TimeRange } | undefined {
-    const t = this.timeline, range = t && selectionRange(t.timeline.entries, this.selectedEvents);
-    if (!range) return;
-    const video = this.currentVideo()?.media;
-    const loop = video && videoLoop(range, video.rate, videoFrames(video.duration, video.rate), video.skipped ?? []);
-    return { range, available: !t.outdated && (!video || !!loop), loop };
-  }
+  get autoPreview(): boolean { return vscode.workspace.getConfiguration('manimCue', this.target?.uri).get('autoPreview', true); }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
     const opening = ++this.opening;
     if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Trust this workspace to run Manim scenes.'); return; }
@@ -139,18 +104,17 @@ export class Session implements vscode.Disposable {
     this.exports.invalidate(true); this.exports.close();
     this.cancel(false);
     if (different) {
-      this.clearComparison(); this.selectedEvents = []; this.selectionAnchor = undefined; this.selected = undefined;
-      this.displayed = undefined; this.retained.clear(); this.timeline = undefined; this.preview = undefined; this.video = undefined;
-      this.diskHash = undefined; this.sourceEdited = false; this.desiredTime = 0; this.playbackTime = undefined; this.positionClamped = false;
+      this.frame = this.video = this.timeline = this.reference = this.loop = undefined;
+      this.diskHash = undefined; this.sourceEdited = false;
+      const time = remembered?.uri === document.uri.toString() && remembered.scene === scene ? remembered.time : 0;
+      this.time = Number.isFinite(time) && time >= 0 ? time : 0;
     }
-    if (different && remembered?.uri === document.uri.toString() && remembered.scene === scene && Number.isFinite(remembered.time) && remembered.time >= 0) this.desiredTime = remembered.time;
     this.target = { uri: document.uri, scene, column: vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString())?.viewColumn };
     this.remember();
-    this.autoPreview = vscode.workspace.getConfiguration('manimCue', document.uri).get('autoPreview', true);
     await this.views.open();
     if (opening === this.opening) await this.refresh();
   }
-  async refresh(frame = true, started = performance.now()): Promise<void> {
+  async refresh(frame = true): Promise<void> {
     this.clearAutoRefresh();
     if (!this.target) { await this.open(); return; }
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
@@ -159,10 +123,11 @@ export class Session implements vscode.Disposable {
     const hash = await fileHash(target.uri.fsPath);
     if (this.target !== target || intent !== this.generation || this.disposed) return;
     if (document.isDirty) { this.invalidate('Outdated. Save the scene file to update.'); throw new Error('Save the scene file to update.'); }
+    const videoWanted = this.videoWanted;
     this.cancel(false);
-    this.diskHash = hash; this.sourceEdited = false; this.lastInteraction = Date.now(); this.frameStarted = started;
+    this.diskHash = hash; this.sourceEdited = false; this.videoWanted = videoWanted;
     const generation = this.generation, abort = new AbortController(); this.abort = abort;
-    this.preparing = true; this.busy = true; this.error = undefined; this.phaseErrors.clear();
+    this.preparing = true; this.busy = true; this.error = undefined; this.errors.clear();
     this.status = 'Starting Python…'; this.views.update();
     const current = () => generation === this.generation && !abort.signal.aborted && !this.disposed;
     this.pending = this.pending.catch(() => {}).then(async () => {
@@ -182,102 +147,84 @@ export class Session implements vscode.Disposable {
           signal: abort.signal, log: s => { if (!this.disposed) this.output.append(s); } });
         if (!current()) return;
         this.job = job;
-        this.requestInspection(0, frame);
+        this.requestTimeline(frame);
       } catch (e) { if (current()) { this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.output.appendLine(this.error); } }
       finally { if (current()) { this.preparing = false; this.busy = this.queue.busy; this.views.update(); } }
     });
     await this.whenIdle();
   }
-  private current(job: SceneJob, signal?: AbortSignal): boolean {
-    return this.job === job && !this.disposed && !signal?.aborted;
+  private current(job: SceneJob, signal: AbortSignal): boolean {
+    return this.job === job && !this.disposed && !signal.aborted;
   }
   /** Errors by topic; each one stays until the same topic succeeds. */
-  private phaseError(topic: 'Frame' | 'Timeline' | 'Video' | 'Loop' | 'Comparison', message?: string): void {
-    if (message === undefined) this.phaseErrors.delete(topic); else this.phaseErrors.set(topic, message);
-    this.error = [...this.phaseErrors.values()].join('\n') || undefined;
+  private setError(topic: Topic, message?: string): void {
+    if (message === undefined) this.errors.delete(topic); else this.errors.set(topic, message);
+    this.error = [...this.errors.values()].join('\n') || undefined;
   }
-  private jobFailed(job: SceneJob, signal: AbortSignal, topic: 'Frame' | 'Timeline' | 'Video', error: unknown): void {
+  private jobFailed(job: SceneJob, signal: AbortSignal, topic: Topic, error: unknown): void {
     if (!this.current(job, signal)) return;
     const what = { Frame: 'The frame update', Timeline: 'The timeline update', Video: 'The video render' }[topic];
     this.status = `${what} failed`;
-    this.phaseError(topic, `${what} failed: ${error instanceof Error ? error.message : String(error)}`);
-    if (topic !== 'Frame') this.playIntent = undefined;
-    if (topic !== 'Video') this.pinRequest = undefined;
+    this.setError(topic, `${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (topic !== 'Frame') this.videoWanted = false;
     if (error instanceof RuntimeUnavailable) {
-      this.job = undefined; this.pinRequest = undefined; this.playIntent = undefined;
-      this.queue.clear(); // Do not repeat the same failed import/capability check for queued jobs.
+      this.job = undefined;
+      this.queue.clear(); // Do not repeat the same failed check for queued jobs.
       this.status = 'Python environment not ready';
-      this.phaseError(topic, error.message);
+      this.setError(topic, error.message);
     }
     this.output.appendLine(`\n${this.error}`); this.views.update();
   }
-  private offer(result: PreviewResult): void {
-    this.retained.set(result.media.path, result); this.preview = result;
-    this.playbackSequence = -1; this.playbackTime = undefined; this.mediaError = undefined;
-    this.views.update();
+  private async publishFrame(job: SceneJob, signal: AbortSignal, result: PreviewResult): Promise<void> {
+    const published = await publishPreview(result, this.mediaRoot);
+    if (!this.current(job, signal)) return;
+    this.frame = published; this.setError('Frame'); this.views.update();
   }
-  /**
-   * One evaluation gives the frame at the selected time and, if the job has no current
-   * timeline yet, the timeline. Without a timeline, the process ends after the frame.
-   */
-  private requestInspection(delay = 0, frame = true): void {
-    const job = this.job;
-    if (!job) return;
-    if (frame && this.views.previewOpen) this.status = 'Updating frame…';
+  /** One run gives the timeline and, with `frame`, the frame at the current time on the way. */
+  private requestTimeline(frame: boolean): void {
+    const job = this.job!;
     this.queue.enqueue('inspect', async signal => {
-      const sequence = this.seekSequence, time = this.desiredTime, started = this.frameStarted;
-      const capture = frame && this.views.previewOpen, timeline = !this.timeline || this.timeline.outdated;
-      if (!this.current(job, signal) || !capture && !timeline) return;
-      const topic = timeline ? 'Timeline' : 'Frame';
-      this.status = !timeline ? 'Updating frame…' : capture ? 'Updating frame and timeline…' : 'Updating timeline…'; this.views.update();
+      const capture = frame && this.views.previewOpen;
+      if (!this.current(job, signal)) return;
+      this.status = capture ? 'Updating frame and timeline…' : 'Updating timeline…'; this.views.update();
       try {
-        const result = await inspect(job, { time: capture ? time : undefined, timeline }, signal, async frame => {
-          if (!this.current(job, signal) || sequence !== this.seekSequence) return;
-          const published = await publishPreview(frame, this.mediaRoot);
-          if (!this.current(job, signal) || sequence !== this.seekSequence) return;
-          this.phaseError('Frame');
-          this.displayTiming = { token: published.media.path, started, produced: performance.now() };
-          if (this.pinRequest?.sequence === sequence) this.pinRequest.token = published.media.path;
-          this.frameSequence = sequence; this.offer(published);
-          this.status = timeline ? 'Updating timeline…' : 'Up to date';
-          this.views.update();
+        const result = await inspect(job, { time: capture ? this.time : undefined, timeline: true }, signal, async frame => {
+          if (!this.current(job, signal)) return;
+          this.status = 'Updating timeline…';
+          await this.publishFrame(job, signal, frame);
         });
         if (!this.current(job, signal)) return;
-        if (result.timeline) {
-          this.timeline = result.timeline; this.selected = undefined; this.selectedEvents = []; this.selectionAnchor = undefined; this.loopEnabled = false;
-          this.phaseError('Timeline'); this.status = 'Up to date'; this.views.update();
-        }
-        if ((frame && this.autoPreview) || this.playIntent !== undefined) this.requestVideo(this.playIntent !== undefined);
-      } catch (e) { this.jobFailed(job, signal, topic, e); }
-    }, delay);
+        this.timeline = result.timeline; this.setError('Timeline'); this.status = 'Up to date'; this.views.update();
+        if (frame && this.autoPreview || this.videoWanted) this.requestVideo();
+      } catch (e) { this.jobFailed(job, signal, 'Timeline', e); }
+    });
   }
-  /** Unless playback starts, a frame from an inspection shows a time that is skipped in the video. */
-  private showVideo(video: PreviewResult, play = this.playIntent !== undefined): void {
-    if (this.comparing) return;
-    const fps = video.media.rate, frames = videoFrames(video.media.duration, fps);
-    if (this.desiredTime >= frames / fps) {
-      this.desiredTime = (frames - 1) / fps;
-      ++this.seekSequence; this.positionClamped = true;
-    }
-    if (play || !isSkipped(video.media.skipped ?? [], this.desiredTime)) this.offer(video);
+  /** The preview has no current result for `time`. A newer request replaces this one. */
+  requestFrame(time: number): void {
+    this.time = time; this.remember();
+    const job = this.job;
+    if (!job || !this.views.previewOpen) return;
+    this.queue.enqueue('frame', async signal => {
+      const frame = this.frame?.media.capture;
+      if (!this.current(job, signal) || frame?.requestedTime === time && !this.frame!.outdated) return;
+      this.status = 'Updating frame…'; this.views.update();
+      try {
+        await inspect(job, { time, timeline: false }, signal, frame => this.current(job, signal) ? this.publishFrame(job, signal, frame) : undefined);
+        if (this.current(job, signal)) { this.status = 'Up to date'; this.views.update(); }
+      } catch (e) { this.jobFailed(job, signal, 'Frame', e); }
+    }, 100); // Scrubbing sends many requests: start when they pause.
   }
   async renderVideo(): Promise<void> {
-    this.comparing = false; this.pinRequest = undefined;
+    this.videoWanted = true;
     if (!this.views.previewOpen) await this.views.open();
-    if (!this.job || !this.timeline || this.timeline.outdated) await this.refresh();
-    this.requestVideo(true); await this.whenIdle();
+    if (!this.job) await this.refresh(); else this.requestVideo();
+    await this.whenIdle();
   }
-  /** Renders the video after the frame and the timeline of the job, unless the scene is static. */
-  private requestVideo(immediate = false): void {
-    if (this.comparing || !this.views.previewOpen || this.queue.running('render')) return;
+  /** Renders the video after the timeline, unless the scene has no plays or waits. */
+  private requestVideo(): void {
     const job = this.job, timeline = this.timeline;
-    if (!job || !timeline || timeline.outdated) return;
-    if (!immediate && (!this.preview || this.preview.outdated)) return;
-    const video = this.currentVideo();
-    if (video) { this.showVideo(video); return; }
-    if (timeline.timeline.duration === 0) {
-      this.playIntent = undefined; this.status = 'Up to date'; this.views.update(); return;
-    }
+    if (!job || !timeline || timeline.outdated || this.queue.running('render') || this.video && !this.video.outdated) return;
+    if (timeline.timeline.duration === 0) { this.videoWanted = false; return; }
     this.queue.enqueue('render', async signal => {
       if (!this.current(job, signal)) return;
       this.status = 'Rendering video…'; this.views.update();
@@ -287,182 +234,49 @@ export class Session implements vscode.Disposable {
         const published = await publishPreview(result.video, this.mediaRoot);
         if (!this.current(job, signal)) return;
         // The render's timeline describes the video; selections keep their entry indices.
-        this.phaseError('Video'); this.video = published; this.timeline = result.timeline;
-        if (this.loopEnabled && !this.selection()?.available) {
-          this.loopEnabled = false; this.playIntent = undefined;
-          this.phaseError('Loop', 'The video has no frames for the selected plays. Select other plays to loop.');
-        }
-        this.showVideo(published); this.status = 'Up to date';
+        this.video = published; this.timeline = result.timeline; this.videoWanted = false;
+        this.setError('Video'); this.status = 'Up to date'; this.views.update();
       } catch (e) { this.jobFailed(job, signal, 'Video', e); }
-    }, immediate ? 0 : Math.max(0, this.lastInteraction + 1500 - Date.now()));
+    });
   }
-  seek(time: number, immediate = false): void {
-    if (!this.target || !Number.isFinite(time) || this.disposed) return;
-    this.desiredTime = Math.max(0, time); this.playIntent = undefined; this.pinRequest = undefined;
-    this.positionClamped = false; ++this.seekSequence; this.lastInteraction = Date.now(); this.frameStarted = performance.now();
-    this.remember();
-    if (!this.autoPreview) this.queue.remove('render');
-    const video = this.currentVideo();
-    if (!this.comparing && video && !isSkipped(video.media.skipped ?? [], this.desiredTime)) this.showVideo(video);
-    else this.requestInspection(immediate ? 0 : 150);
-    this.views.update();
+  /** The timeline view chose a time: the preview moves there. */
+  seek(time: number): void {
+    this.time = time; this.remember(); this.views.seek(time);
   }
-  step(direction: -1 | 1): void {
-    if (!this.target || !this.job) return;
-    const fps = this.job.options.fps, video = this.currentVideo()?.media;
-    const count = video ? videoFrames(video.duration, fps) : Number.MAX_SAFE_INTEGER;
-    const index = video && this.playbackTime !== undefined ? videoFrameIndex(this.playbackTime, fps, count) : frameIndex(this.desiredTime, fps, count);
-    this.seek(Math.max(0, Math.min(count - 1, index + direction)) / fps);
+  /** The preview moved: the timeline shows it. */
+  position(time: number): void {
+    this.time = time; this.remember(); this.views.position(time);
   }
-  play(): void {
-    this.comparing = false; this.pinRequest = undefined;
-    const selection = this.loopEnabled ? this.selection() : undefined;
-    if (selection?.available && (this.desiredTime < selection.range.start || this.desiredTime >= selection.range.end)) this.seek(selection.range.start);
-    this.playIntent = ++this.playSequence; this.requestVideo(true); this.views.update();
+  /** The preview compares other frames with the frame `id`. */
+  pin(id: string): void {
+    if (this.frame?.media.path !== id) return;
+    this.reference = this.frame; this.views.update();
   }
-  pause(): void {
-    this.playIntent = undefined; this.remember(); if (!this.autoPreview) this.queue.remove('render'); this.views.update();
-  }
-  /** The preview reports the presented position of the video. */
-  playback(token: string, request: number, time: number, currentTime: number | undefined, playing: boolean | undefined, sequence: number): void {
-    if (token !== this.preview?.media.path || request !== this.seekSequence || !this.mediaReady() || sequence <= this.playbackSequence) return;
-    this.playbackSequence = sequence;
-    const { duration, rate } = this.preview.media, frames = videoFrames(duration, rate);
-    if (time < 0 || time > duration + 0.01) return;
-    this.playbackTime = videoFrameIndex(time, rate, frames) / rate;
-    if (playing === true && currentTime !== undefined) this.desiredTime = Math.max(0, Math.min(currentTime, (frames - 1) / rate));
-    if (playing === false) this.remember();
-    this.views.position(this.generation, this.playbackTime);
-  }
-  /** The preview shows `token`: pin a requested reference and release older media. */
-  async presented(token: string, request: number, sequence: number): Promise<void> {
-    if (!this.retained.has(token) || sequence <= this.displaySequence) return;
-    this.displaySequence = sequence; this.displayed = token;
-    if (this.comparing && this.pinRequest?.sequence === this.seekSequence && this.pinRequest.token === token &&
-      request === this.seekSequence && this.mediaReady()) {
-      this.pin(this.retained.get(token)!); this.views.update();
-    }
-    if (token === this.preview?.media.path) {
-      for (const key of this.retained.keys()) if (key !== token) this.retained.delete(key);
-      if (request === this.seekSequence && this.preview.media.capture && this.mediaReady()) this.playbackTime = this.preview.media.capture.time ?? undefined;
-      if (this.displayTiming?.token === token && request === this.seekSequence && this.mediaReady()) {
-        const now = performance.now(), t = this.displayTiming;
-        this.output.appendLine(`[Cue timing] Current frame visible: ${((now - t.started) / 1000).toFixed(3)} s; browser load/swap: ${((now - t.produced) / 1000).toFixed(3)} s`);
-        this.displayTiming = undefined;
-      }
-    }
-    if (!this.queue.busy) await this.cleanup();
-  }
-  mediaFailed(token: string, message: string): void {
-    if (token !== this.preview?.media.path) return;
-    this.playIntent = undefined;
-    if (this.pinRequest?.token === token) this.pinRequest = undefined;
-    const previous = this.displayed ? this.retained.get(this.displayed) : undefined;
-    if (this.video?.media.path === token) this.video = undefined;
-    if (previous && previous.media.path !== token) {
-      this.preview = previous; this.error = message.slice(0, 300);
-      this.status = 'Showing the previous preview';
-    } else this.mediaError = message.slice(0, 300);
-    this.views.update();
-  }
-  async referencePresented(token: string): Promise<void> {
-    if (token !== this.reference?.media.path) return;
-    this.displayedReference = token;
-    for (const key of this.references.keys()) if (key !== token) this.references.delete(key);
-    if (!this.queue.busy) await this.cleanup();
-  }
-  async referenceFailed(token: string, message: string): Promise<void> {
-    if (token !== this.reference?.media.path) return;
-    const previous = this.displayedReference ? this.references.get(this.displayedReference) : undefined;
-    this.reference = previous?.media.path !== token ? previous : undefined;
-    this.references.delete(token);
-    this.phaseError('Comparison', message.slice(0, 300)); this.views.update();
-    if (!this.queue.busy) await this.cleanup();
-  }
+  setLoop(range?: TimeRange): void { this.loop = range; this.views.update(); }
   private remember(): void {
     clearTimeout(this.rememberTimer);
     if (!this.target) return;
-    const value = { uri: this.target.uri.toString(), scene: this.target.scene, time: this.desiredTime };
+    const value = { uri: this.target.uri.toString(), scene: this.target.scene, time: this.time };
     this.rememberTimer = setTimeout(() => { void this.context.workspaceState.update('lastScene', value); }, 200);
   }
   configurationChanged(event: vscode.ConfigurationChangeEvent): void {
-    const uri = this.target?.uri, cfg = vscode.workspace.getConfiguration('manimCue', uri);
+    const uri = this.target?.uri;
     if (event.affectsConfiguration('manimCue.autoPreview', uri)) {
-      this.autoPreview = cfg.get('autoPreview', true);
-      if (this.autoPreview) this.requestVideo(); else if (this.playIntent === undefined) this.queue.remove('render');
+      if (this.autoPreview) this.requestVideo(); else if (!this.videoWanted) this.queue.remove('render');
     }
-    if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !cfg.get('autoRefreshOnSave', true)) this.clearAutoRefresh();
+    if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true)) this.clearAutoRefresh();
     if (event.affectsConfiguration('python', uri) || ['pythonPath', 'frameRate', 'previewWidth', 'workingDirectory', 'timeoutSeconds'].some(key => event.affectsConfiguration(`manimCue.${key}`, uri))) {
       this.scenes.invalidate(); this.invalidate('Outdated. Refresh to use the new settings.');
     }
     this.views.update();
   }
-  select(index: number, mode: SelectionMode = 'replace'): void {
-    const timeline = this.timeline, entries = timeline?.timeline.entries, entry = entries?.[index];
-    if (!timeline || !entries || !entry) return;
-    this.selected = index;
-    this.phaseError('Loop');
-    if (timeline.outdated) { this.views.update(); return; } // Old timelines remain inspectable, not loopable.
-    this.playIntent = undefined;
-    if (isCall(entry)) {
-      this.selectedEvents = selectEvents(entries, this.selectedEvents, index, mode, this.selectionAnchor);
-      if (mode !== 'range') this.selectionAnchor = index;
-      if (!selectionRange(entries, this.selectedEvents)) this.loopEnabled = false;
-      if (mode === 'replace') this.seek(entry.start);
-    } else {
-      this.selectedEvents = []; this.selectionAnchor = undefined; this.loopEnabled = false;
-      this.seek(entry.start);
-    }
-    if (this.loopEnabled && !this.selection()?.available) this.loopEnabled = false;
-    this.views.update();
+  async copyPoint(x: number, y: number): Promise<void> {
+    await vscode.env.clipboard.writeText(`[${Number(x.toPrecision(6))}, ${Number(y.toPrecision(6))}, 0]`);
   }
-  setLoop(enabled: boolean): void {
-    if (!this.selection()?.available) return;
-    this.loopEnabled = enabled; this.playIntent = undefined; this.views.update();
-  }
-  private clearComparison(): void {
-    this.comparing = false; this.reference = undefined; this.references.clear(); this.displayedReference = undefined; this.pinRequest = undefined;
-  }
-  private pin(result: PreviewResult): void {
-    this.phaseError('Comparison');
-    this.reference = result; this.references.set(result.media.path, result); this.pinRequest = undefined;
-    for (const token of this.references.keys()) if (token !== result.media.path && token !== this.displayedReference) this.references.delete(token);
-  }
-  setComparison(enabled: boolean, token = this.displayed, time?: number, replace = false): void {
-    if (!enabled) {
-      this.comparing = false; this.pinRequest = undefined;
-      if (this.autoPreview) this.requestVideo();
-      this.views.update(); return;
-    }
-    const result = token === this.displayed && token ? this.retained.get(token) : undefined;
+  async saveFrame(): Promise<void> {
+    const result = this.frame;
     if (!result) return;
-    if (time !== undefined && (!Number.isFinite(time) || time < 0 || result.media.kind === 'video' && time > result.media.duration)) return;
-    this.comparing = true; this.playIntent = undefined; this.pinRequest = undefined;
-    this.queue.remove('render');
-    const needsPin = replace || !this.reference;
-    if (result.media.kind === 'image') {
-      if (needsPin) this.pin(result); // Deliberately retain the displayed pixels, even if outdated.
-    } else if (this.mediaReady() && result.media.path === this.preview?.media.path && this.job) {
-      // A video is never replaced with an older frame. Request a new frame at its presented
-      // position; the UI says that this is a new evaluation, not pixels from the video.
-      const value = time ?? this.playbackTime ?? this.desiredTime, fps = result.media.rate;
-      if (!Number.isFinite(value) || value < 0 || value > result.media.duration) return;
-      this.seek(videoFrameIndex(value, fps, videoFrames(result.media.duration, fps)) / fps, true);
-      if (needsPin) this.pinRequest = { sequence: this.seekSequence };
-    }
-    this.views.update();
-  }
-  async copyPoint(token: string, x: number, y: number): Promise<void> {
-    const p = this.preview?.profile;
-    if (p && token === this.preview?.media.path && token === this.displayed && this.mediaReady() &&
-      Math.abs(x) <= p.frameWidth / 2 && Math.abs(y) <= p.frameHeight / 2) {
-      await vscode.env.clipboard.writeText(`[${Number(x.toPrecision(6))}, ${Number(y.toPrecision(6))}, 0]`);
-    }
-  }
-  async saveFrame(token = this.displayed): Promise<void> {
-    const result = token && token === this.displayed ? this.retained.get(token) : undefined;
-    if (!result || result.media.kind !== 'image') return;
-    // Read before the dialog: a later decoded replacement may release the source file.
+    // Read before the dialog: a newer frame can replace this file meanwhile.
     const bytes = await fs.readFile(result.media.path);
     const stamp = result.media.capture?.time;
     const name = `${path.parse(result.source).name}-${this.target?.scene ?? 'frame'}-${stamp == null ? 'last' : stamp.toFixed(3) + 's'}${result.outdated ? '-outdated' : ''}.png`;
@@ -482,7 +296,6 @@ export class Session implements vscode.Disposable {
   async clearCaches(): Promise<void> {
     if (this.exports.busy) throw new Error('Wait for the export to finish, or cancel it, to clear the caches.');
     this.cancel(false); const generation = this.generation;
-    this.views.update();
     this.pending = this.pending.catch(() => {}).then(async () => {
       await this.queue.whenIdle();
       if (this.disposed || generation !== this.generation) return;
@@ -498,11 +311,11 @@ export class Session implements vscode.Disposable {
   cancel(preserve = true): void {
     if (preserve) this.exports.cancel();
     this.clearAutoRefresh();
-    ++this.generation; ++this.seekSequence; this.abort?.abort(); this.playIntent = undefined; this.loopEnabled = false; this.pinRequest = undefined;
+    ++this.generation; this.abort?.abort(); this.videoWanted = false;
     if (!preserve) {
       this.job = undefined;
-      for (const result of [this.preview, this.video, this.timeline, ...this.retained.values(), ...this.exports.results]) if (result) result.outdated = true;
-    } else if (this.preview?.media.capture?.requestedTime === this.desiredTime && !this.preview.outdated) this.frameSequence = this.seekSequence;
+      for (const result of [this.frame, this.video, this.timeline, ...this.exports.results]) if (result) result.outdated = true;
+    }
     this.preparing = false; this.queue.clear(); this.busy = this.queue.busy;
     this.status = 'Cancelled';
     this.views.update();
@@ -531,7 +344,6 @@ export class Session implements vscode.Disposable {
     }
   }
   async saved(uri: vscode.Uri): Promise<void> {
-    const started = performance.now();
     if (!this.target || uri.toString() !== this.target.uri.toString()) { this.changed(uri); return; }
     const target = this.target, check = ++this.saveCheck;
     try {
@@ -551,7 +363,7 @@ export class Session implements vscode.Disposable {
       this.saveTimer = setTimeout(() => {
         this.saveTimer = undefined;
         if (this.disposed || this.target !== target || generation !== this.generation) return;
-        void this.refresh(true, started).catch(e => {
+        void this.refresh().catch(e => {
           // Job failures already stay in the panel; preflight failures should too.
           if (this.disposed || generation !== this.generation) return;
           this.busy = false; this.status = 'Update failed';
@@ -583,11 +395,8 @@ export class Session implements vscode.Disposable {
     await vscode.window.showTextDocument(doc, { viewColumn: target.column ?? vscode.ViewColumn.One, selection: new vscode.Range(site.line - 1, 0, site.line - 1, 0), preserveFocus: false });
   }
   private exportSource(): ExportSource | undefined {
-    if (!this.target) return;
-    return { uri: this.target.uri, scene: this.target.scene, frame: this.displayed ? this.retained.get(this.displayed) : undefined,
-      video: this.video, timeline: this.timeline, job: this.job, time: this.playbackTime ?? this.desiredTime };
+    return this.target && { uri: this.target.uri, scene: this.target.scene, frame: this.frame, video: this.video, timeline: this.timeline, job: this.job };
   }
-  openExportDialog(token?: string, time?: number): void { this.playIntent = undefined; this.exports.open(token, time); }
   async openExport(): Promise<void> {
     if (!this.target) { void vscode.window.showInformationMessage('Open a scene to export.'); return; }
     this.exports.requestOpen = true; await this.views.open(); this.views.update();
@@ -600,25 +409,27 @@ export class Session implements vscode.Disposable {
     if (target) await this.saveArtifact(bytes, target, '.json', result);
   }
   failAction(e: unknown): void { if (!this.disposed) void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e)); }
+  /** Removes the run folders and media files that no result and no export uses. */
   private async cleanup(): Promise<void> {
-    if (this.queue.busy || this.preparing || this.exports.busy) return;
-    // Recheck ownership after filesystem awaits: a display/pin acknowledgement or
-    // completed job may have changed the live set while directory listing yielded.
-    const keep = () => new Set([...this.exports.directories, this.job?.directory, this.timeline?.directory, this.video?.directory, ...[...this.retained.values(), ...this.references.values()].map(r => r.directory)]);
-    const media = () => new Set([...this.exports.files, this.preview?.media.path, this.video?.media.path, ...this.retained.keys(), ...this.references.keys()]);
+    const idle = () => !this.queue.busy && !this.preparing && !this.exports.busy;
+    if (!idle()) return;
+    // Recompute after each await: a job or an export can start meanwhile.
+    const results = () => [this.frame, this.video, this.timeline, this.reference];
+    const keep = () => new Set([...this.exports.directories, this.job?.directory, ...results().map(r => r?.directory)]);
+    const media = () => new Set([...this.exports.files, this.frame?.media.path, this.video?.media.path, this.reference?.media.path]);
     try {
       for (const file of await fs.readdir(this.mediaRoot).catch(() => [] as string[])) {
-        if (this.queue.busy || this.preparing || this.exports.busy) return;
+        if (!idle()) return;
         const full = path.join(this.mediaRoot, file);
         if (!media().has(full)) await fs.rm(full, { force: true });
       }
       for (const entry of await fs.readdir(this.scratch, { withFileTypes: true })) {
-        if (this.queue.busy || this.preparing || this.exports.busy) return;
+        if (!idle()) return;
         const dir = path.join(this.scratch, entry.name);
         if (!entry.isDirectory() || !entry.name.startsWith('run-')) continue;
         if (!keep().has(dir)) await fs.rm(dir, { recursive: true, force: true });
         else for (const file of await fs.readdir(path.join(dir, 'media'))) {
-          if (this.queue.busy || this.preparing || this.exports.busy) return;
+          if (!idle()) return;
           const full = path.join(dir, 'media', file);
           if (!media().has(full)) await fs.rm(full, { force: true });
         }
@@ -628,7 +439,7 @@ export class Session implements vscode.Disposable {
   async whenIdle(): Promise<void> { await this.pending; await this.queue.whenIdle(); await this.exports.whenIdle(); }
   dispose(): void {
     clearTimeout(this.rememberTimer);
-    if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.desiredTime });
+    if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.time });
     this.clearAutoRefresh(); this.exports.dispose(); this.disposed = true; ++this.generation; this.abort?.abort();
     this.queue.clear(); this.scenes.dispose(); this.views.dispose();
   }

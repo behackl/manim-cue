@@ -47,8 +47,10 @@ export class Views implements vscode.Disposable {
       }
     }
   }
-  position(generation: number, time: number): void {
-    void this.timeline?.webview.postMessage({ kind: 'position', generation, time } satisfies HostMessage);
-  }
+  /** The preview moved: show the position on the timeline. */
+  position(time: number): void { void this.timeline?.webview.postMessage({ kind: 'position', time } satisfies HostMessage); }
+  /** The timeline view chose a time: move the preview there. */
+  seek(time: number): void { void this.preview?.webview.postMessage({ kind: 'seek', time } satisfies HostMessage); }
+  step(direction: -1 | 1): void { void this.preview?.webview.postMessage({ kind: 'step', direction } satisfies HostMessage); }
   dispose(): void { this.preview?.dispose(); this.disposables.forEach(d => d.dispose()); }
 }

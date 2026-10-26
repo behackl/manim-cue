@@ -45,8 +45,6 @@ svg { display: block; font: 11px var(--vscode-font-family, sans-serif); }
 .selectable:hover rect, .selectable:hover path { filter: brightness(1.3); stroke-width: 2; }
 .selectable.selected rect, .selectable.selected path { stroke: var(--vscode-focusBorder, #fff); stroke-width: 2; }
 .playhead { stroke: var(--cue-teal); stroke-width: 1.5; pointer-events: none; }
-.video-playhead { stroke: var(--cue-amber); }
-.ghost { stroke: var(--cue-amber); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 10px; color: var(--vscode-descriptionForeground); padding: 5px 10px; border-top: 1px solid var(--line); }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .swatch { width: 14px; height: 9px; border: 1px solid var(--cue-teal); border-radius: 2px; background: color-mix(in srgb, var(--cue-teal) 55%, transparent); }
@@ -62,9 +60,10 @@ dd { margin: 3px 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywh
 .inspector button { margin-top: 10px; }
 .muted { color: var(--vscode-descriptionForeground); }
 .selection-range { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--cue-amber); }
+.selection-range.muted { color: var(--vscode-descriptionForeground); }
+.chart.outdated .viewport { opacity: .5; }
 .loop-region { fill: var(--cue-amber); fill-opacity: .06; stroke: var(--cue-amber); stroke-opacity: .5; stroke-dasharray: 4 3; pointer-events: none; }
 .loop-region.enabled { fill-opacity: .12; stroke-opacity: 1; stroke-dasharray: none; }
-.loop-region.outdated { opacity: .45; }
 .error-actions { display: flex; gap: 6px; padding: 6px 12px; }
 .error { margin: 0; max-height: 110px; flex-shrink: 0; padding: 8px 12px; background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); overflow: auto; white-space: pre-wrap; font-size: 11px; border-top: 1px solid var(--line); }
 .empty-label { fill: var(--vscode-descriptionForeground); font-size: 13px; }
