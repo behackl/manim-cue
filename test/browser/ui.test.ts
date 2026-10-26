@@ -40,6 +40,11 @@ test('the timeline shows the entries, owns the selection and the loop, and moves
     await page.mouse.move(tick.x + 350, tick.y + 100, { steps: 15 }); await page.mouse.up();
     assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '', 'scrubbing across labels selects no text');
     assert.equal((await w.messages()).at(-1).kind, 'seek');
+    // One click sends one seek; a click before 0 s seeks to 0 s.
+    const seeks = async () => (await w.messages()).filter(m => m.kind === 'seek');
+    const before = (await seeks()).length, zero = (await page.locator('.outside-span').first().boundingBox())!;
+    await page.mouse.click(zero.x + zero.width / 2, zero.y + 40);
+    assert.deepEqual((await seeks()).slice(before), [{ kind: 'seek', time: 0 }]);
     // The position of the playing preview moves the playhead.
     await w.send({ kind: 'position', time: 1 });
     assert.equal(await page.locator('.position').innerText(), '1.00 s');

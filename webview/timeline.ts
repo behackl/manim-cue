@@ -76,7 +76,14 @@ function select(index: number, event?: MouseEvent | KeyboardEvent): void {
   }
   keep(); render();
 }
-function seek(time: number): void { moveCursor(time); post({ kind: 'seek', time }); }
+let lastSeek: number | undefined;
+/** Moves the preview to a time of the scene: a seek before 0 or after the end goes to the nearest time. */
+function seek(value: number): void {
+  if (!timeline) return;
+  const time = Math.max(0, Math.min(value, timeline.duration));
+  moveCursor(time);
+  if (time !== lastSeek) { lastSeek = time; post({ kind: 'seek', time }); }
+}
 function moveCursor(value: number): void {
   cursor = value;
   marker?.setAttribute('x1', String(x(value))); marker?.setAttribute('x2', String(x(value)));
@@ -264,12 +271,13 @@ viewport.addEventListener('pointerdown', e => {
 viewport.addEventListener('pointermove', e => {
   if (!dragging) return;
   nextSeek = timeAt(e.clientX);
-  if (!scheduled) { scheduled = true; requestAnimationFrame(() => { scheduled = false; if (nextSeek !== undefined) seek(nextSeek); }); }
+  if (!scheduled) { scheduled = true; requestAnimationFrame(() => { scheduled = false; if (nextSeek !== undefined) seek(nextSeek); nextSeek = undefined; }); }
 });
-viewport.addEventListener('pointerup', e => {
+viewport.addEventListener('pointerup', () => {
   if (!dragging) return;
-  dragging = false; nextSeek = undefined;
-  if (timeline) seek(timeAt(e.clientX));
+  dragging = false;
+  if (nextSeek !== undefined) seek(nextSeek);
+  nextSeek = undefined;
 });
 viewport.addEventListener('pointercancel', () => { dragging = false; });
 viewport.addEventListener('keydown', e => {
@@ -283,7 +291,7 @@ let scrollFrame = false;
 viewport.addEventListener('scroll', () => { if (!scrollFrame) { scrollFrame = true; requestAnimationFrame(() => { scrollFrame = false; render(); }); } });
 new ResizeObserver(() => render()).observe(viewport);
 listen(message => {
-  if (message.kind === 'position') moveCursor(message.time);
+  if (message.kind === 'position') { moveCursor(message.time); lastSeek = undefined; }
   if (message.kind !== 'state') return;
   const first = !model;
   model = message.model;
