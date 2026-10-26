@@ -81,3 +81,14 @@ test('a frame waits for a running timeline inspection but replaces a running fra
   await queue.whenIdle();
   assert.deepEqual(trace.slice(2), ['frame 3', 'frame 3 stopped', 'frame 4']);
 });
+
+test('a render that runs longer than the patience finishes before a frame', async () => {
+  const trace: string[] = [];
+  const queue = new PreviewQueue(() => {}, error => { throw error; }, 20);
+  const running = deferred(), release = deferred();
+  queue.enqueue('render', async signal => { trace.push('render'); running.resolve(); await release.promise; trace.push(signal.aborted ? 'render stopped' : 'render done'); });
+  await running.promise; await new Promise(resolve => setTimeout(resolve, 40));
+  queue.enqueue('frame', async () => { trace.push('frame'); });
+  release.resolve(); await queue.whenIdle();
+  assert.deepEqual(trace, ['render', 'render done', 'frame']);
+});

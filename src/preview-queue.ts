@@ -5,23 +5,25 @@ const priority: PreviewTask[] = ['inspect', 'frame', 'render'];
 
 /**
  * One subprocess task at a time; retain only the latest task of each kind. A new task
- * stops a running task of the same kind, and an inspection stops a render, which runs
- * again later.
+ * stops a running task of the same kind. An inspection stops a render that started less
+ * than `patience` ms ago; the render runs again later. An older render finishes first, so
+ * that scrubbing cannot delay the video without limit.
  */
 export class PreviewQueue {
   private pending = new Map<PreviewTask, Task>();
-  private active?: { task: Task; abort: AbortController };
+  private active?: { task: Task; abort: AbortController; started: number };
   private timer?: ReturnType<typeof setTimeout>;
   private held = false;
   private stopped: Array<() => void> = [];
   private waiters: Array<() => void> = [];
-  constructor(private readonly changed: () => void, private readonly failed: (error: unknown) => void) {}
+  constructor(private readonly changed: () => void, private readonly failed: (error: unknown) => void, private readonly patience = 3000) {}
   get busy(): boolean { return !!this.active || this.pending.size > 0; }
   running(kind: PreviewTask): boolean { return this.active?.task.kind === kind && !this.active.abort.signal.aborted; }
   enqueue(kind: PreviewTask, run: Task['run'], delay = 0): void {
     this.pending.set(kind, { kind, run, due: Date.now() + delay });
     const active = this.active;
-    if (!this.held && active && !active.abort.signal.aborted && (kind === active.task.kind || active.task.kind === 'render')) {
+    if (!this.held && active && !active.abort.signal.aborted &&
+      (kind === active.task.kind || active.task.kind === 'render' && Date.now() - active.started < this.patience)) {
       if (kind !== active.task.kind && !this.pending.has(active.task.kind)) this.pending.set(active.task.kind, active.task);
       active.abort.abort();
     }
@@ -64,7 +66,7 @@ export class PreviewQueue {
     if (!task) { this.waiters.splice(0).forEach(resolve => resolve()); return; }
     if (task.due > Date.now()) { this.timer = setTimeout(() => this.pump(), task.due - Date.now()); return; }
     this.pending.delete(task.kind);
-    const active = this.active = { task, abort: new AbortController() };
+    const active = this.active = { task, abort: new AbortController(), started: Date.now() };
     void task.run(active.abort.signal).catch(error => { if (!active.abort.signal.aborted) this.failed(error); }).finally(() => {
       this.active = undefined; this.stopped.splice(0).forEach(resolve => resolve()); this.pump(); this.changed();
     });
