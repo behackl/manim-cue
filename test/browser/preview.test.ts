@@ -130,3 +130,18 @@ test('in a skipped part, the preview shows a frame; playback goes over the skipp
     assert.deepEqual(w.errors, []);
   } finally { await w.browser.close(); }
 });
+
+test('another file with the same scene class is another scene', async () => {
+  const w = await webview('preview'), { page } = w;
+  try {
+    await w.publish(model({ time: 1, frame: await frame(page, 1) }));
+    await page.waitForFunction(() => !!document.querySelector('.media-stage img'));
+    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await w.publish(model({ sceneKey: 'file:///other/scene.py#Demo', time: 2 }));
+    assert.equal(await page.locator('.preview-controls .position').innerText(), '2.00 s / 3.00 s', 'the position of the other file');
+    assert.equal(await page.getByRole('button', { name: 'Compare', exact: true }).getAttribute('aria-pressed'), 'false');
+    assert.equal(await page.locator('.media-stage img').count(), 0, 'no frame of the other file');
+    assert.equal((await w.message('frameNeeded')).time, 2);
+    assert.deepEqual(w.errors, []);
+  } finally { await w.browser.close(); }
+});

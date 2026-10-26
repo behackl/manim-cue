@@ -65,7 +65,7 @@ test('comparison composites the reference with the shown frame, and the host kee
     assert.equal(await page.locator('.compare-canvas').isVisible(), false, 'Measure ends the comparison');
     // Another scene ends the comparison.
     await page.getByRole('button', { name: 'Compare', exact: true }).click();
-    await w.publish(model({ scene: 'Other', time: 0 }));
+    await w.publish(model({ scene: 'Other', sceneKey: 'file:///other.py#Other', time: 0 }));
     assert.equal(await page.getByRole('button', { name: 'Compare', exact: true }).getAttribute('aria-pressed'), 'false');
     assert.deepEqual(w.errors, []);
   } finally { await w.browser.close(); }

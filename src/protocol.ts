@@ -10,7 +10,10 @@ export interface FrameMedia extends Media { requestedTime: number; time: number 
 export interface VideoMedia extends Media { duration: number; rate: number; skipped: TimeRange[] }
 
 export interface Model {
-  scene: string; status: string; busy: boolean; error?: string;
+  scene: string;
+  /** The file and the scene class: another key is another scene, also with the same class name. */
+  sceneKey: string;
+  status: string; busy: boolean; error?: string;
   /** The error comes from the Python environment. */
   pythonProblem: boolean;
   autoPreview: boolean; fps: number; profile?: string;

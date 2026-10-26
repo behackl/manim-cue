@@ -51,7 +51,7 @@ type Media = FrameMedia | VideoMedia;
 interface Item { media: Media; element: HTMLImageElement | HTMLVideoElement; disposed?: boolean }
 const isVideo = (media: Media): media is VideoMedia => 'skipped' in media;
 const frameCallbacks = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
-let model: Model | undefined, scene: string | undefined;
+let model: Model | undefined, sceneKey: string | undefined;
 let time = 0, playing = false, playWanted = false;
 /** The last frame request, so that each position is asked for once in each job. */
 let requested: { job?: string; time: number } | undefined;
@@ -220,8 +220,8 @@ listen(m => {
   if (m.kind === 'step') { step(m.direction); return; }
   if (m.kind !== 'state') return;
   model = m.model;
-  if (model.scene !== scene) {
-    const before = scene; scene = model.scene; time = model.time; playing = playWanted = false; requested = loadError = undefined;
+  if (model.sceneKey !== sceneKey) {
+    const before = sceneKey; sceneKey = model.sceneKey; time = model.time; playing = playWanted = false; requested = loadError = undefined;
     if (before !== undefined) comparison.disable();
     failed.clear(); discard(shown); discard(loading); shown = loading = undefined;
   }

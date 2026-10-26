@@ -18,7 +18,7 @@ export function model(s: Session, webview?: vscode.Webview, view?: 'timeline' | 
   const frame = (r?: PreviewResult): FrameMedia | undefined => r && { ...media(r), requestedTime: r.media.capture!.requestedTime, time: r.media.capture!.time };
   const profile = s.timeline?.profile, video = s.video?.media;
   return {
-    scene: s.target?.scene ?? '', status: s.exports.nativeBusy ? 'Rendering for export…' : s.status, busy: s.busy, error: s.error,
+    scene: s.target?.scene ?? '', sceneKey: s.target ? `${s.target.uri.toString()}#${s.target.scene}` : '', status: s.exports.nativeBusy ? 'Rendering for export…' : s.status, busy: s.busy, error: s.error,
     pythonProblem: !!s.error && s.pythonProblem,
     autoPreview: s.autoPreview, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
     profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
