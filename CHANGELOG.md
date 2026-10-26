@@ -14,6 +14,8 @@
 - Use plain, consistent words in all texts. A changed scene shows "Outdated".
 - Show the line that names the error when a scene fails; the log has the complete output.
 - Show the status in the preview header only. Sound bars show the file name. Times have two decimals.
+- Rename the setting Auto Preview to Render Video Automatically
+  (`manimCue.renderVideoAutomatically`). If you changed the old setting, set the new one.
 
 ## 0.2.1
 

@@ -98,11 +98,8 @@ export class Session implements vscode.Disposable {
         if (rendering) { this.done(); this.views.update(); }
       });
   }
-  /** "Render Video Automatically"; the old key "autoPreview" counts while the new one is not set. */
   get autoRender(): boolean {
-    const cfg = vscode.workspace.getConfiguration('manimCue', this.target?.uri), value = cfg.inspect<boolean>('renderVideoAutomatically');
-    const set = [value?.globalValue, value?.workspaceValue, value?.workspaceFolderValue].some(v => v !== undefined);
-    return set ? cfg.get('renderVideoAutomatically', true) : cfg.get('autoPreview', true);
+    return vscode.workspace.getConfiguration('manimCue', this.target?.uri).get('renderVideoAutomatically', true);
   }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
     const opening = ++this.opening;
@@ -299,7 +296,7 @@ export class Session implements vscode.Disposable {
   }
   configurationChanged(event: vscode.ConfigurationChangeEvent): void {
     const uri = this.target?.uri;
-    if (['renderVideoAutomatically', 'autoPreview'].some(key => event.affectsConfiguration(`manimCue.${key}`, uri))) {
+    if (event.affectsConfiguration('manimCue.renderVideoAutomatically', uri)) {
       if (this.autoRender) this.requestVideo(); else if (!this.videoWanted) this.queue.remove('render');
     }
     if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true)) this.watch.stop();

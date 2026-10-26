@@ -155,13 +155,6 @@
           "default": true,
           "description": "Render the video after the frame and the timeline."
         },
-        "manimCue.autoPreview": {
-          "type": "boolean",
-          "scope": "resource",
-          "default": true,
-          "description": "Render the video after the frame and the timeline.",
-          "deprecationMessage": "Use \"Render Video Automatically\" (manimCue.renderVideoAutomatically)."
-        },
         "manimCue.frameRate": {
           "type": "number",
           "default": 30,
