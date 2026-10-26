@@ -22,7 +22,8 @@ export async function environmentFor(uri: vscode.Uri): Promise<PythonEnvironment
   const selected = override ? undefined : api.environments.getActiveEnvironmentPath(uri);
   const environment = selected ? await api.environments.resolveEnvironment(selected) : undefined;
   const python = override || environment?.executable.uri?.fsPath;
-  if (!python || !path.isAbsolute(python)) throw new PythonNotFound('Select a Python interpreter with “Python: Select Interpreter”.');
+  if (override && !path.isAbsolute(override)) throw new PythonNotFound('Set “Manim Cue: Python Path” to an absolute path.');
+  if (!python) throw new PythonNotFound('Select a Python interpreter with “Python: Select Interpreter”.');
   const env: NodeJS.ProcessEnv = { ...process.env, ...api.environments.getEnvironmentVariables(uri) };
   const key = Object.keys(env).find(k => k.toLowerCase() === 'path') ?? 'PATH';
   env[key] = `${path.dirname(python)}${path.delimiter}${env[key] ?? ''}`;
