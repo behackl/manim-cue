@@ -38,7 +38,7 @@ test('independent export renders requested dimensions/FPS/audio and replaces inh
     const job = await createJob({ ...options(source, path.join(root, 'runs')), width: settings.width, fps: settings.fps, exportSettings: settings });
     const result = await renderExport(job, signal);
     assert.equal(result.profile.width, 320); assert.equal(result.profile.height, 192); assert.equal(result.profile.seed, 42);
-    assert.deepEqual(await probe(result.media.path), { frames: 12, rate: 12, drift: 0, audio: true });
+    assert.deepEqual(await probe(result.file), { frames: 12, rate: 12, drift: 0, audio: true });
     assert.deepEqual((await fs.readdir(job.directory)).filter(f => f.startsWith('timeline')), []);
     const cfg = await fs.readFile(path.join(job.directory, 'cue.cfg'), 'utf8');
     assert.match(cfg, /crf = 18/); assert.match(cfg, /preset = medium/); assert.match(cfg, /threads = 1/); assert.doesNotMatch(cfg, /deadline/);
@@ -214,7 +214,7 @@ test('the frame arrives before the evaluation ends; without a timeline, the proc
     const { frame, timeline } = await inspect(job, { time: .3, timeline: false }, signal);
     assert.equal(timeline, undefined);
     assert.equal(frame?.media.kind, 'image');
-    assert.deepEqual(frame?.media.capture, { requestedTime: .3, time: .25, frameIndex: 1 });
+    assert.deepEqual(frame?.media.capture, { requestedTime: .3, time: .25 });
     const early: string[] = [];
     await assert.rejects(inspect(job, { time: .3, timeline: true }, signal, async f => {
       early.push(...(await fs.readdir(job.directory)).filter(n => n.startsWith('timeline')), f.media.path);
@@ -223,7 +223,7 @@ test('the frame arrives before the evaluation ends; without a timeline, the proc
     await fs.writeFile(source, (await fs.readFile(source, 'utf8')).replace('        raise RuntimeError("after the frame")\n', ''));
     const fixed = await createJob(options(source, path.join(root, 'runs')));
     const miss = await inspect(fixed, { time: 10, timeline: true }, signal);
-    assert.deepEqual(miss.frame?.media.capture, { requestedTime: 10, time: null, frameIndex: null }, 'the end state after the last frame');
+    assert.deepEqual(miss.frame?.media.capture, { requestedTime: 10, time: null }, 'the end state after the last frame');
     assert.equal(miss.timeline?.timeline.duration, 2);
     const stat = await fs.stat(source);
     await fs.writeFile(source, (await fs.readFile(source, 'utf8')).replace('RIGHT))', 'RIGHT), run_time=2)'));

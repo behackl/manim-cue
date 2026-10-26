@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { environmentFor, workingDirectoryFor } from './environment';
-import { createJob, fileHash, inspect, renderExport, type PreviewResult, type TimelineResult, type SceneJob } from './jobs';
+import { createJob, fileHash, inspect, renderExport, type PreviewResult, type Result, type TimelineResult, type SceneJob } from './jobs';
 import { exportChoice, exportSize, type ExportChoice, type ExportModel } from './export-settings';
 import { copyExport, validateDestination } from './export-files';
 import { isCall } from './timeline';
@@ -174,7 +174,7 @@ export class Exports {
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Manim Cue: ${this.status}`, cancellable: true }, async (_progress, cancellation) => {
         const subscription = cancellation.onCancellationRequested(() => this.cancel());
         try {
-          let file: string, rendered: PreviewResult | undefined;
+          let file: string, rendered: Result | undefined;
           if (!native) file = kind === 'timeline' ? source.timeline!.file : (result as PreviewResult).media.path;
           else if (kind === 'frame') {
             const { frame } = await inspect(source.job!, { time: s.time, timeline: false }, signal);
@@ -190,7 +190,7 @@ export class Exports {
             active.job = job; signal.throwIfAborted();
             if (job.sourceHash !== sourceHash || this.dirty(source)) throw new Error('The scene file changed. Save it and try again.');
             this.log(`\n── Export ${source.scene} · ${settings.width}×${settings.height} · ${settings.fps} fps · CRF ${settings.crf} / ${settings.preset} ──\nPython: ${env.python}\nSource: ${source.uri.fsPath}\n`);
-            rendered = await renderExport(job, signal); file = rendered.media.path;
+            const exported = await renderExport(job, signal); rendered = exported; file = exported.file;
           }
           const beforePublish = async () => {
             signal.throwIfAborted();

@@ -178,8 +178,7 @@ def inspect_scene(request):
         check_source(request)
         image.save(request["frame"])
         print("[Cue frame] " + json.dumps({
-            "requestedTime": time, "time": None if frame is None else frame.time,
-            "frameIndex": None if frame is None else frame.frame_index}), flush=True)
+            "requestedTime": time, "time": None if frame is None else frame.time}), flush=True)
         sent = True
 
     def on_frame(frame):

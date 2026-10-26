@@ -108,7 +108,7 @@ function pause(): void { if (stop()) { post({ kind: 'position', time }); sync();
 function presented(item: Item, mediaTime: number): void {
   if (!playing || item !== shown || !isVideo(item.media)) return;
   const video = item.media, loop = model?.loop;
-  let at = videoFrameIndex(sceneTime(video.skipped, mediaTime), video.rate, Number.MAX_SAFE_INTEGER) / video.rate;
+  let at = videoFrameIndex(sceneTime(video.skipped, mediaTime), video.rate) / video.rate;
   if (loop && at >= loop.end - 1e-6) { at = loop.start; (item.element as HTMLVideoElement).currentTime = videoPosition(video, at); }
   time = at; post({ kind: 'position', time }); sync();
 }

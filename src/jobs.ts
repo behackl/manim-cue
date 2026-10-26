@@ -12,7 +12,7 @@ import type { TimeRange } from './selection';
 export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; videoEncoder: boolean }
 /** For a video, `duration` is in scene time and `skipped` lists the scene-time parts that it leaves out. */
 export interface Media { path: string; kind: 'video' | 'image'; duration: number; rate: number; hasAudio: boolean;
-  capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; skipped?: TimeRange[] }
+  capture?: { requestedTime: number; time: number | null }; skipped?: TimeRange[] }
 /** `outdated`: the source or the settings changed after the result started. */
 export interface Result { directory: string; source: string; sourceHash: string; profile: Profile; outdated: boolean }
 export interface PreviewResult extends Result { media: Media }
@@ -115,11 +115,11 @@ export async function renderPreview(job: SceneJob, signal: AbortSignal): Promise
     hasAudio: t.entries.some(e => e.kind === 'sound'), skipped: skippedParts(t.entries) } } };
 }
 /** Independent production render: no timeline and no preview publication. */
-export async function renderExport(job: SceneJob, signal: AbortSignal): Promise<PreviewResult> {
+export async function renderExport(job: SceneJob, signal: AbortSignal): Promise<Result & { file: string }> {
   const output = path.join(job.directory, 'media', `export-${randomUUID()}.mp4`);
   await run(job, 'render', { output }, signal);
   if (!await fs.stat(output).then(s => s.size > 0, () => false)) throw new Error('The scene has no video. Save its frame as PNG.');
-  return { ...await newResult(job), media: { path: output, kind: 'video', duration: 0, rate: job.options.fps, hasAudio: false } };
+  return { ...await newResult(job), file: output };
 }
 // Only completed media enters this stable webview root; profiles, source and caches stay private.
 export async function publishPreview(result: PreviewResult, root: string): Promise<PreviewResult> {

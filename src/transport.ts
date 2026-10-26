@@ -12,7 +12,7 @@ export function frameIndex(time: number, fps: number, count = Number.MAX_SAFE_IN
  * a frame timestamp with a small rounding error in the file, or a seek target in the
  * middle of a frame.
  */
-export function videoFrameIndex(time: number, fps: number, count: number): number {
-  return Math.max(0, Math.min(count - 1, Math.floor(time * fps + .25)));
+export function videoFrameIndex(time: number, fps: number): number {
+  return Math.max(0, Math.floor(time * fps + .25));
 }
 export function videoFrames(duration: number, fps: number): number { return Math.round(duration * fps); }

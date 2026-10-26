@@ -10,8 +10,8 @@ test('frame selection uses half-open nominal intervals', () => {
   assert.equal(frameIndex(Number.MAX_VALUE, 30), Number.MAX_SAFE_INTEGER - 1);
 });
 test('video times tolerate timestamp rounding and mid-frame seek targets', () => {
-  assert.equal(videoFrameIndex(.4998, 4, 10), 2);
-  assert.equal(videoFrameIndex(.5002, 4, 10), 2);
-  assert.equal(videoFrameIndex(.625, 4, 10), 2);
-  assert.equal(videoFrameIndex(99, 4, 10), 9);
+  assert.equal(videoFrameIndex(.4998, 4), 2);
+  assert.equal(videoFrameIndex(.5002, 4), 2);
+  assert.equal(videoFrameIndex(.625, 4), 2);
+  assert.equal(videoFrameIndex(-.01, 4), 0);
 });
