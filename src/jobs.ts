@@ -41,7 +41,7 @@ export async function createJob(o: JobOptions): Promise<SceneJob> {
   return { options: o, directory, sourceHash, cache, request };
 }
 async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<string, unknown>, signal: AbortSignal, line?: (text: string) => void): Promise<void> {
-  const o = job.options, start = performance.now();
+  const o = job.options, start = performance.now(), started = Date.now();
   const request = path.join(job.directory, `${command}-${randomUUID()}.json`);
   await fs.writeFile(request, JSON.stringify({ ...job.request, ...fields }));
   try {
@@ -51,9 +51,10 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
       timeoutHint: 'Increase “Manim Cue: Timeout Seconds” to wait longer.',
     });
   } catch (error) {
-    // Workers are serialized; clear partial typesetting output before the next job.
-    await fs.rm(path.join(job.cache, 'typesetting'), { recursive: true, force: true }).catch(() => {
-      o.log('\n[Cue cache] Could not clear interrupted typesetting output; use Clear Caches before retrying.\n');
+    // A stopped or failed run can leave a partial typesetting file. Jobs run one at a
+    // time, so the files that changed during this run are the files of this run.
+    await removeNewer(path.join(job.cache, 'typesetting'), started - 1000).catch(() => {
+      o.log('\n[Cue cache] Could not clear the typesetting files of the failed run; use Clear Caches before retrying.\n');
     });
     if (!signal.aborted) {
       const diagnostic = await readDiagnostic(path.join(job.directory, 'diagnostic.json')).catch(() => undefined);
@@ -77,6 +78,13 @@ export function errorLine(output: string): string {
   const line = start < 0 ? lines.at(-1) : lines.slice(start).join(' ');
   // Long run and cache paths only hide the message: keep their file names.
   return line?.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s'"(),:\\/]+[\\/])+(?=[^\s'"(),:\\/])/gu, '').slice(0, 500) || 'Python stopped with an error. See the log.';
+}
+async function removeNewer(dir: string, since: number): Promise<void> {
+  for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) await removeNewer(file, since);
+    else if ((await fs.stat(file)).mtimeMs >= since) await fs.rm(file, { force: true });
+  }
 }
 async function newResult(job: SceneJob): Promise<Result> {
   const profile: Profile = JSON.parse(await fs.readFile(path.join(job.directory, 'profile.json'), 'utf8'));

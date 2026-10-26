@@ -10,6 +10,7 @@ import { checkPython, RuntimeUnavailable } from '../../src/diagnostics';
 const python = process.env.MANIM_PYTHON;
 if (!python) throw new Error('Set MANIM_PYTHON to the executable of a supported Manim environment; integration tests are not silently skipped.');
 const signal = new AbortController().signal;
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const options = (source: string, scratch: string): JobOptions => ({
   python: python!, source, scene: 'Demo', cwd: path.dirname(source), fps: 4, width: 128,
   timeout: 60000, env: process.env, helpers: path.resolve('python'), scratch, signal, log: () => {},
@@ -159,9 +160,11 @@ test('warm caches reuse typesetting but reload same-size/same-mtime primary and 
     await fs.writeFile(path.join(root, 'manim.cfg'), '[CLI]\nseed=17\n');
     assert.equal((await evaluate(o)).profile.seed, 17);
     assert.ok((await collect(cache, '.svg')).length > 1, 'changed config gets a new asset cache namespace');
-    await fs.writeFile(source, code + '\nraise RuntimeError("failed after layout cache was warmed")\n');
-    await assert.rejects(evaluate(o));
-    assert.equal((await collect(cache, '.svg')).length, 0, 'failed work cannot poison the next run with partial SVGs');
+    const kept = (await collect(cache, '.svg')).length;
+    await pause(1100); // The files of the failed run are the files that change during it.
+    await fs.writeFile(source, code.replace('self.wait(duration * 1, frozen_frame=False)', 'self.add(Text("only in a failed run")); raise RuntimeError("failed after a new layout")'));
+    await assert.rejects(evaluate(o), /failed after a new layout/);
+    assert.equal((await collect(cache, '.svg')).length, kept, 'a failed run keeps the cache and removes only its own files');
     assert.ok((await collect(cache, '.pyc')).length > 0, 'atomic checked bytecode remains reusable');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
