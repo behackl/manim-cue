@@ -20,7 +20,7 @@ You need desktop VS Code 1.96+, the Microsoft Python extension, and Python 3.11+
 
 > [!IMPORTANT]
 > **Manim Cue currently requires a preview version of Manim.** The setup command installs
-> the upstream `refactor/manager-targeted-frame` branch from a source archive into a new
+> the upstream `refactor/audio-mixer` branch from a source archive into a new
 > project-local `.venv`. If `uv` is on VS Code's `PATH`, Cue can use it with Python 3.13;
 > otherwise you can use the interpreter selected by the Python extension or locate `uv`
 > yourself. Cue never searches other executable paths or modifies an existing environment.
@@ -28,13 +28,13 @@ You need desktop VS Code 1.96+, the Microsoft Python extension, and Python 3.11+
 > To install the branch manually in an existing uv project, use:
 >
 > ```sh
-> uv add "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/manager-targeted-frame.zip"
+> uv add "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/audio-mixer.zip"
 > ```
 >
 > Or activate an existing virtual environment and use **pip**:
 >
 > ```sh
-> pip install --upgrade --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/manager-targeted-frame.zip"
+> pip install --upgrade --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/audio-mixer.zip"
 > ```
 >
 > Manim may also need [system packages](https://docs.manim.community/en/stable/installation.html)
