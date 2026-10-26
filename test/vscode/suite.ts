@@ -52,11 +52,11 @@ export async function run(): Promise<void> {
       Object.assign(vscode.window, { showErrorMessage: async (message: string) => { failures.push(message); } });
       Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(token) });
       await vscode.commands.executeCommand('manimCue.saveFrame');
-      assert.match(failures.at(-1) ?? '', /private Cue artifacts/);
+      assert.match(failures.at(-1) ?? '', /belongs to the scene or to Manim Cue/);
       assert.deepEqual(await fs.readFile(token), captured);
       Object.assign(vscode.window, { showSaveDialog: async () => png.with({ scheme: 'untitled' }) });
       await vscode.commands.executeCommand('manimCue.saveFrame');
-      assert.match(failures.at(-1) ?? '', /local destination/);
+      assert.match(failures.at(-1) ?? '', /on this computer/);
       assert.deepEqual(await fs.readFile(png.fsPath), original);
     } finally { Object.assign(vscode.window, { showErrorMessage: errorDialog }); }
     const json = vscode.Uri.file(path.join(root, 'direct-timeline.json'));
@@ -245,7 +245,7 @@ export async function run(): Promise<void> {
     await until(() => api.getSnapshot().exportState?.nativeBusy === true, 'explicit export owns the serial process slot');
     api.seek(2.25); // Local scrubbing must not cancel an accepted export.
     await rendering; await api.whenIdle();
-    assert.match(api.getSnapshot().exportState?.status ?? '', /Export saved/);
+    assert.match(api.getSnapshot().exportState?.status ?? '', /^Saved /);
     assert.notDeepEqual(await fs.readFile(path.join(root, 'export.mp4')), movieBytes, 'new render has independent output');
     assert.equal(api.getSnapshot().fps, 4); assert.equal(api.getSnapshot().previewWidth, 480);
     assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
@@ -253,7 +253,7 @@ export async function run(): Promise<void> {
     const validExport = await fs.readFile(path.join(root, 'export.mp4'));
     dialog = await exportDialog();
     await api.submitExport(dialog.id, { kind: 'video', method: 'render', settings: { ...settings, options: 'profile=not-a-profile' } });
-    assert.doesNotMatch(api.getSnapshot().exportState?.status ?? '', /Export saved/);
+    assert.doesNotMatch(api.getSnapshot().exportState?.status ?? '', /^Saved /);
     assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), validExport, 'encoder failure preserves the prior destination');
     dialog = await exportDialog();
     const cancelledExport = api.submitExport(dialog.id, { kind: 'video', method: 'render', settings });
@@ -266,18 +266,18 @@ export async function run(): Promise<void> {
     await until(() => api.getSnapshot().exportState?.nativeBusy === true, 'source mutation target export starts');
     await insert('# source edit cancels an export\n');
     await editedExport; await api.whenIdle();
-    assert.match(api.getSnapshot().exportState?.status ?? '', /Source changed/);
+    assert.match(api.getSnapshot().exportState?.status ?? '', /The scene changed/);
     assert.deepEqual(await fs.readFile(path.join(root, 'export.mp4')), validExport, 'source invalidation preserves the destination');
     const warningDialog = vscode.window.showWarningMessage;
     let saveConsent = false;
     try {
       Object.assign(vscode.window, { showWarningMessage: async (message: string) => {
-        assert.match(message, /Save the source and render/); saveConsent = true; return 'Save and Render';
+        assert.match(message, /Save the scene file and render/); saveConsent = true; return 'Save and Render';
       } });
       dialog = await exportDialog(); assert.equal(dialog.dirty, true);
       await api.submitExport(dialog.id, { kind: 'video', method: 'render', settings });
       assert.equal(saveConsent, true, 'dirty source requires explicit save-and-render consent');
-      assert.match(api.getSnapshot().exportState?.status ?? '', /Export saved/, 'the accepted save notification does not cancel its own export');
+      assert.match(api.getSnapshot().exportState?.status ?? '', /^Saved /, 'the accepted save notification does not cancel its own export');
       await savedTimeline();
     } finally { Object.assign(vscode.window, { showWarningMessage: warningDialog }); }
     api.seek(1.25); await api.whenIdle();
@@ -290,7 +290,7 @@ export async function run(): Promise<void> {
   // Superseding saves interrupt an active run and publish only the latest input.
   const beforeRapid = revision();
   await insert('# first save\n'); await doc.save();
-  await until(() => /Capturing frame|Evaluating scene/.test(api.getSnapshot().status), 'first saved run started');
+  await until(() => /Updating/.test(api.getSnapshot().status), 'first saved run started');
   await insert('# second save\n'); await doc.save();
   assert.equal(revision(), beforeRapid, 'superseded run has not replaced the prior observation');
   await savedTimeline();
@@ -299,7 +299,7 @@ export async function run(): Promise<void> {
   const beforeCancel = revision();
   await insert('# first save in burst\n'); await doc.save(); await pause(100);
   await insert('# cancel queued refresh\n'); await doc.save();
-  await until(() => api.getSnapshot().status.includes('refresh queued'), 'save is debounced');
+  await until(() => api.getSnapshot().status.includes('Update queued'), 'save is debounced');
   await vscode.commands.executeCommand('manimCue.cancel');
   const cancelledGeneration = api.getSnapshot().generation;
   await pause(900); await api.whenIdle();
@@ -400,7 +400,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('manimCue.refresh'); await savedTimeline();
   await until(() => api.getSnapshot().playbackTime === .25, 'shortened movie presents its last frame');
   assert.equal(api.getSnapshot().position!.time, .25, 'clamp to the last verified frame, not the exclusive endpoint');
-  assert.match(api.getSnapshot().status, /clamped/);
+  assert.match(api.getSnapshot().status, /Moved to the last frame/);
   // A skipped section takes no video time: a frame from an inspection shows it.
   const skipping = new vscode.WorkspaceEdit();
   skipping.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
@@ -424,7 +424,7 @@ export async function run(): Promise<void> {
   assert.equal(api.getSnapshot().media?.capture?.time, null);
   assert.equal((await exportDialog()).canExportVideo, false, 'a scene without plays exports its frame only');
   await vscode.commands.executeCommand('manimCue.clearCaches');
-  assert.match(api.getSnapshot().status, /caches cleared/);
+  assert.match(api.getSnapshot().status, /Caches cleared/);
 
   await fs.writeFile(path.join(root, 'smoke-success.json'), JSON.stringify({ timelineEnd: state.timeline?.duration, events: state.timeline?.entries.filter(isCall).length, preview: state.media?.kind }));
   console.log('MANIM CUE VS CODE SMOKE PASSED');

@@ -37,7 +37,7 @@ export class Session implements vscode.Disposable {
   selected?: number;
   selectedEvents: number[] = [];
   loopEnabled = false;
-  status = 'Open a Python Scene to inspect its execution.';
+  status = 'Open a scene to see its frames and its timeline.';
   error?: string;
   busy = false;
   autoPreview = true;
@@ -113,7 +113,7 @@ export class Session implements vscode.Disposable {
   }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
     const opening = ++this.opening;
-    if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Trust this workspace to discover or execute Manim scenes.'); return; }
+    if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Trust this workspace to run Manim scenes.'); return; }
     const remembered = this.context.workspaceState.get<{ uri: string; scene: string; time: number }>('lastScene');
     let document = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
     if (!uri && document?.languageId !== 'python' && remembered) {
@@ -121,22 +121,22 @@ export class Session implements vscode.Disposable {
       scene ??= remembered.scene;
     }
     if (opening !== this.opening) return;
-    if (!document || document.uri.scheme !== 'file' || document.languageId !== 'python') throw new Error('Open a saved local Python file first.');
+    if (!document || document.uri.scheme !== 'file' || document.languageId !== 'python') throw new Error('Open a Python file on this computer first.');
     if (document.isDirty) {
-      if (await vscode.window.showWarningMessage('Manim Cue executes saved files. Save this file and run?', 'Save and Run') !== 'Save and Run') return;
+      if (await vscode.window.showWarningMessage('Manim Cue runs the saved file. Save it now?', 'Save and Run') !== 'Save and Run') return;
       if (!await document.save()) return;
     }
     if (!scene && remembered?.uri === document.uri.toString()) scene = remembered.scene;
     if (!scene) {
       const candidates = await this.scenes.candidates(document);
       if (opening !== this.opening) return;
-      scene = candidates.length === 1 ? candidates[0].name : await vscode.window.showQuickPick([...candidates.map(c => c.name), 'Enter scene name…'], { placeHolder: 'Select a Scene (custom/imported bases may need a name)' });
-      if (scene === 'Enter scene name…') scene = await vscode.window.showInputBox({ prompt: 'Top-level Scene class name' });
+      scene = candidates.length === 1 ? candidates[0].name : await vscode.window.showQuickPick([...candidates.map(c => c.name), 'Enter scene name…'], { placeHolder: 'Select a scene' });
+      if (scene === 'Enter scene name…') scene = await vscode.window.showInputBox({ prompt: 'Name of the scene class' });
     }
     if (!scene || opening !== this.opening) return;
-    if (!/^[\p{ID_Start}_][\p{ID_Continue}]*$/u.test(scene)) throw new Error('Enter a Python class name, not a command or expression.');
+    if (!/^[\p{ID_Start}_][\p{ID_Continue}]*$/u.test(scene)) throw new Error('Enter the name of a Python class.');
     const different = !this.target || this.target.uri.toString() !== document.uri.toString() || this.target.scene !== scene;
-    this.exports.invalidate('Scene reopened — export cancelled.', true); this.exports.close();
+    this.exports.invalidate(true); this.exports.close();
     this.cancel(false);
     if (different) {
       this.clearComparison(); this.selectedEvents = []; this.selectionAnchor = undefined; this.selected = undefined;
@@ -153,17 +153,17 @@ export class Session implements vscode.Disposable {
   async refresh(frame = true, started = performance.now()): Promise<void> {
     this.clearAutoRefresh();
     if (!this.target) { await this.open(); return; }
-    if (!vscode.workspace.isTrusted) throw new Error('Workspace trust is required.');
+    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
     const target = this.target, intent = this.generation;
     const document = await vscode.workspace.openTextDocument(target.uri);
     const hash = await fileHash(target.uri.fsPath);
     if (this.target !== target || intent !== this.generation || this.disposed) return;
-    if (document.isDirty) { this.invalidate('Unsaved source — save to refresh'); throw new Error('Save the Python file before refreshing.'); }
+    if (document.isDirty) { this.invalidate('Outdated. Save the scene file to update.'); throw new Error('Save the scene file to update.'); }
     this.cancel(false);
     this.diskHash = hash; this.sourceEdited = false; this.lastInteraction = Date.now(); this.frameStarted = started;
     const generation = this.generation, abort = new AbortController(); this.abort = abort;
     this.preparing = true; this.busy = true; this.error = undefined; this.phaseErrors.clear();
-    this.status = 'Resolving Python environment…'; this.views.update();
+    this.status = 'Starting Python…'; this.views.update();
     const current = () => generation === this.generation && !abort.signal.aborted && !this.disposed;
     this.pending = this.pending.catch(() => {}).then(async () => {
       await this.queue.whenIdle();
@@ -175,7 +175,7 @@ export class Session implements vscode.Disposable {
         this.pythonInUse = environment.python;
         const cfg = vscode.workspace.getConfiguration('manimCue', target.uri), cwd = workingDirectoryFor(target.uri);
         const fps = cfg.get<number>('frameRate', 30), width = cfg.get<number>('previewWidth', 960), timeout = cfg.get<number>('timeoutSeconds', 600);
-        if (!(fps >= 1 && fps <= 120 && width >= 64 && width <= 3840 && timeout >= 5 && timeout <= 7200)) throw new Error('Invalid Manim Cue frame rate, resolution or timeout setting.');
+        if (!(fps >= 1 && fps <= 120 && width >= 64 && width <= 3840 && timeout >= 5 && timeout <= 7200)) throw new Error('Check the Manim Cue settings for the frame rate, the preview width and the timeout.');
         this.output.appendLine(`Python: ${environment.python}\nSelection: ${environment.selection}\nSource: ${target.uri.fsPath}\nWorking directory: ${cwd}`);
         const job = await createJob({ ...environment, source: target.uri.fsPath, scene: target.scene, cwd, fps, width,
           timeout: timeout * 1000, scratch: this.scratch, helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath,
@@ -183,7 +183,7 @@ export class Session implements vscode.Disposable {
         if (!current()) return;
         this.job = job;
         this.requestInspection(0, frame);
-      } catch (e) { if (current()) { this.error = String(e); this.status = 'Refresh failed'; this.output.appendLine(this.error); } }
+      } catch (e) { if (current()) { this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.output.appendLine(this.error); } }
       finally { if (current()) { this.preparing = false; this.busy = this.queue.busy; this.views.update(); } }
     });
     await this.whenIdle();
@@ -191,23 +191,25 @@ export class Session implements vscode.Disposable {
   private current(job: SceneJob, signal?: AbortSignal): boolean {
     return this.job === job && !this.disposed && !signal?.aborted;
   }
-  private phaseError(phase: string, error?: unknown): void {
-    if (error === undefined) this.phaseErrors.delete(phase);
-    else this.phaseErrors.set(phase, error instanceof Error ? error.message.slice(-5000) : String(error));
-    this.error = [...this.phaseErrors].map(([name, message]) => `${name}: ${message}`).join('\n') || undefined;
+  /** Errors by topic; each one stays until the same topic succeeds. */
+  private phaseError(topic: 'Frame' | 'Timeline' | 'Video' | 'Loop' | 'Comparison', message?: string): void {
+    if (message === undefined) this.phaseErrors.delete(topic); else this.phaseErrors.set(topic, message);
+    this.error = [...this.phaseErrors.values()].join('\n') || undefined;
   }
-  private jobFailed(job: SceneJob, signal: AbortSignal, phase: string, error: unknown): void {
+  private jobFailed(job: SceneJob, signal: AbortSignal, topic: 'Frame' | 'Timeline' | 'Video', error: unknown): void {
     if (!this.current(job, signal)) return;
-    this.phaseError(phase, error);
-    if (phase === 'Movie' || phase === 'Timeline') this.playIntent = undefined;
-    if (phase === 'Frame capture' || phase === 'Timeline') this.pinRequest = undefined;
-    this.status = `${phase} failed — completed results retained`;
+    const what = { Frame: 'The frame update', Timeline: 'The timeline update', Video: 'The video render' }[topic];
+    this.status = `${what} failed`;
+    this.phaseError(topic, `${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (topic !== 'Frame') this.playIntent = undefined;
+    if (topic !== 'Video') this.pinRequest = undefined;
     if (error instanceof RuntimeUnavailable) {
       this.job = undefined; this.pinRequest = undefined; this.playIntent = undefined;
       this.queue.clear(); // Do not repeat the same failed import/capability check for queued jobs.
-      this.status = 'Preview unavailable — Check Python, then Refresh';
+      this.status = 'Python environment not ready';
+      this.phaseError(topic, error.message);
     }
-    this.output.appendLine(`\n${this.status}: ${this.error}`); this.views.update();
+    this.output.appendLine(`\n${this.error}`); this.views.update();
   }
   private offer(result: PreviewResult): void {
     this.retained.set(result.media.path, result); this.preview = result;
@@ -221,32 +223,32 @@ export class Session implements vscode.Disposable {
   private requestInspection(delay = 0, frame = true): void {
     const job = this.job;
     if (!job) return;
-    if (frame && this.views.previewOpen) this.status = `Updating frame at ${this.desiredTime.toFixed(3)} s…`;
+    if (frame && this.views.previewOpen) this.status = 'Updating frame…';
     this.queue.enqueue('inspect', async signal => {
       const sequence = this.seekSequence, time = this.desiredTime, started = this.frameStarted;
       const capture = frame && this.views.previewOpen, timeline = !this.timeline || this.timeline.outdated;
       if (!this.current(job, signal) || !capture && !timeline) return;
-      const phase = timeline ? 'Timeline' : 'Frame capture';
-      this.status = timeline ? 'Evaluating scene timeline…' : `Capturing frame at ${time.toFixed(3)} s…`; this.views.update();
+      const topic = timeline ? 'Timeline' : 'Frame';
+      this.status = !timeline ? 'Updating frame…' : capture ? 'Updating frame and timeline…' : 'Updating timeline…'; this.views.update();
       try {
         const result = await inspect(job, { time: capture ? time : undefined, timeline }, signal, async frame => {
           if (!this.current(job, signal) || sequence !== this.seekSequence) return;
           const published = await publishPreview(frame, this.mediaRoot);
           if (!this.current(job, signal) || sequence !== this.seekSequence) return;
-          this.phaseError('Frame capture');
+          this.phaseError('Frame');
           this.displayTiming = { token: published.media.path, started, produced: performance.now() };
           if (this.pinRequest?.sequence === sequence) this.pinRequest.token = published.media.path;
           this.frameSequence = sequence; this.offer(published);
-          this.status = timeline ? 'Evaluating scene timeline…' : published.media.capture?.time === null ? 'End-state snapshot ready' : 'Current frame ready';
+          this.status = timeline ? 'Updating timeline…' : 'Up to date';
           this.views.update();
         });
         if (!this.current(job, signal)) return;
         if (result.timeline) {
           this.timeline = result.timeline; this.selected = undefined; this.selectedEvents = []; this.selectionAnchor = undefined; this.loopEnabled = false;
-          this.phaseError('Timeline'); this.status = 'Timeline ready'; this.views.update();
+          this.phaseError('Timeline'); this.status = 'Up to date'; this.views.update();
         }
         if ((frame && this.autoPreview) || this.playIntent !== undefined) this.requestVideo(this.playIntent !== undefined);
-      } catch (e) { this.jobFailed(job, signal, phase, e); }
+      } catch (e) { this.jobFailed(job, signal, topic, e); }
     }, delay);
   }
   /** Unless playback starts, a frame from an inspection shows a time that is skipped in the video. */
@@ -274,24 +276,24 @@ export class Session implements vscode.Disposable {
     const video = this.currentVideo();
     if (video) { this.showVideo(video); return; }
     if (timeline.timeline.duration === 0) {
-      this.playIntent = undefined; this.status = 'Static scene snapshot'; this.views.update(); return;
+      this.playIntent = undefined; this.status = 'Up to date'; this.views.update(); return;
     }
     this.queue.enqueue('render', async signal => {
       if (!this.current(job, signal)) return;
-      this.status = 'Rendering complete movie…'; this.views.update();
+      this.status = 'Rendering video…'; this.views.update();
       try {
         const result = await renderPreview(job, signal);
         if (!this.current(job, signal)) return;
         const published = await publishPreview(result.video, this.mediaRoot);
         if (!this.current(job, signal)) return;
         // The render's timeline describes the video; selections keep their entry indices.
-        this.phaseError('Movie'); this.video = published; this.timeline = result.timeline;
+        this.phaseError('Video'); this.video = published; this.timeline = result.timeline;
         if (this.loopEnabled && !this.selection()?.available) {
           this.loopEnabled = false; this.playIntent = undefined;
-          this.phaseError('Loop', 'The selected interval cannot be mapped to this movie’s frames. Choose another interval.');
+          this.phaseError('Loop', 'The video has no frames for the selected plays. Select other plays to loop.');
         }
-        this.showVideo(published); this.status = 'Preview ready';
-      } catch (e) { this.jobFailed(job, signal, 'Movie', e); }
+        this.showVideo(published); this.status = 'Up to date';
+      } catch (e) { this.jobFailed(job, signal, 'Video', e); }
     }, immediate ? 0 : Math.max(0, this.lastInteraction + 1500 - Date.now()));
   }
   seek(time: number, immediate = false): void {
@@ -358,9 +360,9 @@ export class Session implements vscode.Disposable {
     const previous = this.displayed ? this.retained.get(this.displayed) : undefined;
     if (this.video?.media.path === token) this.video = undefined;
     if (previous && previous.media.path !== token) {
-      this.preview = previous; this.error = `Replacement preview failed: ${message.slice(0, 300)}`;
-      this.status = 'Keeping previous preview';
-    } else this.mediaError = `Preview unavailable: ${message.slice(0, 300)}`;
+      this.preview = previous; this.error = message.slice(0, 300);
+      this.status = 'Showing the previous preview';
+    } else this.mediaError = message.slice(0, 300);
     this.views.update();
   }
   async referencePresented(token: string): Promise<void> {
@@ -374,7 +376,7 @@ export class Session implements vscode.Disposable {
     const previous = this.displayedReference ? this.references.get(this.displayedReference) : undefined;
     this.reference = previous?.media.path !== token ? previous : undefined;
     this.references.delete(token);
-    this.phaseError('Comparison reference', message.slice(0, 300)); this.views.update();
+    this.phaseError('Comparison', message.slice(0, 300)); this.views.update();
     if (!this.queue.busy) await this.cleanup();
   }
   private remember(): void {
@@ -391,7 +393,7 @@ export class Session implements vscode.Disposable {
     }
     if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !cfg.get('autoRefreshOnSave', true)) this.clearAutoRefresh();
     if (event.affectsConfiguration('python', uri) || ['pythonPath', 'frameRate', 'previewWidth', 'workingDirectory', 'timeoutSeconds'].some(key => event.affectsConfiguration(`manimCue.${key}`, uri))) {
-      this.scenes.invalidate(); this.invalidate('Environment/profile changed — refresh');
+      this.scenes.invalidate(); this.invalidate('Outdated. Refresh to use the new settings.');
     }
     this.views.update();
   }
@@ -422,7 +424,7 @@ export class Session implements vscode.Disposable {
     this.comparing = false; this.reference = undefined; this.references.clear(); this.displayedReference = undefined; this.pinRequest = undefined;
   }
   private pin(result: PreviewResult): void {
-    this.phaseError('Comparison reference');
+    this.phaseError('Comparison');
     this.reference = result; this.references.set(result.media.path, result); this.pinRequest = undefined;
     for (const token of this.references.keys()) if (token !== result.media.path && token !== this.displayedReference) this.references.delete(token);
   }
@@ -463,14 +465,14 @@ export class Session implements vscode.Disposable {
     // Read before the dialog: a later decoded replacement may release the source file.
     const bytes = await fs.readFile(result.media.path);
     const stamp = result.media.capture?.time;
-    const name = `${path.parse(result.source).name}-${this.target?.scene ?? 'frame'}-${stamp == null ? 'end-state' : stamp.toFixed(3) + 's'}${result.outdated ? '-old' : ''}.png`;
-    const uri = await vscode.window.showSaveDialog({ title: 'Save captured frame', defaultUri: vscode.Uri.file(path.join(path.dirname(result.source), name)), filters: { 'PNG image': ['png'] } });
+    const name = `${path.parse(result.source).name}-${this.target?.scene ?? 'frame'}-${stamp == null ? 'last' : stamp.toFixed(3) + 's'}${result.outdated ? '-outdated' : ''}.png`;
+    const uri = await vscode.window.showSaveDialog({ title: 'Save frame', defaultUri: vscode.Uri.file(path.join(path.dirname(result.source), name)), filters: { 'PNG image': ['png'] } });
     if (uri) await this.saveArtifact(bytes, uri, '.png', result);
   }
   private async saveArtifact(bytes: Uint8Array, destination: vscode.Uri, extension: string, result: PreviewResult | TimelineResult): Promise<void> {
-    if (destination.scheme !== 'file') throw new Error('Export requires a local destination.');
+    if (destination.scheme !== 'file') throw new Error('Choose a file on this computer.');
     const validate = async () => {
-      if (this.disposed) throw new Error('Export cancelled: Manim Cue closed.');
+      if (this.disposed) throw new Error('Export cancelled.');
       await validateDestination(destination.fsPath, extension, [result.source, this.scratch,
         ...Object.keys(result.profile.configs), ...(this.target ? [this.target.uri.fsPath] : [])]);
     };
@@ -478,14 +480,14 @@ export class Session implements vscode.Disposable {
     await copyExport(bytes, destination.fsPath, new AbortController().signal, validate);
   }
   async clearCaches(): Promise<void> {
-    if (this.exports.busy) throw new Error('Finish or cancel the export before clearing caches.');
+    if (this.exports.busy) throw new Error('Wait for the export to finish, or cancel it, to clear the caches.');
     this.cancel(false); const generation = this.generation;
     this.views.update();
     this.pending = this.pending.catch(() => {}).then(async () => {
       await this.queue.whenIdle();
       if (this.disposed || generation !== this.generation) return;
       await fs.rm(path.join(this.scratch, 'cache-v1'), { recursive: true, force: true });
-      if (!this.disposed && generation === this.generation) { this.status = 'Cue caches cleared — refresh to rebuild'; this.views.update(); }
+      if (!this.disposed && generation === this.generation) { this.status = 'Caches cleared. Refresh to update.'; this.views.update(); }
     });
     await this.pending;
   }
@@ -502,11 +504,11 @@ export class Session implements vscode.Disposable {
       for (const result of [this.preview, this.video, this.timeline, ...this.retained.values(), ...this.exports.results]) if (result) result.outdated = true;
     } else if (this.preview?.media.capture?.requestedTime === this.desiredTime && !this.preview.outdated) this.frameSequence = this.seekSequence;
     this.preparing = false; this.queue.clear(); this.busy = this.queue.busy;
-    this.status = this.timeline ? 'Cancelled — completed observation retained' : 'Cancelled';
+    this.status = 'Cancelled';
     this.views.update();
   }
   invalidate(reason: string, savedHash?: string): void {
-    this.exports.invalidate(reason + ' — export cancelled.', false, savedHash);
+    this.exports.invalidate(false, savedHash);
     if (!this.target) return;
     this.cancel(false); this.status = reason; this.views.update();
   }
@@ -515,17 +517,17 @@ export class Session implements vscode.Disposable {
     if (!this.target || !this.pythonInUse || vscode.workspace.getConfiguration('manimCue', this.target.uri).get<string>('pythonPath', '').trim()) return;
     const generation = this.generation;
     const resolved = await environmentFor(this.target.uri);
-    if (generation === this.generation && resolved.python !== this.pythonInUse) this.invalidate('Python environment changed — refresh');
+    if (generation === this.generation && resolved.python !== this.pythonInUse) this.invalidate('Outdated. Refresh to use the new Python environment.');
   }
   changed(uri: vscode.Uri): void {
     if (!this.target) return;
     if (uri.toString() === this.target.uri.toString()) {
       this.sourceEdited = true;
-      this.invalidate('Source changed — save to refresh');
+      this.invalidate('Outdated. Save the scene file to update.');
     }
     else if (!insideEnvironment(uri.fsPath) &&
       (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env')) {
-      this.invalidate('Possible dependency changed — refresh (dependency coverage is incomplete)');
+      this.invalidate('Outdated. A project file changed. Refresh to update.');
     }
   }
   async saved(uri: vscode.Uri): Promise<void> {
@@ -542,7 +544,7 @@ export class Session implements vscode.Disposable {
       if (hash === this.diskHash && !this.sourceEdited) return;
       this.diskHash = hash; this.sourceEdited = false;
       const automatic = vscode.workspace.isTrusted && vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true);
-      this.invalidate(automatic ? 'Source saved — refresh queued…' : 'Source changed — refresh', hash);
+      this.invalidate(automatic ? 'Update queued…' : 'Outdated. Refresh to update.', hash);
       if (!automatic) return;
       const generation = this.generation;
       this.busy = true; this.error = undefined; this.views.update();
@@ -552,14 +554,14 @@ export class Session implements vscode.Disposable {
         void this.refresh(true, started).catch(e => {
           // Job failures already stay in the panel; preflight failures should too.
           if (this.disposed || generation !== this.generation) return;
-          this.busy = false; this.status = 'Automatic refresh failed';
+          this.busy = false; this.status = 'Update failed';
           this.error = e instanceof Error ? e.message : String(e);
           this.output.appendLine(this.error); this.views.update();
         });
       }, 500);
     } catch (e) {
       if (this.disposed || this.target !== target || check !== this.saveCheck) return;
-      this.invalidate('Source unavailable — save or refresh to retry');
+      this.invalidate('Cannot read the scene file. Save it again to update.');
       this.error = e instanceof Error ? e.message : String(e);
       this.output.appendLine(this.error); this.views.update();
     }
@@ -568,17 +570,16 @@ export class Session implements vscode.Disposable {
     if (!this.timeline || !this.target) return;
     const result = this.timeline, target = this.target, generation = this.generation;
     const site = result.timeline.entries[index]?.source;
-    if (!site?.path) throw new Error('No navigable path was captured for this source site.');
-    if (result.outdated || (await vscode.workspace.openTextDocument(target.uri)).isDirty) throw new Error('Source changed. Refresh before navigating revision-local locations.');
+    if (!site?.path) throw new Error('This entry has no source line in the scene folder.');
+    if (result.outdated || (await vscode.workspace.openTextDocument(target.uri)).isDirty) throw new Error('The scene file changed. Refresh to update the timeline.');
     const root = path.dirname(await fs.realpath(result.source));
     const file = await fs.realpath(path.resolve(root, site.path));
     const relative = path.relative(root, file);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Source resolves outside the captured root.');
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('This entry has no source line in the scene folder.');
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-    if (doc.isDirty) throw new Error('This helper has unsaved edits. Save and refresh before navigating.');
-    if (site.line > doc.lineCount) throw new Error('Captured line is no longer present. Refresh.');
+    if (doc.isDirty) throw new Error('This file has unsaved changes. Save it and refresh.');
+    if (site.line > doc.lineCount) throw new Error('This line is no longer in the file. Refresh to update.');
     if (generation !== this.generation) return;
-    if (file !== await fs.realpath(result.source)) void vscode.window.showInformationMessage('Helper-file location is best effort: Manim only fingerprints the primary source.');
     await vscode.window.showTextDocument(doc, { viewColumn: target.column ?? vscode.ViewColumn.One, selection: new vscode.Range(site.line - 1, 0, site.line - 1, 0), preserveFocus: false });
   }
   private exportSource(): ExportSource | undefined {
@@ -588,14 +589,14 @@ export class Session implements vscode.Disposable {
   }
   openExportDialog(token?: string, time?: number): void { this.playIntent = undefined; this.exports.open(token, time); }
   async openExport(): Promise<void> {
-    if (!this.target) { void vscode.window.showInformationMessage('Open a Scene before exporting.'); return; }
+    if (!this.target) { void vscode.window.showInformationMessage('Open a scene to export.'); return; }
     this.exports.requestOpen = true; await this.views.open(); this.views.update();
   }
   async exportTimeline(): Promise<void> {
-    if (!this.timeline) throw new Error('No completed timeline to export.');
+    if (!this.timeline) throw new Error('There is no timeline to save yet.');
     const result = this.timeline;
     const bytes = await fs.readFile(result.file);
-    const target = await vscode.window.showSaveDialog({ filters: { 'Timeline JSON': ['json'] }, saveLabel: result.outdated ? 'Export stale observation' : 'Export timeline' });
+    const target = await vscode.window.showSaveDialog({ filters: { 'Timeline JSON': ['json'] }, saveLabel: 'Save timeline' });
     if (target) await this.saveArtifact(bytes, target, '.json', result);
   }
   failAction(e: unknown): void { if (!this.disposed) void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e)); }

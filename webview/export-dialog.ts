@@ -13,11 +13,11 @@ export class ExportDialog {
   private fields = el('fieldset', 'export-fields');
   private error = el('p', 'export-error');
   private warning = el('p', 'export-note');
-  private latest = button('Use latest preview', () => this.open());
+  private latest = button('Use the latest preview', () => this.open());
   private submit = el('button', 'export-submit');
   private kindButtons = new Map<ExportKind, HTMLButtonElement>();
-  private copy = button('Save existing preview', () => { this.choice!.method = 'copy'; this.render(); });
-  private renderVideo = button('New render', () => { this.choice!.method = 'render'; this.render(); });
+  private copy = button('Save the preview video', () => { this.choice!.method = 'copy'; this.render(); });
+  private renderVideo = button('Render a new video', () => { this.choice!.method = 'render'; this.render(); });
   private resolution = el('select');
   private width = el('input'); private height = el('input'); private fps = el('input'); private crf = el('input');
   private lock = el('input'); private effort = el('select'); private options = el('textarea');
@@ -33,7 +33,7 @@ export class ExportDialog {
   constructor(private open: () => void, controls: HTMLElement) {
     const heading = el('h2', '', 'Export'); heading.id = 'export-heading';
     this.modal.setAttribute('aria-labelledby', heading.id);
-    const tabs: [ExportKind, string][] = [['frame', 'Current frame'], ['video', 'Video'], ['timeline', 'Timeline JSON']];
+    const tabs: [ExportKind, string][] = [['frame', 'Frame'], ['video', 'Video'], ['timeline', 'Timeline']];
     for (const [kind, label] of tabs) {
       const b = button(label, () => { this.choice!.kind = kind; this.render(); }); this.kindButtons.set(kind, b); this.modes.append(b);
     }
@@ -42,22 +42,22 @@ export class ExportDialog {
     const select = (element: HTMLSelectElement, options: [string, string][]) => {
       for (const [value, label] of options) { const o = el('option', '', label); o.value = value; element.append(o); }
     };
-    select(this.resolution, [['preview', 'Preview size'], ['720', '720 short edge'], ['1080', '1080 short edge'], ['2160', '2160 short edge'], ['custom', 'Custom']]);
+    select(this.resolution, [['preview', 'Same as the preview'], ['720', '720p'], ['1080', '1080p'], ['2160', '2160p'], ['custom', 'Custom']]);
     select(this.effort, [['veryfast', 'Fast'], ['medium', 'Balanced'], ['slow', 'Slow']]);
     for (const input of [this.width, this.height, this.fps, this.crf]) input.type = 'number';
     for (const input of [this.width, this.height]) { input.min = '64'; input.max = '8192'; input.step = '2'; }
     this.fps.min = '1'; this.fps.max = '120'; this.fps.step = 'any'; this.crf.min = '0'; this.crf.max = '51';
     this.lock.type = 'checkbox'; this.lock.checked = true;
-    field('Resolution', this.resolution); field('Lock scene aspect', this.lock); field('Width (px)', this.width); field('Height (px)', this.height);
+    field('Resolution', this.resolution); field('Keep aspect ratio', this.lock); field('Width (px)', this.width); field('Height (px)', this.height);
     field('Frame rate (fps)', this.fps); field('Quality (CRF)', this.crf); field('Encoding effort', this.effort);
     const details = el('details'), legend = el('summary', '', 'Advanced');
-    const label = el('label', '', 'Additional codec options — one key=value per line');
+    const label = el('label', '', 'Encoder options (one key=value per line)');
     this.options.rows = 4; this.options.maxLength = 8192; this.options.spellcheck = false;
     this.options.placeholder = 'threads=4'; label.append(this.options);
-    details.append(legend, el('p', '', 'Renderer: Cairo · Codec: libx264 · Pixel format: yuv420p'), label,
-      el('p', 'export-note', 'Codec options, not CLI flags. CRF and preset come from the controls above; project encoder options are replaced.'));
-    this.fields.append(details, el('p', 'export-note', 'MP4/H.264 · Scene audio included if present. Lower CRF means higher quality/larger files. FPS changes re-execute animations, not playback speed.'));
-    this.error.setAttribute('role', 'alert'); this.image.alt = 'Current captured frame to export';
+    details.append(legend, el('p', '', 'H.264 video (libx264, yuv420p)'), label,
+      el('p', 'export-note', 'The quality and the encoding effort come from the controls above.'));
+    this.fields.append(details, el('p', 'export-note', 'The video includes the sounds of the scene. A lower CRF gives a higher quality and a larger file.'));
+    this.error.setAttribute('role', 'alert'); this.image.alt = 'Frame to export';
     this.submit.type = 'submit';
     const footer = el('footer'); footer.append(button('Cancel', () => this.close()), this.submit);
     this.body.append(this.modes, this.latest, this.summary, this.image, this.methods, this.fields, this.warning, this.error);
@@ -128,17 +128,17 @@ export class ExportDialog {
     for (const [k, b] of this.kindButtons) b.setAttribute('aria-pressed', String(k === kind));
     this.methods.hidden = kind !== 'video'; this.fields.hidden = !rendering; this.fields.disabled = !rendering;
     this.copy.setAttribute('aria-pressed', String(method === 'copy')); this.renderVideo.setAttribute('aria-pressed', String(method === 'render'));
-    this.latest.hidden = !d.newer; this.latest.title = 'A newer preview is available. Explicitly replace the held export selection.';
-    this.summary.textContent = `${d.scene} — ` + (kind === 'frame' ? d.frame?.description ?? 'No displayed frame.' : kind === 'timeline' ? d.timeline ?? 'No completed timeline.' : rendering ? 'Render the whole saved Scene; preview settings stay unchanged.' : d.video ?? 'No completed preview movie. Choose New render.');
+    this.latest.hidden = !d.newer; this.latest.title = 'The preview changed after you opened this dialog.';
+    this.summary.textContent = `${d.scene} — ` + (kind === 'frame' ? d.frame?.description ?? 'No frame yet.' : kind === 'timeline' ? d.timeline ?? 'No timeline yet.' : rendering ? 'Renders the whole scene with these settings.' : d.video ?? 'No preview video yet. Choose “Render a new video”.');
     this.image.hidden = kind !== 'frame' || !d.frame?.uri;
     if (d.frame?.uri && this.image.getAttribute('src') !== d.frame.uri) this.image.src = d.frame.uri;
-    this.warning.textContent = capture ? 'Capture a new still at the held movie frame using the preview profile; this is not movie pixel extraction.' : kind === 'frame' ? 'Saves the current captured still, not the comparison reference or wipe/overlay.' : rendering ? `${!this.lock.checked ? 'Custom aspect can change framing. ' : ''}${d.dirty ? 'Source has unsaved edits. You will be asked to save before rendering.' : 'Source/config edits cancel the render. Existing destination files are preserved on failure.'}` : 'Copies this completed artifact exactly, including its original source revision.';
+    this.warning.textContent = capture ? 'Cue runs the scene to make this frame at the preview size.' : kind === 'frame' ? 'Saves the shown frame.' : rendering ? `${!this.lock.checked ? 'A different aspect ratio changes the framing. ' : ''}${d.dirty ? 'The scene file has unsaved changes. Cue asks you to save it first.' : ''}` : kind === 'video' ? 'Saves a copy of the preview video.' : 'Saves the timeline as JSON.';
     let error = d.error ?? '', invalid = false;
     if (rendering) { try { renderSettings(this.readChoice().settings); } catch (e) { error = (e as Error).message; invalid = true; } }
     this.error.textContent = error; this.error.hidden = !error;
     const available = rendering || (kind === 'frame' ? !!d.frame && (!capture || d.canCapture) : kind === 'video' ? !!d.video : !!d.timeline);
     this.submit.disabled = !available || !!this.model?.exportState?.busy || invalid;
-    this.submit.textContent = rendering ? 'Render and save…' : capture ? 'Capture and save PNG…' : kind === 'frame' ? 'Save PNG…' : kind === 'video' ? 'Save MP4…' : 'Save JSON…';
-    if (capture && !d.canCapture) this.warning.textContent += ' Refresh to a current movie with frame capture support first.';
+    this.submit.textContent = rendering ? 'Render and save…' : kind === 'frame' ? 'Save PNG…' : kind === 'video' ? 'Save MP4…' : 'Save JSON…';
+    if (capture && !d.canCapture) this.warning.textContent = 'Refresh to update the frame first.';
   }
 }

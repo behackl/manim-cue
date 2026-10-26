@@ -22,15 +22,15 @@ export class Comparison {
   private info = el('div', 'compare-info');
   private slider = el('input', 'compare-slider');
   private value = el('output', 'compare-value');
-  private wipe = button('Wipe', () => this.setMode('wipe'), 'Reference left; current image right');
-  private overlay = button('Overlay', () => this.setMode('overlay'), 'Blend the reference and current image');
-  private replace = button('Replace reference', () => this.request(true), 'Pin the displayed still as the new reference');
+  private wipe = button('Wipe', () => this.setMode('wipe'), 'The reference on the left, the current frame on the right');
+  private overlay = button('Overlay', () => this.setMode('overlay'), 'Blend the reference and the current frame');
+  private replace = button('Replace reference', () => this.request(true), 'Use the shown frame as the reference');
   private canvas = el('canvas', 'compare-canvas');
   private composite = document.createElement('canvas');
   private divider = el('div', 'compare-divider');
   private rect?: { x: number; y: number; width: number; height: number };
   constructor(private stage: HTMLElement, controls: HTMLElement, private activate: () => void) {
-    this.toggle = button('Compare', () => this.request(!this.enabled, false), 'Pin the displayed still; from a movie, capture a new still at its presented frame');
+    this.toggle = button('Compare', () => this.request(!this.enabled, false), 'Keep this frame as the reference and compare other frames with it');
     this.toggle.setAttribute('aria-pressed', 'false'); controls.append(this.toggle);
     this.slider.type = 'range'; this.slider.min = '0'; this.slider.max = '100'; this.slider.step = '1';
     this.slider.addEventListener('input', () => this.setValue(this.slider.valueAsNumber));
@@ -87,7 +87,7 @@ export class Comparison {
       const fail = () => {
         if (this.pending !== candidate) return;
         this.cancelPending(); this.failed = media.token; this.draw();
-        post({ kind: 'referenceError', token: media.token, message: 'Reference image could not be loaded or decoded. Previous reference retained.' });
+        post({ kind: 'referenceError', token: media.token, message: 'The reference did not load.' });
       };
       candidate.timeout = setTimeout(fail, 15000);
       image.onload = () => { void image.decode().then(() => {
@@ -112,13 +112,13 @@ export class Comparison {
   private label(name: string, media?: Media): string {
     if (!media) return `${name}: —`;
     const capture = media.capture;
-    return `${name}: ${capture?.time == null ? 'End state' : capture.time.toFixed(3) + ' s'} · source ${media.sourceHash?.slice(0, 8) ?? 'unknown'}`;
+    return `${name}: ${capture?.time == null ? 'last frame' : capture.time.toFixed(3) + ' s'}`;
   }
   private draw(): void {
     this.wipe.setAttribute('aria-pressed', String(this.mode === 'wipe')); this.overlay.setAttribute('aria-pressed', String(this.mode === 'overlay'));
     const value = this.mode === 'wipe' ? this.wipeValue : this.overlayValue;
-    this.slider.value = String(value); this.slider.setAttribute('aria-label', this.mode === 'wipe' ? 'Wipe position' : 'Current image opacity');
-    this.slider.setAttribute('aria-valuetext', this.mode === 'wipe' ? `${Math.round(value)}% reference` : `${Math.round(value)}% current image`);
+    this.slider.value = String(value); this.slider.setAttribute('aria-label', this.mode === 'wipe' ? 'Wipe position' : 'Current frame opacity');
+    this.slider.setAttribute('aria-valuetext', this.mode === 'wipe' ? `${Math.round(value)}% reference` : `${Math.round(value)}% current frame`);
     this.value.textContent = `${Math.round(value)}% ${this.mode === 'wipe' ? 'reference' : 'current'}`;
     this.divider.setAttribute('aria-valuenow', String(Math.round(this.wipeValue)));
     this.rect = undefined;
@@ -128,19 +128,18 @@ export class Comparison {
     const current = target?.element instanceof HTMLImageElement ? target : undefined;
     const outdated = !!target && (this.model?.media?.outdated || target.media.sourceId !== this.model?.media?.sourceId);
     const updating = !!target && (!this.model?.mediaReady || target.media.token !== this.model?.media?.token || target.restoring);
-    this.labels.textContent = `${this.label('Reference', reference?.media)}  |  ${current ? this.label('Current', current.media) : 'Current: movie — capture a still to compare'}${outdated ? ' · OLD' : updating ? ' · updating' : ''}`;
-    this.labels.title = 'Source IDs are primary-file SHA-256 prefixes, not complete dependency revisions. Reference pixels stay fixed until explicitly replaced.';
+    this.labels.textContent = `${this.label('Reference', reference?.media)}  |  ${current ? this.label('Current', current.media) : 'Current: video'}${outdated ? ' · Outdated' : updating ? ' · Updating' : ''}`;
     const notes: string[] = [];
-    if (this.model?.comparison?.pending) notes.push('Capturing a new still at the movie frame (fresh execution, not movie pixel extraction)…');
-    else if (this.pending) notes.push('Loading reference…');
-    else if (this.failed) notes.push('Reference could not be decoded; previous reference retained. Replace reference to retry.');
-    else if (!reference) notes.push('No reference pinned. Use Pin reference to try again.');
+    if (this.model?.comparison?.pending) notes.push('Updating frame…');
+    else if (this.pending) notes.push('Loading the reference…');
+    else if (this.failed) notes.push('The reference did not load. Use “Replace reference” to try again.');
+    else if (!reference) notes.push('No reference. Use “Pin reference”.');
     if (current && reference) {
       const a = current.element as HTMLImageElement, b = reference.image;
       const geometry = current.media.frame, oldGeometry = reference.media.frame;
       if (Math.abs(a.naturalWidth / a.naturalHeight - b.naturalWidth / b.naturalHeight) > .001 ||
         geometry?.width !== oldGeometry?.width || geometry?.height !== oldGeometry?.height) {
-        notes.push('Different aspect/frame geometry — centred fit, no automatic alignment.');
+        notes.push('The frames have different sizes.');
       }
       const bounds = a.getBoundingClientRect(), stage = this.stage.getBoundingClientRect();
       const rect = contain({ x: bounds.left - stage.left, y: bounds.top - stage.top, width: bounds.width, height: bounds.height },

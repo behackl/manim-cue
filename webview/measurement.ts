@@ -17,7 +17,7 @@ export class Measurement {
   private drag?: number;
   private layer = svg('svg', { class: 'measure-layer' });
   private ink = svg('g');
-  private hit = svg('rect', { class: 'measure-surface', fill: 'transparent', tabindex: 0, 'aria-label': 'Measure scene coordinates. Click to pin, drag to measure, Escape to clear.' });
+  private hit = svg('rect', { class: 'measure-surface', fill: 'transparent', tabindex: 0, 'aria-label': 'Scene coordinates. Click to pin a point, drag to measure, Escape to clear.' });
   private bar = el('div', 'measure-bar');
   private info = el('span', 'measure-assumption');
   private readout = el('output', 'measure-readout');
@@ -25,9 +25,9 @@ export class Measurement {
   private copy = button('Copy point', () => {
     const p = this.end ?? this.anchor ?? this.cursor;
     if (p && this.target) post({ kind: 'copyPoint', token: this.target.token, ...p });
-  }, 'Copy pinned point or drag endpoint (otherwise pointer) as [x, y, 0], rounded to six significant digits');
+  }, 'Copy the point as [x, y, 0]');
   constructor(private stage: HTMLElement, controls: HTMLElement, private changed: () => void, private onEnable: () => void = () => {}) {
-    this.toggle = button('Measure', () => this.setEnabled(!this.enabled), 'Use configured dimensions, assuming a fixed, centred, unrotated 2D camera. Pauses playback; no camera tracking.');
+    this.toggle = button('Measure', () => this.setEnabled(!this.enabled), 'Show scene coordinates and measure distances');
     this.toggle.classList.add('measure-toggle');
     this.toggle.setAttribute('aria-pressed', String(this.enabled)); controls.append(this.toggle);
     stage.classList.toggle('measuring', this.enabled);
@@ -85,10 +85,10 @@ export class Measurement {
     this.copy.disabled = !this.target || !(this.end ?? this.anchor ?? this.cursor);
     if (!this.enabled) return;
     if (!this.target) {
-      this.info.textContent = 'Fixed-camera 2D · waiting for a current, decoded preview'; this.readout.textContent = ''; return;
+      this.info.textContent = 'Waiting for the frame…'; this.readout.textContent = ''; return;
     }
     const { element, frame } = this.target;
-    this.info.textContent = `Fixed-camera 2D · configured ${coordinate(frame.width)} × ${coordinate(frame.height)} units · assumes centred, unrotated camera`;
+    this.info.textContent = `Frame: ${coordinate(frame.width)} × ${coordinate(frame.height)} units`;
     const bounds = element.getBoundingClientRect(), stage = this.stage.getBoundingClientRect();
     const intrinsic = element instanceof HTMLVideoElement
       ? { width: element.videoWidth, height: element.videoHeight } : { width: element.naturalWidth, height: element.naturalHeight };
@@ -118,7 +118,7 @@ export class Measurement {
       line(r.x, py(this.cursor.y), r.x + r.width, py(this.cursor.y), 'measure-crosshair');
     }
     if (this.anchor) this.ink.append(svg('circle', { cx: px(this.anchor.x), cy: py(this.anchor.y), r: 4, class: 'measure-pin' }));
-    this.readout.textContent = p ? `(${coordinate(p.x)}, ${coordinate(p.y)})` : 'Move to inspect · click to pin · drag to measure';
+    this.readout.textContent = p ? `(${coordinate(p.x)}, ${coordinate(p.y)})` : 'Move the pointer to read coordinates. Click to pin a point. Drag to measure.';
     if (this.cursor && this.anchor && (this.cursor.x !== p?.x || this.cursor.y !== p?.y)) {
       this.readout.textContent += ` · pointer (${coordinate(this.cursor.x)}, ${coordinate(this.cursor.y)})`;
     }

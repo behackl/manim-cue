@@ -21,9 +21,9 @@ test('copy choices ignore hidden render settings even when aspect-derived defaul
     for (const kind of ['frame', 'video', 'timeline']) {
       const copy = exportChoice({ kind, method: 'copy', settings: null }, draft);
       assert.deepEqual(copy.settings, draft);
-      assert.throws(() => exportChoice(copy), /dimensions/, 'invalid drafts must not become stored preferences');
+      assert.throws(() => exportChoice(copy), /Width and height/, 'invalid drafts must not become stored preferences');
     }
-    assert.throws(() => exportChoice({ kind: 'video', method: 'render', settings: draft }, draft), /dimensions/);
+    assert.throws(() => exportChoice({ kind: 'video', method: 'render', settings: draft }, draft), /Width and height/);
     assert.deepEqual(exportChoice({ kind: 'video', method: 'render', settings }, draft).settings, renderSettings(settings));
     assert.throws(() => exportChoice({ kind: 'other', method: 'copy' }, draft), /Invalid export choice/);
   }

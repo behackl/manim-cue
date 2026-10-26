@@ -11,11 +11,11 @@ const status = el('span', 'muted'); header.append(title, status);
 const message = el('div', 'banner');
 const stage = el('div', 'media-stage');
 const empty = el('div', 'preview-empty');
-empty.append(el('div', 'empty-icon', '▷'), el('h2', '', 'Your current frame'), el('p', '', 'Save a Scene to update its selected frame. A complete movie follows when you stop editing.'));
-const watermark = el('div', 'watermark', 'OLD PREVIEW'); watermark.hidden = true;
+empty.append(el('div', 'empty-icon', '▷'), el('h2', '', 'Scene preview'), el('p', '', 'Save the scene file to update the frame, the timeline and the video.'));
+const watermark = el('div', 'watermark', 'OUTDATED'); watermark.hidden = true;
 stage.append(empty, watermark);
-stage.tabIndex = 0; stage.setAttribute('aria-label', 'Scene preview. Space to play or pause; left and right to step frames.');
-const scrubber = el('input', 'preview-scrubber'); scrubber.type = 'range'; scrubber.min = '0'; scrubber.max = '0'; scrubber.setAttribute('aria-label', 'Preview position');
+stage.tabIndex = 0; stage.setAttribute('aria-label', 'Scene preview. Space plays or pauses. Left and right arrows step one frame.');
+const scrubber = el('input', 'preview-scrubber'); scrubber.type = 'range'; scrubber.min = '0'; scrubber.max = '0'; scrubber.setAttribute('aria-label', 'Position');
 let scrubbing = false;
 scrubber.addEventListener('pointerdown', () => { scrubbing = true; });
 scrubber.addEventListener('pointerup', () => { scrubbing = false; });
@@ -31,7 +31,7 @@ function iconButton(label: string, icon: string, action: () => void): HTMLButton
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 20 20'); svg.setAttribute('aria-hidden', 'true');
   const p = document.createElementNS(svg.namespaceURI, 'path'); p.setAttribute('d', icon); svg.append(p); b.append(svg); return b;
 }
-const render = button('Render video', () => post({ kind: 'preview' }), 'Prepare a movie without starting playback');
+const render = button('Render video', () => post({ kind: 'preview' }), 'Render the video without playing it');
 const play = iconButton('Play', icons.play, () => {
   if (!model) return;
   const intent = { generation: model.generation, request: model.position?.request ?? 0 };
@@ -50,7 +50,7 @@ function openExport(): void {
   if (active?.element instanceof HTMLVideoElement) active.element.pause();
   post({ kind: 'openExport', token: active?.media.token, time: (active ? shownTime(active) : undefined) ?? model?.position?.time ?? 0 });
 }
-const exportButton = button('Export…', openExport, 'Save a frame, video or timeline; or render a new video');
+const exportButton = button('Export…', openExport, 'Save the frame, the video or the timeline');
 controls.append(render, play, time, previous, next, exportButton);
 app.append(header, message, stage, scrubber, controls);
 
@@ -67,7 +67,7 @@ const frameCallbacks = 'requestVideoFrameCallback' in HTMLVideoElement.prototype
 const measurement = new Measurement(stage, controls, syncMeasurement, () => comparison.disable());
 const comparison = new Comparison(stage, controls, () => { if (measurement.enabled) measurement.setEnabled(false); });
 const exportDialog = new ExportDialog(openExport, controls);
-const settings = iconButton('Cue settings', 'M8 1H12L13 4L16 3L18 6L16 9L19 10L18 14L15 14L14 17L10 19L8 16L5 17L2 14L4 11L1 9L3 5L6 5ZM10 6A4 4 0 1 0 10 14A4 4 0 1 0 10 6Z', () => post({ kind: 'settings' }));
+const settings = iconButton('Settings', 'M8 1H12L13 4L16 3L18 6L16 9L19 10L18 14L15 14L14 17L10 19L8 16L5 17L2 14L4 11L1 9L3 5L6 5ZM10 6A4 4 0 1 0 10 14A4 4 0 1 0 10 6Z', () => post({ kind: 'settings' }));
 settings.querySelector('path')!.setAttribute('fill-rule', 'evenodd'); controls.append(settings);
 function ready(): boolean { return model?.mediaReady ?? (!!model?.media && !model.busy && !model.timelineOutdated && !model.media.outdated); }
 function syncMeasurement(): void {
@@ -166,7 +166,7 @@ function applyPlay(item: Item): void {
     item.repeating = false; item.playIntent = model.playIntent;
     void item.element.play().catch(() => {
       if (item.disposed || item !== active || !ready()) return;
-      status.textContent = 'Press Play to start playback';
+      status.textContent = 'Press Play to start.';
       post({ kind: 'pause', generation: model!.generation, request: item.request, token: item.media.token });
     });
   }
@@ -227,7 +227,7 @@ function create(media: Media): Item {
   const fail = (message: string) => {
     if (!item.disposed && item.media.token === model?.media?.token) post({ kind: 'mediaError', token: item.media.token, message });
   };
-  item.timeout = setTimeout(() => fail('Loading the replacement preview timed out. Retry the preview.'), 15000);
+  item.timeout = setTimeout(() => fail('The preview did not load. Refresh to try again.'), 15000);
   if (element instanceof HTMLVideoElement) {
     element.controls = false; element.muted = true; element.preload = 'auto'; element.playsInline = true;
     element.addEventListener('loadedmetadata', () => seek(item));
@@ -245,11 +245,11 @@ function create(media: Media): Item {
         post({ kind: 'pause', generation: model?.generation ?? -1, request: item.request, token: item.media.token }); if (item.lastTime !== undefined) emit(item, item.lastTime); syncMeasurement();
       }
     });
-    element.addEventListener('error', () => fail(element.error?.message || 'This VS Code build could not decode the preview.'));
+    element.addEventListener('error', () => fail('VS Code cannot play this video.'));
   } else {
-    element.alt = media.capture?.time === null ? 'Scene end-state snapshot' : 'Captured scene frame';
-    element.addEventListener('load', () => { void element.decode().then(() => displayed(item)).catch(() => fail('The preview image could not be decoded.')); });
-    element.addEventListener('error', () => fail('The preview image could not be loaded.'));
+    element.alt = media.capture?.time === null ? 'Last frame of the scene' : 'Scene frame';
+    element.addEventListener('load', () => { void element.decode().then(() => displayed(item)).catch(() => fail('The frame did not load. Refresh to try again.')); });
+    element.addEventListener('error', () => fail('The frame did not load. Refresh to try again.'));
   }
   stage.insertBefore(element, watermark); element.src = media.uri;
   if (element instanceof HTMLVideoElement) element.load();
@@ -259,7 +259,7 @@ function syncTime(): void {
   const value = (active?.lastTime !== undefined ? shownTime(active) : undefined) ?? active?.media.capture?.time ?? model?.position?.time ?? 0;
   const total = active?.media.kind === 'video' ? active.media.duration
     : active?.media.token === model?.media?.token && !model?.media?.outdated ? model?.duration : undefined;
-  time.textContent = `${active?.media.capture?.time === null ? 'End state' : value.toFixed(3) + ' s'} / ${total === undefined ? '—' : total.toFixed(3) + ' s'}`;
+  time.textContent = `${active?.media.capture?.time === null ? 'Last frame' : value.toFixed(3) + ' s'} / ${total === undefined ? '—' : total.toFixed(3) + ' s'}`;
   scrubber.disabled = !model?.canSeek || model?.duration === undefined || model.duration <= 0 || !!model.media?.outdated;
   scrubber.max = String(model?.duration ?? 0); scrubber.step = String(1 / (model?.fps ?? model?.media?.rate ?? 30));
   if (!scrubbing) scrubber.value = String(value);
@@ -275,7 +275,7 @@ function syncWatermark(): void {
   const media = model?.media;
   const sameSource = !!active?.media.sourceId && active.media.sourceId === media?.sourceId;
   const outdated = media?.outdated || (active && active.media.token !== media?.token && !sameSource && active.generation !== model?.generation);
-  watermark.textContent = outdated ? 'OLD PREVIEW' : 'UPDATING FRAME';
+  watermark.textContent = outdated ? 'OUTDATED' : 'UPDATING FRAME';
   watermark.hidden = !active || (!outdated && ((active.media.token === media?.token && ready()) || (sameSource && active.media.capture?.requestedTime === model?.position?.time)));
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && active?.element instanceof HTMLVideoElement) active.element.pause(); });

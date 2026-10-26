@@ -1,7 +1,7 @@
 {
   "name": "manim-cue",
   "displayName": "Manim Cue",
-  "description": "Preview, inspect, compare, and export Manim scenes in VS Code.",
+  "description": "See the frames, the timeline and the video of a Manim scene while you edit it in VS Code.",
   "version": "0.2.1",
   "publisher": "behackl",
   "private": true,
@@ -39,7 +39,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Scene discovery and execution require workspace trust."
+      "description": "Manim Cue runs scenes only in a trusted workspace."
     },
     "virtualWorkspaces": {
       "supported": false
@@ -54,12 +54,12 @@
       },
       {
         "command": "manimCue.refresh",
-        "title": "Manim Cue: Refresh Scene",
+        "title": "Manim Cue: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "manimCue.refreshTimeline",
-        "title": "Manim Cue: Refresh Timeline Only"
+        "title": "Manim Cue: Refresh Timeline"
       },
       {
         "command": "manimCue.cancel",
@@ -68,12 +68,12 @@
       },
       {
         "command": "manimCue.preview",
-        "title": "Manim Cue: Render Preview",
+        "title": "Manim Cue: Render Video",
         "icon": "$(device-camera-video)"
       },
       {
         "command": "manimCue.logs",
-        "title": "Manim Cue: Show Logs"
+        "title": "Manim Cue: Show Log"
       },
       {
         "command": "manimCue.clearCaches",
@@ -85,7 +85,7 @@
       },
       {
         "command": "manimCue.selectPython",
-        "title": "Manim Cue: Select Python for Manim Cue"
+        "title": "Manim Cue: Select Python"
       },
       {
         "command": "manimCue.setupPython",
@@ -93,9 +93,9 @@
       },
       {
         "command": "manimCue.export",
-        "title": "Manim Cue: Export Timeline JSON"
+        "title": "Manim Cue: Save Timeline as JSON"
       },
-      { "command": "manimCue.saveFrame", "title": "Manim Cue: Save Captured Frame as PNG" },
+      { "command": "manimCue.saveFrame", "title": "Manim Cue: Save Frame as PNG" },
       { "command": "manimCue.openExport", "title": "Manim Cue: Export…" },
       { "command": "manimCue.previousFrame", "title": "Manim Cue: Previous Frame" },
       { "command": "manimCue.nextFrame", "title": "Manim Cue: Next Frame" }
@@ -146,26 +146,26 @@
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "Python executable used by Manim Cue. Leave empty to use Python: Select Interpreter for the scene file."
+          "description": "The Python executable for Manim Cue. Leave it empty to use the interpreter from \"Python: Select Interpreter\" for the scene file."
         },
         "manimCue.autoRefreshOnSave": {
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Update the selected frame and timeline after saving the main scene file. Refresh manually after changing imported helpers, assets, or configuration."
+          "description": "Update the frame, the timeline and the video when you save the scene file. After a change to another file, use Refresh."
         },
         "manimCue.autoPreview": {
           "type": "boolean",
           "scope": "resource",
           "default": true,
-          "description": "Render a complete muted preview video after updating the selected frame and timeline."
+          "description": "Render the video after the frame and the timeline."
         },
         "manimCue.frameRate": {
           "type": "number",
           "default": 30,
           "minimum": 1,
           "maximum": 120,
-          "description": "Frames per second used to evaluate and preview the scene. Changing it can affect animation and updater behavior."
+          "description": "The frame rate of the preview, in frames per second. Animations and updaters run at this rate."
         },
         "manimCue.previewWidth": {
           "type": "integer",
@@ -173,20 +173,20 @@
           "default": 960,
           "minimum": 64,
           "maximum": 3840,
-          "description": "Approximate preview width in pixels. Cue preserves the aspect ratio from the Manim configuration."
+          "description": "The width of the preview in pixels. The height follows the aspect ratio of the Manim configuration."
         },
         "manimCue.workingDirectory": {
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "Working directory for the scene, as an absolute path or relative to the workspace. Leave empty to use the workspace folder, or the scene's folder outside a workspace."
+          "description": "The working folder for the scene, as a full path or relative to the workspace. Leave it empty to use the workspace folder, or the folder of the scene file outside a workspace."
         },
         "manimCue.timeoutSeconds": {
           "type": "integer",
           "default": 600,
           "minimum": 5,
           "maximum": 7200,
-          "description": "Maximum time in seconds for each frame capture, timeline evaluation, or render."
+          "description": "The maximum time in seconds for one update or render."
         }
       }
     }

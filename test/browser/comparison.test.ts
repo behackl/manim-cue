@@ -42,12 +42,12 @@ test('comparison composites exact endpoints, keeps reference through updates and
     model = { ...model, generation: 2, position: { time: 1.5, request: 2 }, media: { ...reference, uri: blue, token: 'blue', sourceId: 'run-2', sourceHash: '1234567890ab', capture: { requestedTime: 1.5, time: 1.5, frameIndex: 6 } } };
     await publish(); await displayed('blue');
     assert.deepEqual(await pixel(.25), [255, 0, 0, 255]); assert.deepEqual(await pixel(.75), [0, 0, 255, 255]);
-    assert.match(await page.locator('.compare-labels').innerText(), /Reference: 1.250 s · source abcdef01.*Current: 1.500 s · source 12345678/);
+    assert.match(await page.locator('.compare-labels').innerText(), /Reference: 1.250 s.*Current: 1.500 s/);
     await page.getByRole('button', { name: 'Overlay', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => (window as any).savedState), { unrelated: 'keep', measure: false, compareMode: 'overlay' });
     const blend = await pixel(.25);
     assert.ok(Math.abs(blend[0] - 127) <= 1 && blend[1] === 0 && Math.abs(blend[2] - 128) <= 1 && blend[3] === 255, `50% blend: ${blend}`);
-    const opacity = page.getByLabel('Current image opacity');
+    const opacity = page.getByLabel('Current frame opacity');
     await opacity.focus(); await page.keyboard.press('Home'); assert.deepEqual(await pixel(.75), [255, 0, 0, 255]);
     await page.keyboard.press('End'); assert.deepEqual(await pixel(.25), [0, 0, 255, 255]);
     await page.getByRole('button', { name: 'Wipe', exact: true }).click();
@@ -77,15 +77,15 @@ test('comparison composites exact endpoints, keeps reference through updates and
 
     // Keep old current pixels AND the pinned reference through invalidation/decode failure.
     await publish({ ...model, generation: 3, mediaReady: false, timelineOutdated: true, media: { ...model.media!, outdated: true } });
-    assert.match(await page.locator('.compare-labels').innerText(), /Current: 1.500 s.*OLD/);
-    assert.equal(await page.locator('.watermark').innerText(), 'OLD PREVIEW');
+    assert.match(await page.locator('.compare-labels').innerText(), /Current: 1.500 s.*Outdated/);
+    assert.equal(await page.locator('.watermark').innerText(), 'OUTDATED');
     assert.deepEqual(await pixel(.1), [255, 0, 0, 255]); assert.deepEqual(await pixel(.8), [0, 0, 255, 255]);
     await page.route('https://cue.test/broken.png', route => route.fulfill({ status: 404, body: '' }));
     await publish({ ...model, media: { ...model.media!, token: 'broken', uri: 'https://cue.test/broken.png' } });
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'mediaError' && m.token === 'broken'));
     assert.deepEqual(await pixel(.8), [0, 0, 255, 255]);
     await publish({ ...model, comparison: { enabled: true, pending: false, reference: { ...reference, token: 'bad-reference', uri: 'https://cue.test/broken.png' } } });
-    await page.waitForFunction(() => document.querySelector('.compare-info')?.textContent?.includes('could not be decoded'));
+    await page.waitForFunction(() => document.querySelector('.compare-info')?.textContent?.includes('did not load'));
     assert.deepEqual(await pixel(.1), [255, 0, 0, 255], 'bad reference retains previous decoded reference');
     assert.equal(await page.evaluate(() => (window as any).messages.findLast((m: any) => m.kind === 'referenceError')?.token), 'bad-reference', 'host can roll back the failed reference for future view reconstruction');
     await publish(); // Host rolls back to the last acknowledged reference.
@@ -104,8 +104,8 @@ test('comparison composites exact endpoints, keeps reference through updates and
     const square = await image('#0000ff', 200, 200);
     model = { ...model, position: { time: 9, request: 3 }, media: { ...model.media!, token: 'square', uri: square, capture: { requestedTime: 9, time: null, frameIndex: null } } };
     await publish(); await displayed('square');
-    assert.match(await page.locator('.compare-info').innerText(), /Different aspect\/frame geometry/);
-    assert.match(await page.locator('.compare-labels').innerText(), /Current: End state/);
+    assert.match(await page.locator('.compare-info').innerText(), /different sizes/);
+    assert.match(await page.locator('.compare-labels').innerText(), /Current: last frame/);
     await page.getByRole('button', { name: 'Overlay', exact: true }).click();
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => (window as any).savedState), { unrelated: 'keep', measure: true, compareMode: 'overlay' });
@@ -132,7 +132,7 @@ test('comparison composites exact endpoints, keeps reference through updates and
     await page.getByRole('button', { name: 'Wipe', exact: true }).click();
     assert.equal(await page.locator('.compare-canvas').isVisible(), true);
     assert.deepEqual(await pixel(.25), [0, 255, 0, 255]); assert.deepEqual(await pixel(.75), [0, 0, 255, 255]);
-    assert.match(await page.locator('.compare-labels').innerText(), /OLD/);
+    assert.match(await page.locator('.compare-labels').innerText(), /Outdated/);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
@@ -166,7 +166,7 @@ test('entering Compare from a playing movie requests its latest presented frame,
     assert.ok(request.time >= 1.25 && request.time < 3, 'uses latest presented frame, not playback start or an older capture');
     assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), { ...model, playIntent: undefined, comparison: { enabled: true, pending: true } });
-    await page.waitForFunction(() => document.querySelector('.compare-info')?.textContent?.includes('fresh execution'));
+    await page.waitForFunction(() => document.querySelector('.compare-info')?.textContent?.includes('Updating frame'));
     assert.equal(await page.locator('.compare-canvas').isVisible(), false, 'no pretend still/reference while capture is pending');
     assert.equal(await page.getByRole('button', { name: 'Pin reference', exact: true }).isDisabled(), true);
     assert.equal(await page.locator('video').isVisible(), true, 'paused movie remains visible until a still arrives');

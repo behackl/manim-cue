@@ -17,9 +17,9 @@ export function model(s: Session, webview?: vscode.Webview): Model {
   const ready = s.mediaReady(), timelineOutdated = !!s.timeline?.outdated, video = s.currentVideo();
   const followsVideo = fresh && !timelineOutdated && media?.kind === 'video' && !s.mediaError;
   let notice = s.mediaError ?? '';
-  if (media && !fresh) notice = 'Old preview — source changed';
-  else if (media?.capture?.time === null) notice = 'End state — requested frame unavailable';
-  else if (media?.capture && s.frameSequence !== s.seekSequence) notice = 'Updating frame at the selected time…';
+  if (media && !fresh) notice = 'Outdated';
+  else if (media?.capture?.time === null) notice = 'The scene ends before this time. This is its last frame.';
+  else if (media?.capture && s.frameSequence !== s.seekSequence) notice = 'Updating frame…';
   else if (media?.capture && video && isSkipped(video.media.skipped ?? [], media.capture.requestedTime)) notice = 'This part is skipped in the video.';
   const selection = s.selection();
   const cfg = vscode.workspace.getConfiguration('manimCue', s.target?.uri);
@@ -27,7 +27,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
   return {
     exportState: s.exports.snapshot(webview),
     generation: s.generation, scene: s.target?.scene ?? '',
-    status: (s.exports.nativeBusy ? 'Export rendering — automatic previews paused' : s.status) + (s.positionClamped ? ' — position clamped to scene end' : ''),
+    status: (s.exports.nativeBusy ? 'Rendering for export…' : s.status) + (s.positionClamped ? ' · Moved to the last frame' : ''),
     busy: s.busy, timelineOutdated, error: s.error, autoPreview: s.autoPreview, python: s.pythonInUse,
     timeline: s.timeline?.timeline, selected: s.selected, selectedEvents: s.selectedEvents,
     selection: selection && { ...selection.range, enabled: s.loopEnabled && !timelineOutdated, available: selection.available },
@@ -40,7 +40,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     duration: video ? video.media.duration : !timelineOutdated ? s.timeline?.timeline.duration : undefined,
     fps: s.job?.options.fps ?? cfg.get<number>('frameRate', 30), previewWidth: cfg.get<number>('previewWidth', 960), hasVideo: !!video,
     canSeek: !!s.target, canPlay: timelineOutdated || !s.timeline || s.timeline.timeline.duration > 0, mediaReady: ready,
-    profile: profile && `Cairo · ${profile.fps} fps · ${profile.width}×${profile.height} · seed ${profile.seed}`,
+    profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
     media: preview && media && { uri: uri(media.path), kind: media.kind, token: media.path, outdated: !fresh, duration: media.duration, rate: media.rate,
       capture: media.capture, skipped: media.skipped, sourceId: preview.directory, sourceHash: preview.sourceHash, frame: frame(preview),
       seekTime: media.kind === 'video' ? frameIndex(s.desiredTime, media.rate, videoFrames(media.duration, media.rate)) / media.rate : undefined,

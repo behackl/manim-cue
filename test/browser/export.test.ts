@@ -23,21 +23,21 @@ test('export dialog separates copies from renders, validates settings, and keeps
     await opener.click();
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'openExport');
     const dialog: ExportDialogModel = { id: 'export-1', scene: 'Demo', aspect: 16 / 9, previewSize: { width: 960, height: 540 },
-      frame: { kind: 'image', description: 'OLD · 1.250 s · 960 × 540 · source abcdef01' }, video: 'OLD · 3 s · H.264 · includes audio', timeline: 'revision abcdef',
+      frame: { kind: 'image', description: 'Outdated · 1.25 s · 960 × 540 · 30 fps' }, video: 'Outdated · 3.00 s · 960 × 540 · 30 fps · with sound', timeline: '3.00 s · 960 × 540 · 30 fps',
       canExportVideo: true, canCapture: false, dirty: false, newer: false,
       choice: { kind: 'frame', method: 'copy', settings: { width: 1920, height: 1080, fps: 29.97, crf: 18, preset: 'medium', options: '' } } };
     const state = (d = dialog, busy = false) => ({ ...model, exportState: { busy, nativeBusy: false, dialog: d } });
     await publish(state());
     assert.equal(await page.getByRole('dialog', { name: 'Export' }).isVisible(), true);
-    assert.match(await page.locator('.export-summary').innerText(), /OLD.*1.250/);
+    assert.match(await page.locator('.export-summary').innerText(), /Outdated.*1.25/);
     assert.equal(await page.getByLabel('Frame rate (fps)').isVisible(), false);
-    assert.match(await page.locator('.export-note:visible').last().innerText(), /not the comparison reference/);
+    assert.match(await page.locator('.export-note:visible').last().innerText(), /shown frame/);
     await page.getByRole('button', { name: 'Save PNG…', exact: true }).click();
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).choice.kind), 'frame');
     await page.getByRole('button', { name: 'Video', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: 'Save MP4…', exact: true }).isEnabled(), true);
     assert.equal(await page.getByLabel('Frame rate (fps)').isVisible(), false);
-    await page.getByRole('button', { name: 'New render', exact: true }).click();
+    await page.getByRole('button', { name: 'Render a new video', exact: true }).click();
     assert.equal(await page.getByLabel('Frame rate (fps)').inputValue(), '29.97');
     await page.getByLabel('Resolution', { exact: true }).selectOption('720');
     assert.equal(await page.getByLabel('Width (px)').inputValue(), '1280');
@@ -46,7 +46,7 @@ test('export dialog separates copies from renders, validates settings, and keeps
     await page.getByLabel('Width (px)').fill('640');
     assert.equal(await page.getByLabel('Height (px)').inputValue(), '360');
     await page.getByText('Advanced', { exact: true }).click();
-    const options = page.getByLabel('Additional codec options — one key=value per line');
+    const options = page.getByLabel('Encoder options (one key=value per line)');
     await options.fill('crf=30');
     const submit = page.getByRole('button', { name: 'Render and save…', exact: true });
     assert.equal(await submit.isDisabled(), true);
@@ -60,9 +60,9 @@ test('export dialog separates copies from renders, validates settings, and keeps
     assert.equal(request.kind, 'submitExport'); assert.equal(request.id, 'export-1'); assert.equal(request.choice.method, 'render');
     assert.equal(request.choice.settings.width, 640); assert.equal(request.choice.settings.fps, 29.97);
     await publish(state({ ...dialog, newer: true, dirty: true }));
-    assert.equal(await page.getByRole('button', { name: 'Use latest preview', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Use the latest preview', exact: true }).isVisible(), true);
     assert.equal(await page.getByLabel('Width (px)').inputValue(), '640', 'state updates do not overwrite the draft');
-    await page.getByRole('button', { name: 'Timeline JSON', exact: true }).click();
+    await page.getByRole('button', { name: 'Timeline', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: 'Save JSON…', exact: true }).isEnabled(), true);
     assert.equal(await page.getByLabel('Frame rate (fps)').isVisible(), false);
     await page.setViewportSize({ width: 360, height: 400 });
@@ -72,9 +72,9 @@ test('export dialog separates copies from renders, validates settings, and keeps
     assert.equal(await page.getByRole('dialog').count(), 0);
     assert.equal(await opener.evaluate(e => e === document.activeElement), true);
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'closeExport');
-    await publish(state({ ...dialog, id: 'export-2', frame: { kind: 'video', description: '1.250 s · movie' }, canCapture: true }));
-    assert.equal(await page.getByRole('button', { name: 'Capture and save PNG…', exact: true }).isEnabled(), true);
-    assert.match(await page.locator('.export-note:visible').last().innerText(), /not movie pixel extraction/);
+    await publish(state({ ...dialog, id: 'export-2', frame: { kind: 'video', description: '1.25 s · 960 × 540 · 30 fps' }, canCapture: true }));
+    assert.equal(await page.getByRole('button', { name: 'Save PNG…', exact: true }).isEnabled(), true);
+    assert.match(await page.locator('.export-note:visible').last().innerText(), /runs the scene/);
     await page.keyboard.press('Escape');
     await publish(state({ ...dialog, id: 'export-3', canExportVideo: false, choice: { ...dialog.choice, kind: 'video' } }));
     assert.equal(await page.getByRole('button', { name: 'Video', exact: true }).isVisible(), false, 'a scene without plays has no video');

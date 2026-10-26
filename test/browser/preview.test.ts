@@ -41,9 +41,9 @@ test('preview swaps at the selected position, paused, without reporting initial 
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).direction), -1);
     assert.equal(await page.locator('.preview-controls select').count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Loop', exact: true }).count(), 0);
-    await page.getByRole('button', { name: 'Cue settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'settings');
-    await page.getByLabel('Preview position').focus(); await page.keyboard.press('ArrowRight');
+    await page.getByLabel('Position', { exact: true }).focus(); await page.keyboard.press('ArrowRight');
     assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'seek', generation: 1, time: 1.5, immediate: true });
     assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.loop), false);
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
@@ -91,8 +91,8 @@ test('preview swaps at the selected position, paused, without reporting initial 
       media: { ...frameModel.media!, outdated: true } };
     await publish(oldFrame);
     assert.equal(await page.locator('.media-stage img').isVisible(), true, 'editing again retains the still');
-    assert.equal(await page.locator('.watermark').innerText(), 'OLD PREVIEW');
-    // A hidden/recreated VS Code webview must also restore stale media, not wait for freshness.
+    assert.equal(await page.locator('.watermark').innerText(), 'OUTDATED');
+    // A hidden or recreated VS Code webview must also restore outdated media.
     await page.reload();
     await page.setContent('<main id="app"></main>');
     await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });

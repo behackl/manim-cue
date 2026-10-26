@@ -45,8 +45,8 @@ export class Exports {
   private description(result: PreviewResult | TimelineResult): string {
     const p = result.profile;
     const media = 'media' in result ? result.media : undefined;
-    const time = media?.kind === 'image' ? (media.capture?.time == null ? 'End state' : `${media.capture.time.toFixed(3)} s`) : `${media?.duration ?? (result as TimelineResult).timeline.duration} s`;
-    return `${result.outdated ? 'OLD · ' : ''}${time} · ${p.width} × ${p.height} · ${p.fps} fps · source ${result.sourceHash.slice(0, 8)}${media?.kind === 'video' ? ` · H.264 · ${media.hasAudio ? 'includes audio' : 'no audio'}` : ''}`;
+    const time = media?.kind === 'image' ? (media.capture?.time == null ? 'Last frame' : `${media.capture.time.toFixed(2)} s`) : `${(media?.duration ?? (result as TimelineResult).timeline.duration).toFixed(2)} s`;
+    return `${result.outdated ? 'Outdated · ' : ''}${time} · ${p.width} × ${p.height} · ${p.fps} fps${media?.kind === 'video' ? ` · ${media.hasAudio ? 'with sound' : 'no sound'}` : ''}`;
   }
   snapshot(webview?: vscode.Webview): ExportModel {
     const s = this.session, current = this.source();
@@ -80,9 +80,10 @@ export class Exports {
     this.session = { id: randomUUID(), source, choice, time: selected }; this.update();
   }
   close(id?: string): void { if (!id || this.session?.id === id) { this.session = undefined; this.update(); } }
-  invalidate(reason: string, force = false, savedHash?: string): void {
+  /** The scene or its settings changed: stop a render for export. */
+  invalidate(force = false, savedHash?: string): void {
     if (savedHash && savedHash === this.active?.sourceHash) return; // A delayed notification for the accepted save.
-    if (this.active?.native && (force || this.active.started)) this.active.abort.abort(new Error(reason));
+    if (this.active?.native && (force || this.active.started)) this.active.abort.abort(new Error('Export cancelled. The scene changed.'));
   }
   cancel(): void { this.active?.abort.abort(new Error('Export cancelled.')); }
   dispose(): void { this.cancel(); this.session = undefined; }
@@ -95,13 +96,13 @@ export class Exports {
       s.choice = exportChoice(value, s.choice.settings);
       const { kind, method } = s.choice;
       const native = kind === 'video' && method === 'render' || kind === 'frame' && s.source.frame?.media.kind === 'video';
-      if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.video?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
+      if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.video?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('There is nothing of this kind to save yet.');
       if (kind === 'video' && !this.hasVideo(s.source)) throw new Error('This scene has no plays or waits. Save its frame as PNG.');
-      if (kind === 'frame' && native && !this.snapshot().dialog?.canCapture) throw new Error('Refresh to a current movie with frame capture support first.');
-      if (native && !vscode.workspace.isTrusted) throw new Error('Trust this workspace before executing Python.');
-      if (kind === 'video' && method === 'render' && (s.source.timeline ?? s.source.frame)?.profile.videoEncoder === false) throw new Error('New MP4 exports require Manim’s public video encoder profile support. Run Manim Cue: Check Python Environment; existing artifact copies remain available.');
+      if (kind === 'frame' && native && !this.snapshot().dialog?.canCapture) throw new Error('Refresh to update the frame first.');
+      if (native && !vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
+      if (kind === 'video' && method === 'render' && (s.source.timeline ?? s.source.frame)?.profile.videoEncoder === false) throw new Error('This Manim version cannot export video. Run “Manim Cue: Set Up Python Environment”.');
       const active: Active = { source: s.source, abort: new AbortController(), native };
-      this.active = active; this.status = 'Choosing export destination…'; s.error = undefined; this.update();
+      this.active = active; this.status = 'Choose where to save…'; s.error = undefined; this.update();
       this.task = this.run(s, active);
       await this.task;
     } catch (e) {
@@ -114,29 +115,29 @@ export class Exports {
     const native = active.native, source = s.source;
     const extension = kind === 'frame' ? '.png' : kind === 'timeline' ? '.json' : '.mp4';
     const result = kind === 'frame' ? source.frame : kind === 'timeline' ? source.timeline : source.video;
-    const old = !native && result?.outdated;
-    const stamp = kind === 'frame' ? `-${source.frame?.media.capture?.time == null && !native ? 'end-state' : (native ? s.time : source.frame!.media.capture!.time!).toFixed(3) + 's'}` : kind === 'timeline' ? '-timeline' : '';
+    const outdated = !native && result?.outdated;
+    const stamp = kind === 'frame' ? `-${source.frame?.media.capture?.time == null && !native ? 'last' : (native ? s.time : source.frame!.media.capture!.time!).toFixed(3) + 's'}` : kind === 'timeline' ? '-timeline' : '';
     let release: (() => void) | undefined, sourceHash: string | undefined;
     try {
-      const destination = await vscode.window.showSaveDialog({ title: native ? 'Render and save' : 'Save export',
-        defaultUri: vscode.Uri.file(path.join(path.dirname(source.uri.fsPath), `${source.scene}${stamp}${old ? '-old' : ''}${extension}`)),
+      const destination = await vscode.window.showSaveDialog({ title: { frame: 'Save frame', video: 'Save video', timeline: 'Save timeline' }[kind],
+        defaultUri: vscode.Uri.file(path.join(path.dirname(source.uri.fsPath), `${source.scene}${stamp}${outdated ? '-outdated' : ''}${extension}`)),
         filters: { [extension.slice(1).toUpperCase()]: [extension.slice(1)] } });
       signal.throwIfAborted();
       if (!destination) { this.status = undefined; return; }
-      if (destination.scheme !== 'file') throw new Error('Export requires a local destination.');
+      if (destination.scheme !== 'file') throw new Error('Choose a file on this computer.');
       const forbidden = [source.uri.fsPath, this.scratch, ...Object.keys(result?.profile.configs ?? {})];
       await validateDestination(destination.fsPath, extension, forbidden);
       if (native) {
-        if (this.source()?.uri.toString() !== source.uri.toString() || this.source()?.scene !== source.scene) throw new Error('Scene changed. Open Export again.');
+        if (this.source()?.uri.toString() !== source.uri.toString() || this.source()?.scene !== source.scene) throw new Error('The scene changed. Open Export again.');
         const document = await vscode.workspace.openTextDocument(source.uri);
         if (document.isDirty) {
           // Explicit consent even if the document became dirty while Save As was open.
-          if (kind === 'frame') throw new Error('Source has unsaved changes. Save and refresh before capturing this frame.');
-          if (await vscode.window.showWarningMessage('Save the source and render the whole Scene?', { modal: true }, 'Save and Render') !== 'Save and Render') { this.status = undefined; return; }
-          if (!await document.save()) throw new Error('Source could not be saved.');
+          if (kind === 'frame') throw new Error('The scene file has unsaved changes. Save it, then save the frame.');
+          if (await vscode.window.showWarningMessage('Save the scene file and render the video?', { modal: true }, 'Save and Render') !== 'Save and Render') { this.status = undefined; return; }
+          if (!await document.save()) throw new Error('The scene file could not be saved.');
         }
         active.sourceHash = sourceHash = await fileHash(source.uri.fsPath);
-        if (document.isDirty) throw new Error('Source changed before export. Try again after saving.');
+        if (document.isDirty) throw new Error('The scene file changed. Save it and try again.');
         active.started = true; signal.throwIfAborted();
         release = await this.suspend(); signal.throwIfAborted();
       }
@@ -144,37 +145,37 @@ export class Exports {
       let preference: ExportChoice | undefined;
       try { preference = exportChoice(s.choice); } catch { /* A copy may carry an invalid render draft. Keep the last valid preference. */ }
       if (preference) await this.context.workspaceState.update('exportChoice', preference);
-      this.status = native ? 'Export rendering — automatic previews paused' : 'Saving export…'; this.update();
+      this.status = native ? (kind === 'frame' ? 'Updating frame for export…' : 'Rendering video for export…') : 'Saving…'; this.update();
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Manim Cue: ${this.status}`, cancellable: true }, async (_progress, cancellation) => {
         const subscription = cancellation.onCancellationRequested(() => this.cancel());
         try {
-          let file: string, observed: PreviewResult | undefined;
+          let file: string, rendered: PreviewResult | undefined;
           if (!native) file = kind === 'timeline' ? source.timeline!.file : (result as PreviewResult).media.path;
           else if (kind === 'frame') {
             const { frame } = await inspect(source.job!, { time: s.time, timeline: false }, signal);
-            if (!frame?.media.capture || frame.media.capture.time === null) throw new Error('The requested frame is unavailable; no PNG was exported. Refresh or save an end-state snapshot.');
-            file = frame.media.path; observed = frame;
+            if (!frame?.media.capture || frame.media.capture.time === null) throw new Error('The scene ends before this time. Choose an earlier time.');
+            file = frame.media.path; rendered = frame;
           } else {
             const env = await environmentFor(source.uri); signal.throwIfAborted();
             const cfg = vscode.workspace.getConfiguration('manimCue', source.uri), timeout = cfg.get<number>('timeoutSeconds', 600);
-            if (!Number.isFinite(timeout) || timeout < 5 || timeout > 7200) throw new Error('Export timeout must be between 5 and 7200 seconds.');
+            if (!Number.isFinite(timeout) || timeout < 5 || timeout > 7200) throw new Error('Set “Manim Cue: Timeout Seconds” to a value from 5 to 7200.');
             const job = await createJob({ ...env, source: source.uri.fsPath, scene: source.scene, cwd: workingDirectoryFor(source.uri), fps: settings.fps, width: settings.width,
               timeout: timeout * 1000, exportSettings: settings, scratch: this.scratch,
               helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal, log: this.log });
             active.job = job; signal.throwIfAborted();
-            if (job.sourceHash !== sourceHash || this.dirty(source)) throw new Error('Source changed while preparing export.');
+            if (job.sourceHash !== sourceHash || this.dirty(source)) throw new Error('The scene file changed. Save it and try again.');
             this.log(`\n── Export ${source.scene} · ${settings.width}×${settings.height} · ${settings.fps} fps · CRF ${settings.crf} / ${settings.preset} ──\nPython: ${env.python}\nSource: ${source.uri.fsPath}\n`);
-            observed = await renderExport(job, signal); file = observed.media.path;
+            rendered = await renderExport(job, signal); file = rendered.media.path;
           }
           const beforePublish = async () => {
             signal.throwIfAborted();
-            await validateDestination(destination.fsPath, extension, [...forbidden, ...Object.keys(observed?.profile.configs ?? {})]);
-            if (observed && this.dirty(source)) throw new Error('Source changed during export.');
+            await validateDestination(destination.fsPath, extension, [...forbidden, ...Object.keys(rendered?.profile.configs ?? {})]);
+            if (rendered && this.dirty(source)) throw new Error('The scene file changed. Save it and try again.');
           };
           await copyExport(file, destination.fsPath, signal, beforePublish);
         } finally { subscription.dispose(); }
       });
-      this.status = `Export saved: ${path.basename(destination.fsPath)}`;
+      this.status = `Saved ${path.basename(destination.fsPath)}`;
       void vscode.window.showInformationMessage(this.status, 'Reveal file', 'Open file').then(action => {
         if (action === 'Reveal file') void vscode.commands.executeCommand('revealFileInOS', destination);
         if (action === 'Open file') void vscode.env.openExternal(destination);
@@ -185,7 +186,7 @@ export class Exports {
       this.log(`\nExport: ${detail}\n`);
       this.status = detail.split('\n')[0].slice(0, 300);
       if (this.session === s) s.error = this.status;
-      else if (this.status !== 'Export cancelled.') void vscode.window.showErrorMessage(`Export failed: ${this.status}`, 'Show logs').then(action => { if (action) void vscode.commands.executeCommand('manimCue.logs'); });
+      else if (this.status !== 'Export cancelled.') void vscode.window.showErrorMessage(`Export failed: ${this.status}`, 'Show Log').then(action => { if (action) void vscode.commands.executeCommand('manimCue.logs'); });
     } finally {
       // No export output is published into the preview's resource root.
       if (active.job) await fs.rm(active.job.directory, { recursive: true, force: true }).catch(() => {});

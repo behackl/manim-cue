@@ -26,7 +26,7 @@ export async function testExportCopies(root: string): Promise<void> {
       const source: ExportSource = { uri: vscode.Uri.file(sourceFile), scene: 'Demo', time: 0,
         frame: { ...result, media: { ...media, kind: 'image', path: files.frame, capture: { requestedTime: 0, time: 0, frameIndex: 0 } } },
         video: { ...result, media: { ...media, kind: 'video', path: files.video } },
-        timeline: { ...result, timeline: { duration: 1 } as TimelineResult['timeline'], file: files.timeline } };
+        timeline: { ...result, timeline: { duration: 1, entries: [{ kind: 'wait', start: 0, end: 1 }] } as unknown as TimelineResult['timeline'], file: files.timeline } };
       let pickers = 0;
       const exports = new Exports(context, scratch, () => source, () => {}, async () => { throw new Error('Copies must not start native work'); }, () => {});
       try {
@@ -39,14 +39,14 @@ export async function testExportCopies(root: string): Promise<void> {
           assert.equal(Math.max(dialog.choice.settings.width, dialog.choice.settings.height), 8640);
           await exports.submit(dialog.id, { ...dialog.choice, kind, method: 'copy', settings: null });
           assert.deepEqual(await fs.readFile(destination), await fs.readFile(files[kind]));
-          assert.match(exports.snapshot().status ?? '', /Export saved/);
+          assert.match(exports.snapshot().status ?? '', /^Saved /);
           assert.equal(memory.has('exportChoice'), false, 'invalid render drafts are not persisted');
         }
         assert.equal(pickers, 3);
         exports.open(source.frame!.media.path, 0);
         const dialog = exports.snapshot().dialog!;
         await exports.submit(dialog.id, { ...dialog.choice, kind: 'video', method: 'render' } satisfies ExportChoice);
-        assert.match(exports.snapshot().dialog?.error ?? '', /dimensions/);
+        assert.match(exports.snapshot().dialog?.error ?? '', /Width and height/);
         assert.equal(pickers, 3, 'invalid new renders are still rejected before the picker');
       } finally { exports.dispose(); }
     }

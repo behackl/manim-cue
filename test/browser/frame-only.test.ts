@@ -28,7 +28,7 @@ test('frame-only captures can step without playback or an invented duration; sta
     assert.equal(await next.isEnabled(), true); assert.equal(await previous.isEnabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), false);
-    assert.equal(await page.getByLabel('Preview position', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByLabel('Position', { exact: true }).isDisabled(), true);
     await next.click(); await previous.click();
     await page.locator('.media-stage').focus(); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowLeft');
     assert.deepEqual(await page.evaluate(() => (window as any).messages.filter((m: any) => m.kind === 'step').map((m: any) => m.direction)), [1, -1, 1, -1]);
