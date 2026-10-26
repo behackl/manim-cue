@@ -34,7 +34,7 @@ export async function receive(s: Session, data: unknown, origin: 'timeline' | 'p
   if (!data || typeof data !== 'object') return;
   const m = data as Record<string, unknown>;
   switch (m.kind) {
-    case 'ready': s.views.update(); return;
+    case 'ready': if (origin === 'preview') s.previewReady(); s.views.update(); return;
     case 'refresh': await s.refresh(); return;
     case 'cancel': s.cancel(); return;
     case 'preview': await s.renderVideo(); return;

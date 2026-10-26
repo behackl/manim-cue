@@ -89,7 +89,13 @@ export class Session implements vscode.Disposable {
     this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python', 'discover.py').fsPath);
     this.views = new Views(context.extensionUri, [vscode.Uri.file(this.mediaRoot)],
       (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, webview => model(this, webview),
-      () => { this.queue.remove('frame'); this.queue.remove('render'); this.reference = undefined; this.exports.close(); });
+      () => {
+        // Without the preview, frames and videos have no use.
+        const rendering = this.queue.running('render');
+        this.queue.remove('frame'); this.queue.remove('render'); this.videoWanted = false;
+        this.reference = undefined; this.exports.close();
+        if (rendering) { this.done(); this.views.update(); }
+      });
   }
   get autoPreview(): boolean { return vscode.workspace.getConfiguration('manimCue', this.target?.uri).get('autoPreview', true); }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
@@ -238,10 +244,13 @@ export class Session implements vscode.Disposable {
     if (!this.job) await this.refresh(); else this.requestVideo();
     await this.whenIdle();
   }
-  /** Renders the video after the timeline, unless the scene has no plays or waits. */
+  /** The preview webview starts, also after it was closed: render the video if it is missing. */
+  previewReady(): void { if (this.autoPreview) this.requestVideo(); }
+  /** Renders the video for the preview after the timeline, unless the scene has no plays or waits. */
   private requestVideo(): void {
     const job = this.job, timeline = this.timeline;
-    if (!job || !timeline || timeline.outdated || this.queue.running('render') || this.video && !this.video.outdated) return;
+    if (!job || !timeline || timeline.outdated || !this.views.previewOpen || this.queue.running('render')) return;
+    if (this.video && !this.video.outdated) { this.videoWanted = false; return; }
     if (timeline.timeline.duration === 0) { this.videoWanted = false; return; }
     this.queue.enqueue('render', async signal => {
       if (!this.current(job, signal)) return;
