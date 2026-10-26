@@ -19,7 +19,7 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     const sound = timeline.entries[7];
     if (sound.kind === 'sound') { sound.start = -.25; sound.duration = null; sound.file = '<img src=x onerror=alert(1)>.wav'; }
     const model: Model = { generation: 1, scene: 'TimelineExample', status: 'Completed observation', busy: false, stale: false, autoPreview: false,
-      timeline, profile: 'Cairo · 4 fps · 320×180', linked: true, pairing: '' };
+      timeline, profile: 'Cairo · 4 fps · 320×180', followsVideo: true, notice: '' };
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), model);
     await page.waitForSelector('g.event', { timeout: 5000 }).catch(async error => {
       console.error(await page.locator('body').innerText());
@@ -27,7 +27,7 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
       throw error;
     });
     assert.equal(await page.locator('g.event').count(), 5);
-    assert.equal(await page.locator('.banner').isVisible(), false, 'no alignment banner during normal linked playback');
+    assert.equal(await page.locator('.banner').isVisible(), false, 'no banner during normal video playback');
     assert.deepEqual(await page.locator('.toolbar button:visible').allTextContents(), ['↻ Refresh', 'Loop selection']);
     assert.equal(await page.locator('.toolbar input').count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Loop selection', exact: true }).isDisabled(), true);
@@ -64,12 +64,12 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     assert.notEqual(await page.locator('.playhead').getAttribute('x1'), before);
     await page.evaluate(() => window.postMessage({ kind: 'position', generation: 0, time: 99 }, '*'));
     assert.equal(await page.locator('.position').innerText(), 'Video 1 s', 'stale generation cannot move the playhead');
-    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, stale: true, linked: false, selection: { start: 0, end: 1, enabled: false, available: false }, pairing: 'Old preview — unlinked from the displayed timeline' } }, '*'), model);
+    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, stale: true, followsVideo: false, selection: { start: 0, end: 1, enabled: false, available: false }, notice: 'Old preview — source changed' } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('STALE OBSERVATION'));
     assert.equal(await page.locator('.banner').isVisible(), true, 'actionable stale warnings remain');
     assert.equal(await page.getByRole('button', { name: 'Loop selection', exact: true }).isDisabled(), true);
     assert.equal(await page.locator('.loop-region.stale').count(), 1);
-    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, linked: false, busy: true,
+    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, followsVideo: false, busy: true,
       position: { time: 1.25, request: 3 }, timeline: { ...model.timeline!, mode: 'render' } } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Selected 1.25 s');
     assert.equal(await page.getByRole('button', { name: '■ Cancel', exact: true }).isVisible(), true);

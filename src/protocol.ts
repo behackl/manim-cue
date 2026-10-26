@@ -5,7 +5,11 @@ export interface Model {
   generation: number; scene: string; status: string; busy: boolean; stale: boolean;
   autoPreview: boolean; timeline?: Timeline; selected?: number; selectedEvents?: number[]; error?: string; python?: string;
   selection?: TimeRange & { enabled: boolean; available: boolean };
-  profile?: string; linked: boolean; pairing: string; playbackTime?: number;
+  profile?: string; playbackTime?: number;
+  /** The preview shows the current video, so positions are video positions. */
+  followsVideo: boolean;
+  /** Why the preview is old, updating or the end state. */
+  notice: string;
   canSeek?: boolean; canPlay?: boolean; mediaReady?: boolean; playIntent?: number;
   duration?: number; fps?: number; previewWidth?: number; hasMovie?: boolean;
   position?: { time: number; request: number };

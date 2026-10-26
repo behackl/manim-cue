@@ -20,7 +20,7 @@ test('comparison composites exact endpoints, keeps reference through updates and
     }, { color, width, height });
     const red = await image('#ff0000'), blue = await image('#0000ff'), green = await image('#00ff00');
     let model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
-      linked: false, pairing: '', canSeek: true, canPlay: true, mediaReady: true, duration: 3, fps: 4, position: { time: 1.25, request: 1 },
+      followsVideo: false, notice: '', canSeek: true, canPlay: true, mediaReady: true, duration: 3, fps: 4, position: { time: 1.25, request: 1 },
       media: { uri: red, kind: 'image', token: 'red', sourceId: 'run-1', sourceHash: 'abcdef012345', old: false, duration: 0, rate: 4,
         capture: { requestedTime: 1.25, time: 1.25, frameIndex: 5 }, frame: { width: 8, height: 4 } } };
     const publish = (m = model) => page.evaluate(model => new Promise<void>(resolve => {
@@ -153,7 +153,7 @@ test('entering Compare from a playing movie requests its latest presented frame,
     await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
-      linked: true, pairing: '', mediaReady: true, hasMovie: true, canSeek: true, canPlay: true, duration: 3, fps: 4,
+      followsVideo: true, notice: '', mediaReady: true, hasMovie: true, canSeek: true, canPlay: true, duration: 3, fps: 4,
       playIntent: 1, position: { time: .5, request: 1 }, media: { uri: 'https://cue.test/movie.mp4', token: 'movie', kind: 'video', old: false, duration: 3, rate: 4 } };
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), model);
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.time >= 1.25), undefined, { timeout: 5000 }).catch(async e => {

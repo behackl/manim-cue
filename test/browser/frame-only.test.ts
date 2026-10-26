@@ -15,7 +15,7 @@ test('frame-only captures can step without playback or an invented duration; sta
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180; return c.toDataURL(); });
     const model: Model = { generation: 1, scene: 'FrameOnly', status: 'Timeline unavailable', busy: false, stale: false,
-      autoPreview: false, linked: false, pairing: '', canSeek: true, canPlay: false, mediaReady: true, fps: 4,
+      autoPreview: false, followsVideo: false, notice: '', canSeek: true, canPlay: false, mediaReady: true, fps: 4,
       position: { time: 0, request: 1 }, media: { uri: image, token: 'frame', kind: 'image', old: false, duration: 0, rate: 4,
         capture: { requestedTime: 0, time: 0, frameIndex: 0 } } };
     const publish = (model: Model) => page.evaluate(model => new Promise<void>(resolve => {

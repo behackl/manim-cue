@@ -14,11 +14,11 @@ export function model(s: Session, webview?: vscode.Webview): Model {
   const frame = (r: PreviewResult) => ({ width: r.profile.frameWidth, height: r.profile.frameHeight });
   const preview = s.preview, media = preview?.media, fresh = !!preview && !preview.outdated;
   const ready = s.mediaReady(), stale = !!s.timeline?.outdated, video = s.currentVideo();
-  const linked = fresh && !stale && media?.kind === 'video' && !s.mediaError;
-  let pairing = s.mediaError ?? '';
-  if (media && !fresh) pairing = 'Old preview — source changed';
-  else if (media?.capture?.time === null) pairing = 'End state — requested frame unavailable';
-  else if (media?.capture && s.frameSequence !== s.seekSequence) pairing = 'Updating frame at the selected time…';
+  const followsVideo = fresh && !stale && media?.kind === 'video' && !s.mediaError;
+  let notice = s.mediaError ?? '';
+  if (media && !fresh) notice = 'Old preview — source changed';
+  else if (media?.capture?.time === null) notice = 'End state — requested frame unavailable';
+  else if (media?.capture && s.frameSequence !== s.seekSequence) notice = 'Updating frame at the selected time…';
   const selection = s.selection();
   const cfg = vscode.workspace.getConfiguration('manimCue', s.target?.uri);
   const profile = s.timeline?.profile;
@@ -29,7 +29,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     busy: s.busy, stale, error: s.error, autoPreview: s.autoPreview, python: s.pythonInUse,
     timeline: s.timeline?.timeline, selected: s.selected, selectedEvents: s.selectedEvents,
     selection: selection && { ...selection.range, enabled: s.loopEnabled && !stale, available: selection.available },
-    linked, pairing, playbackTime: s.playbackTime,
+    followsVideo, notice, playbackTime: s.playbackTime,
     position: { time: s.desiredTime, request: s.seekSequence }, playIntent: s.playIntent,
     comparison: { enabled: s.comparing, pending: !!s.pinRequest, reference: s.reference && {
       uri: uri(s.reference.media.path), token: s.reference.media.path, kind: 'image', old: false, duration: 0, rate: s.reference.media.rate,
@@ -42,7 +42,7 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     media: preview && media && { uri: uri(media.path), kind: media.kind, token: media.path, old: !fresh, duration: media.duration, rate: media.rate,
       capture: media.capture, sourceId: preview.directory, sourceHash: preview.sourceHash, frame: frame(preview),
       seekTime: media.kind === 'video' ? frameIndex(s.desiredTime, media.rate, videoFrames(media.duration, media.rate)) / media.rate : undefined,
-      loop: linked && s.loopEnabled ? selection?.loop : undefined },
+      loop: followsVideo && s.loopEnabled ? selection?.loop : undefined },
   };
 }
 

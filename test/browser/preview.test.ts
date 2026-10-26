@@ -24,7 +24,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
-      linked: true, pairing: '', canSeek: true, duration: 3, fps: 4, previewWidth: 960, hasMovie: true, position: { time: 1.25, request: 1 },
+      followsVideo: true, notice: '', canSeek: true, duration: 3, fps: 4, previewWidth: 960, hasMovie: true, position: { time: 1.25, request: 1 },
       media: { uri: 'https://cue.test/a.mp4', kind: 'video', token: 'a', old: false, duration: 3, rate: 4, seekTime: 1.25, frame: { width: 8, height: 4 } } };
     const publish = (m: Model) => page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), m);
     await publish(model);
@@ -70,7 +70,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await hit.focus(); await page.keyboard.press('Escape');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
-    await publish({ ...model, busy: true, stale: true, linked: false, position: { time: 1.25, request: 2 }, media: { ...model.media!, old: true } });
+    await publish({ ...model, busy: true, stale: true, followsVideo: false, position: { time: 1.25, request: 2 }, media: { ...model.media!, old: true } });
     assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
     await page.waitForFunction(() => document.querySelector('.measure-layer')?.hasAttribute('hidden'));
     assert.equal(await page.getByRole('button', { name: 'Copy point', exact: true }).isDisabled(), true);
@@ -78,7 +78,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
       const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 400;
       canvas.getContext('2d')!.fillRect(0, 0, 400, 400); return canvas.toDataURL();
     });
-    const frameModel: Model = { ...model, generation: 2, busy: true, stale: true, linked: false, mediaReady: true, autoPreview: false, hasMovie: false,
+    const frameModel: Model = { ...model, generation: 2, busy: true, stale: true, followsVideo: false, mediaReady: true, autoPreview: false, hasMovie: false,
       position: { time: 1.25, request: 2 }, media: { ...model.media!, kind: 'image', uri: captured, token: 'frame', sourceId: 'new',
         capture: { requestedTime: 1.25, time: 1.25, frameIndex: 5 } } };
     await publish(frameModel);
@@ -142,20 +142,20 @@ test('preview swaps at the selected position, paused, without reporting initial 
       const times = (window as any).messages.filter((m: any) => m.kind === 'playback' && m.seekSequence === 6).map((m: any) => m.time);
       return times.some((t: number, i: number) => i > 0 && t < times[i - 1]);
     });
-    await publish({ ...movieModel, generation: 4, stale: true, linked: false, mediaReady: false, position: { time: 2.5, request: 7 }, media: { ...movieModel.media!, old: true } });
+    await publish({ ...movieModel, generation: 4, stale: true, followsVideo: false, mediaReady: false, position: { time: 2.5, request: 7 }, media: { ...movieModel.media!, old: true } });
     await page.waitForFunction(() => { const v = document.querySelector('video'); return v?.paused && !v.seeking; });
     const stopped = await page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime);
     await page.waitForTimeout(600);
     assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime), stopped, 'invalidation disarms repeat timers');
     await page.route('https://cue.test/broken.png', route => route.fulfill({ status: 404, body: '' }));
-    await publish({ ...model, generation: 2, mediaReady: true, linked: false, position: { time: 2.25, request: 4 },
+    await publish({ ...model, generation: 2, mediaReady: true, followsVideo: false, position: { time: 2.25, request: 4 },
       media: { ...model.media!, kind: 'image', token: 'broken', uri: 'https://cue.test/broken.png' } });
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'mediaError' && m.token === 'broken'));
     assert.equal(await page.locator('video').isVisible(), true, 'candidate failure retains the displayed movie');
     const still = await page.evaluate(() => {
       const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 200; return canvas.toDataURL();
     });
-    await publish({ ...model, linked: false, media: { ...model.media!, kind: 'image', uri: still, token: 'still', frame: { width: 10, height: 5 } } });
+    await publish({ ...model, followsVideo: false, media: { ...model.media!, kind: 'image', uri: still, token: 'still', frame: { width: 10, height: 5 } } });
     await page.waitForFunction(() => !document.querySelector<HTMLImageElement>('.media-stage img')?.hidden);
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('.measure-layer')?.hasAttribute('hidden'));
@@ -164,7 +164,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
     for (const value of [9.75, 10]) {
-      await publish({ ...model, duration: 30, linked: false, mediaReady: true, position: { time: value, request: 10 },
+      await publish({ ...model, duration: 30, followsVideo: false, mediaReady: true, position: { time: value, request: 10 },
         media: { ...model.media!, kind: 'image', uri: still, token: String(value), capture: { requestedTime: value, time: value, frameIndex: value * 4 } } });
       await page.waitForFunction(token => (window as any).messages.some((m: any) => m.kind === 'displayed' && m.token === token), String(value));
       if (value === 9.75) box = (await page.getByRole('button', { name: 'Next frame', exact: true }).boundingBox())!;

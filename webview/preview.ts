@@ -121,7 +121,7 @@ function checkLoop(item: Item, presented?: number): boolean {
   clearTimeout(item.loopTimer);
   const video = item.element, range = model?.media?.loop;
   if (!(video instanceof HTMLVideoElement) || item.disposed || item !== active || item.restoring || video.seeking || video.paused ||
-    !ready() || !model?.linked || item.media.token !== model.media?.token || !range) return false;
+    !ready() || !model?.followsVideo || item.media.token !== model.media?.token || !range) return false;
   if (Math.max(video.currentTime, presented ?? 0) >= range.end) {
     repeat(item, range.start); return true;
   }
@@ -274,7 +274,7 @@ listen(m => {
   model = m.model;
   if (model.comparison?.enabled && !wasComparing && measurement.enabled) measurement.setEnabled(false);
   title.textContent = model.scene || 'Manim Cue'; status.textContent = model.status;
-  message.textContent = model.error ?? model.pairing; message.hidden = !message.textContent;
+  message.textContent = model.error ?? model.notice; message.hidden = !message.textContent;
   message.classList.toggle('warning', !!message.textContent);
   const media = model.media;
   if (!media) {

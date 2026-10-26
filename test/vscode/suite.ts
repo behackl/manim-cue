@@ -87,7 +87,7 @@ export async function run(): Promise<void> {
   assert.equal(state.comparison?.enabled, false, 'explicit movie rendering exits still comparison');
   assert.equal(state.media?.frame?.height, 8);
   assert.ok(Math.abs(state.media!.frame!.width - 128 / 9) < 1e-8, 'preview carries configured scene units');
-  assert.equal(state.linked, true); assert.equal(state.pairing, '', 'no permanent alignment disclaimer');
+  assert.equal(state.followsVideo, true); assert.equal(state.notice, '', 'no permanent alignment disclaimer');
   api.seek(1.25);
   for (let i = 0; i < 100 && api.getSnapshot().playbackTime !== 1.25; i++) await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(api.getSnapshot().playbackTime, 1.25, 'seek presents the selected frame');
@@ -144,7 +144,7 @@ export async function run(): Promise<void> {
   const offset = doc.getText().indexOf(waitCall); assert.ok(offset >= 0);
   edit.replace(uri, new vscode.Range(doc.positionAt(offset), doc.positionAt(offset + waitCall.length)), 'self.wait(0.85, frozen_frame=False)');
   assert.equal(await vscode.workspace.applyEdit(edit), true);
-  assert.equal(api.getSnapshot().stale, true); assert.equal(api.getSnapshot().linked, false);
+  assert.equal(api.getSnapshot().stale, true); assert.equal(api.getSnapshot().followsVideo, false);
   assert.equal(api.getSnapshot().selection?.enabled, false, 'source changes disarm the old loop');
   assert.equal(api.getSnapshot().media?.loop, undefined);
   const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -182,7 +182,7 @@ export async function run(): Promise<void> {
   assert.notEqual(revision(), originalRevision);
   assert.equal(api.getSnapshot().position?.time, 1.25, 'frame-first refresh retains the timestamp');
   assert.equal(api.getSnapshot().timeline?.duration, 4, 'automatic refresh executes changed timing, not just new labels');
-  assert.equal(api.getSnapshot().linked, false); assert.equal(api.getSnapshot().media?.old, false);
+  assert.equal(api.getSnapshot().followsVideo, false); assert.equal(api.getSnapshot().media?.old, false);
   assert.equal(api.getSnapshot().media?.kind, 'image'); assert.equal(api.getSnapshot().media?.capture?.time, 1.25);
   assert.equal(api.getSnapshot().mediaReady, true);
   assert.deepEqual(api.getSnapshot().media?.frame, state.media?.frame, 'capture carries its own reference dimensions');
@@ -321,20 +321,20 @@ export async function run(): Promise<void> {
   // Auto video settings take effect immediately without reopening or staling current data.
   const settingsGeneration = api.getSnapshot().generation;
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', true, vscode.ConfigurationTarget.Workspace);
-  await until(() => api.getSnapshot().autoPreview && api.getSnapshot().linked, 'Auto video setting prepares the current movie');
+  await until(() => api.getSnapshot().autoPreview && api.getSnapshot().followsVideo, 'Auto video setting prepares the current movie');
   await api.whenIdle();
   assert.equal(api.getSnapshot().generation, settingsGeneration, 'Auto video is not an execution-profile change');
   const oldMedia = api.getSnapshot().media?.token;
-  assert.equal(api.getSnapshot().linked, true);
+  assert.equal(api.getSnapshot().followsVideo, true);
   await until(() => api.getSnapshot().playbackTime === 1.25, 'replacement video restores selected frame');
   await insert('# refresh video too\n'); await doc.save();
   await until(() => api.getSnapshot().busy, 'refresh queued');
   api.seek(2.25); // Latest user choice during the run wins over its initial position.
   await savedTimeline();
   await until(() => api.getSnapshot().playbackTime === 2.25, 'automatic video restores latest selection');
-  assert.equal(api.getSnapshot().linked, true);
+  assert.equal(api.getSnapshot().followsVideo, true);
   assert.notEqual(api.getSnapshot().media?.token, oldMedia);
-  assert.equal(api.getSnapshot().pairing, '');
+  assert.equal(api.getSnapshot().notice, '');
 
   // Opt-out keeps manual refresh available, without executing on a saved edit.
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoRefreshOnSave', false, vscode.ConfigurationTarget.Workspace);

@@ -11,7 +11,7 @@ const cancel = button('■ Cancel', () => post({ kind: 'cancel' }));
 const loop = button('Loop selection', () => { if (model) post({ kind: 'loopSelection', generation: model.generation, enabled: !model.selection?.enabled }); });
 const rangeLabel = el('span', 'selection-range');
 header.append(sceneName, refresh, cancel, loop, rangeLabel, status);
-const banner = el('div', 'banner');
+const banner = el('div', 'banner warning');
 const workspace = el('div', 'workspace');
 const chart = el('section', 'chart');
 const controls = el('div', 'chart-controls');
@@ -55,7 +55,7 @@ function select(index: number, event?: MouseEvent | KeyboardEvent): void {
 }
 function seek(time: number): void {
   if (!model?.timeline) return;
-  if (model.linked) {
+  if (model.followsVideo) {
     ghost?.setAttribute('x1', String(x(time))); ghost?.setAttribute('x2', String(x(time))); ghost?.setAttribute('visibility', 'visible');
     post({ kind: 'seek', generation: model.generation, time });
   } else { moveCursor(time); post({ kind: 'seek', generation: model.generation, time }); }
@@ -63,7 +63,7 @@ function seek(time: number): void {
 function moveCursor(time: number): void {
   cursor = time;
   marker?.setAttribute('x1', String(x(time))); marker?.setAttribute('x2', String(x(time)));
-  position.textContent = `${model?.linked ? 'Video' : 'Selected'} ${seconds(time)}`;
+  position.textContent = `${model?.followsVideo ? 'Video' : 'Selected'} ${seconds(time)}`;
 }
 function siteLabel(site: Source | null): string {
   if (!site) return 'Source unavailable';
@@ -97,9 +97,8 @@ function render(): void {
   loop.title = model.stale ? 'Refresh before looping this selection' : model.selection && !model.selection.available ? 'This selection cannot be mapped to the current movie frames' : 'Select events (Cmd/Ctrl-click to toggle, Shift-click for a range). Loop includes intervening events. Press Play to start.';
   rangeLabel.textContent = model.selection ? `${model.selection.start.toFixed(3)}–${model.selection.end.toFixed(3)} s${model.stale ? ' · stale' : ''}` : 'Select events to loop';
   profile.textContent = model.profile ?? 'Saved source';
-  banner.textContent = `${model.stale ? 'STALE OBSERVATION — ' : ''}${model.pairing}`;
-  banner.hidden = !model.stale && !model.pairing;
-  banner.classList.toggle('warning', model.stale || (!!model.media && !model.linked));
+  banner.textContent = `${model.stale ? 'STALE OBSERVATION — ' : ''}${model.notice}`;
+  banner.hidden = !model.stale && !model.notice;
   error.textContent = model.error ?? ''; error.hidden = !model.error;
   errorActions.hidden = !model.error;
   checkPython.hidden = !/python|import|module|environment|executable/i.test(model.error ?? '');
@@ -173,7 +172,7 @@ function render(): void {
     selectable(g, index, `${label} · placed ${seconds(start)} · ${siteLabel(d.source)}`);
     svg.append(g);
   });
-  marker = node('line', { x1: x(cursor), x2: x(cursor), y1: 0, y2: height, class: model.linked ? 'playhead video-playhead' : 'playhead' });
+  marker = node('line', { x1: x(cursor), x2: x(cursor), y1: 0, y2: height, class: model.followsVideo ? 'playhead video-playhead' : 'playhead' });
   ghost = node('line', { x1: 0, x2: 0, y1: 0, y2: height, class: 'ghost', visibility: 'hidden' });
   svg.append(marker, ghost); moveCursor(cursor); details(t);
 }
@@ -237,9 +236,9 @@ listen(message => {
   if (message.kind === 'state') {
     model = message.model;
     cursor = model.position?.time ?? model.playbackTime ?? 0;
-    if (model.linked && model.mediaReady !== false && model.playbackTime !== undefined) cursor = model.playbackTime;
+    if (model.followsVideo && model.mediaReady !== false && model.playbackTime !== undefined) cursor = model.playbackTime;
     render();
-  } else if (message.kind === 'position' && message.generation === model?.generation && model.linked) {
+  } else if (message.kind === 'position' && message.generation === model?.generation && model.followsVideo) {
     moveCursor(message.time); ghost?.setAttribute('visibility', 'hidden');
   }
 });
