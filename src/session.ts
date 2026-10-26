@@ -4,12 +4,12 @@ import * as path from 'node:path';
 import { environmentFor, workingDirectoryFor } from './environment';
 import { RuntimeUnavailable } from './diagnostics';
 import { Scenes } from './scenes';
-import { insideEnvironment } from './setup-plan';
 import { createJob, inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
 import { PreviewQueue } from './preview-queue';
 import type { TimeRange } from './selection';
 import { Views } from './views';
 import { Exports, type ExportSource } from './exports';
+import { SourceWatch } from './source-watch';
 import { model, receive } from './panel';
 
 type Topic = 'Frame' | 'Timeline' | 'Video';
@@ -39,6 +39,17 @@ export class Session implements vscode.Disposable {
   readonly views: Views;
   readonly scenes: Scenes;
   readonly exports: Exports;
+  readonly watch = new SourceWatch({
+    file: () => this.target?.uri,
+    invalidate: (reason, savedHash) => this.invalidate(reason, savedHash),
+    queued: () => { this.busy = true; this.error = undefined; this.views.update(); },
+    refresh: () => this.refresh(),
+    failed: (status, e) => {
+      if (this.disposed) return;
+      this.busy = false; this.status = status; this.error = e instanceof Error ? e.message : String(e);
+      this.output.appendLine(this.error); this.views.update();
+    },
+  });
   /** Increments to stop the async work of an older refresh. */
   private generation = 0;
   private opening = 0;
@@ -48,11 +59,6 @@ export class Session implements vscode.Disposable {
   /** "Render video" or Play came before the timeline: render when it is ready. */
   private videoWanted = false;
   private errors = new Map<string, string>();
-  private saveTimer?: ReturnType<typeof setTimeout>;
-  private saveCheck = 0;
-  private diskHash?: string;
-  /** The editor changed the source after the last refresh; a save with the old content still refreshes. */
-  private sourceEdited = false;
   private disposed = false;
   private rememberTimer?: ReturnType<typeof setTimeout>;
   private readonly queue = new PreviewQueue(() => {
@@ -99,7 +105,7 @@ export class Session implements vscode.Disposable {
     this.cancel(false);
     if (different) {
       this.frame = this.video = this.timeline = this.reference = this.loop = undefined;
-      this.diskHash = undefined; this.sourceEdited = false;
+      this.watch.reset();
       const time = remembered?.uri === document.uri.toString() && remembered.scene === scene ? remembered.time : 0;
       this.time = Number.isFinite(time) && time >= 0 ? time : 0;
     }
@@ -109,7 +115,7 @@ export class Session implements vscode.Disposable {
     if (opening === this.opening) await this.refresh();
   }
   async refresh(frame = true): Promise<void> {
-    this.clearAutoRefresh();
+    this.watch.stop();
     if (!this.target) { await this.open(); return; }
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
     const target = this.target, intent = this.generation;
@@ -119,7 +125,7 @@ export class Session implements vscode.Disposable {
     if (document.isDirty) { this.invalidate('Outdated. Save the scene file to update.'); throw new Error('Save the scene file to update.'); }
     const videoWanted = this.videoWanted;
     this.cancel(false);
-    this.diskHash = hash; this.sourceEdited = false; this.videoWanted = videoWanted;
+    this.watch.updating(hash); this.videoWanted = videoWanted;
     const generation = this.generation, abort = new AbortController(); this.abort = abort;
     this.preparing = true; this.busy = true; this.error = undefined; this.errors.clear();
     this.status = 'Starting Python…'; this.views.update();
@@ -258,7 +264,7 @@ export class Session implements vscode.Disposable {
     if (event.affectsConfiguration('manimCue.autoPreview', uri)) {
       if (this.autoPreview) this.requestVideo(); else if (!this.videoWanted) this.queue.remove('render');
     }
-    if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true)) this.clearAutoRefresh();
+    if (event.affectsConfiguration('manimCue.autoRefreshOnSave', uri) && !vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true)) this.watch.stop();
     if (event.affectsConfiguration('python', uri) || ['pythonPath', 'frameRate', 'previewWidth', 'workingDirectory', 'timeoutSeconds'].some(key => event.affectsConfiguration(`manimCue.${key}`, uri))) {
       this.scenes.invalidate(); this.invalidate('Outdated. Refresh to use the new settings.');
     }
@@ -278,13 +284,10 @@ export class Session implements vscode.Disposable {
     });
     await this.pending;
   }
-  private clearAutoRefresh(): void {
-    clearTimeout(this.saveTimer); this.saveTimer = undefined; ++this.saveCheck;
-  }
   /** Stops all work. Without `preserve`, the results become outdated and the job ends. */
   cancel(preserve = true): void {
     if (preserve) this.exports.cancel();
-    this.clearAutoRefresh();
+    this.watch.stop();
     ++this.generation; this.abort?.abort(); this.videoWanted = false;
     if (!preserve) {
       this.job = undefined;
@@ -305,52 +308,6 @@ export class Session implements vscode.Disposable {
     const generation = this.generation;
     const resolved = await environmentFor(this.target.uri);
     if (generation === this.generation && resolved.python !== this.pythonInUse) this.invalidate('Outdated. Refresh to use the new Python environment.');
-  }
-  changed(uri: vscode.Uri): void {
-    if (!this.target) return;
-    if (uri.toString() === this.target.uri.toString()) {
-      this.sourceEdited = true;
-      this.invalidate('Outdated. Save the scene file to update.');
-    }
-    else if (!insideEnvironment(uri.fsPath) &&
-      (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env')) {
-      this.invalidate('Outdated. A project file changed. Refresh to update.');
-    }
-  }
-  async saved(uri: vscode.Uri): Promise<void> {
-    if (!this.target || uri.toString() !== this.target.uri.toString()) { this.changed(uri); return; }
-    const target = this.target, check = ++this.saveCheck;
-    try {
-      const hash = await fileHash(uri.fsPath);
-      if (this.disposed || this.target !== target || check !== this.saveCheck) return;
-      // A disk notification must never run an older saved version under a dirty buffer.
-      if (vscode.workspace.textDocuments.some(d => d.uri.toString() === uri.toString() && d.isDirty)) return;
-      // Save + file-watcher notifications often describe the same write. Do not cancel
-      // a queued/active run for the duplicate, even when the watcher arrives late.
-      if (hash === this.diskHash && !this.sourceEdited) return;
-      this.diskHash = hash; this.sourceEdited = false;
-      const automatic = vscode.workspace.isTrusted && vscode.workspace.getConfiguration('manimCue', uri).get('autoRefreshOnSave', true);
-      this.invalidate(automatic ? 'Update queued…' : 'Outdated. Refresh to update.', hash);
-      if (!automatic) return;
-      const generation = this.generation;
-      this.busy = true; this.error = undefined; this.views.update();
-      this.saveTimer = setTimeout(() => {
-        this.saveTimer = undefined;
-        if (this.disposed || this.target !== target || generation !== this.generation) return;
-        void this.refresh().catch(e => {
-          // Job failures already stay in the panel; preflight failures should too.
-          if (this.disposed || generation !== this.generation) return;
-          this.busy = false; this.status = 'Update failed';
-          this.error = e instanceof Error ? e.message : String(e);
-          this.output.appendLine(this.error); this.views.update();
-        });
-      }, 500);
-    } catch (e) {
-      if (this.disposed || this.target !== target || check !== this.saveCheck) return;
-      this.invalidate('Cannot read the scene file. Save it again to update.');
-      this.error = e instanceof Error ? e.message : String(e);
-      this.output.appendLine(this.error); this.views.update();
-    }
   }
   async navigate(index: number): Promise<void> {
     if (!this.timeline || !this.target) return;
@@ -407,7 +364,7 @@ export class Session implements vscode.Disposable {
   dispose(): void {
     clearTimeout(this.rememberTimer);
     if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.time });
-    this.clearAutoRefresh(); this.exports.dispose(); this.disposed = true; ++this.generation; this.abort?.abort();
+    this.watch.dispose(); this.exports.dispose(); this.disposed = true; ++this.generation; this.abort?.abort();
     this.queue.clear(); this.scenes.dispose(); this.views.dispose();
   }
 }

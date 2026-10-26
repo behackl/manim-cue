@@ -101,14 +101,14 @@ export function activate(context: vscode.ExtensionContext) {
       if (!e.contentChanges.length) return;
       // VS Code can deliver content changes before updating isDirty. Invalidate
       // immediately; the async disk check rechecks dirtiness before queuing a run.
-      session.changed(e.document.uri);
-      if (!e.document.isDirty) void session.saved(e.document.uri);
+      session.watch.changed(e.document.uri);
+      if (!e.document.isDirty) void session.watch.saved(e.document.uri);
     }),
-    vscode.workspace.onDidSaveTextDocument(document => { void session.saved(document.uri); }),
+    vscode.workspace.onDidSaveTextDocument(document => { void session.watch.saved(document.uri); }),
     vscode.workspace.onDidChangeConfiguration(e => session.configurationChanged(e)),
   );
   const watcher = vscode.workspace.createFileSystemWatcher('**/*.{py,cfg,env}');
-  context.subscriptions.push(watcher, watcher.onDidChange(uri => { void session.saved(uri); }), watcher.onDidCreate(uri => { void session.saved(uri); }), watcher.onDidDelete(uri => session.changed(uri)));
+  context.subscriptions.push(watcher, watcher.onDidChange(uri => { void session.watch.saved(uri); }), watcher.onDidCreate(uri => { void session.watch.saved(uri); }), watcher.onDidDelete(uri => session.watch.changed(uri)));
   void PythonExtension.api().then(api => {
     context.subscriptions.push(api.environments.onDidChangeActiveEnvironmentPath(() => { void session.environmentChanged().catch(e => session.failAction(e)); }));
   }).catch(() => {});
