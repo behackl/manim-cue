@@ -122,6 +122,8 @@ export class ExportDialog {
   private render(): void {
     const d = this.data, choice = this.choice;
     if (!d || !choice) return;
+    if (choice.kind === 'video' && !d.canExportVideo) choice.kind = 'frame';
+    this.kindButtons.get('video')!.hidden = !d.canExportVideo;
     const { kind, method } = choice, rendering = kind === 'video' && method === 'render', capture = kind === 'frame' && d.frame?.kind === 'video';
     for (const [k, b] of this.kindButtons) b.setAttribute('aria-pressed', String(k === kind));
     this.methods.hidden = kind !== 'video'; this.fields.hidden = !rendering; this.fields.disabled = !rendering;

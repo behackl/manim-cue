@@ -7,7 +7,7 @@ export interface ExportChoice { kind: ExportKind; method: 'copy' | 'render'; set
 export interface ExportDialogModel {
   id: string; scene: string; choice: ExportChoice; aspect: number; previewSize: { width: number; height: number };
   frame?: { kind: 'image' | 'video'; description: string; uri?: string }; video?: string; timeline?: string;
-  canCapture: boolean; dirty: boolean; newer: boolean; error?: string;
+  canExportVideo: boolean; canCapture: boolean; dirty: boolean; newer: boolean; error?: string;
 }
 export interface ExportModel { dialog?: ExportDialogModel; busy: boolean; nativeBusy: boolean; status?: string; requestOpen?: boolean }
 

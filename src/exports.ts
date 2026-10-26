@@ -7,6 +7,7 @@ import { createJob, fileHash, inspect, renderExport, type PreviewResult, type Ti
 import { exportChoice, exportSize, type ExportChoice, type ExportModel } from './export-settings';
 import { copyExport, validateDestination } from './export-files';
 import { videoFrameIndex, videoFrames } from './transport';
+import { isCall } from './timeline';
 
 export interface ExportSource {
   uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult;
@@ -38,6 +39,8 @@ export class Exports {
   get files(): string[] {
     return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.video?.media.path]).filter((p): p is string => !!p);
   }
+  /** A scene without plays and waits has no video; its frame is the export. */
+  private hasVideo(source: ExportSource): boolean { return !source.timeline || source.timeline.timeline.entries.some(isCall); }
   private dirty(source: ExportSource): boolean { return vscode.workspace.textDocuments.some(d => d.uri.toString() === source.uri.toString() && d.isDirty); }
   private description(result: PreviewResult | TimelineResult): string {
     const p = result.profile;
@@ -55,6 +58,7 @@ export class Exports {
           uri: webview && s.source.frame.media.kind === 'image' ? webview.asWebviewUri(vscode.Uri.file(s.source.frame.media.path)).toString() : undefined } : undefined,
         video: s.source.video?.media.kind === 'video' ? this.description(s.source.video) : undefined,
         timeline: s.source.timeline ? this.description(s.source.timeline) : undefined,
+        canExportVideo: this.hasVideo(s.source),
         canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !s.source.frame.outdated,
         dirty: this.dirty(s.source), newer: current?.frame?.media.path !== s.source.frame?.media.path || current?.video?.media.path !== s.source.video?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
         error: s.error } : undefined };
@@ -69,6 +73,7 @@ export class Exports {
     let choice: ExportChoice = { kind: source.frame?.media.kind === 'video' ? 'video' : 'frame', method: source.video && !source.video.outdated ? 'copy' : 'render',
       settings: { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium', options: '' } };
     try { choice = exportChoice(this.context.workspaceState.get('exportChoice')); } catch { /* First visit or incompatible stored preference. */ }
+    if (choice.kind === 'video' && !this.hasVideo(source)) choice = { ...choice, kind: 'frame' };
     const media = source.frame?.media, value = time ?? source.time;
     if (!Number.isFinite(value) || value < 0 || media?.kind === 'video' && value > media.duration) return;
     const selected = media?.kind === 'video' ? videoFrameIndex(value, media.rate, videoFrames(media.duration, media.rate)) / media.rate : value;
@@ -91,6 +96,7 @@ export class Exports {
       const { kind, method } = s.choice;
       const native = kind === 'video' && method === 'render' || kind === 'frame' && s.source.frame?.media.kind === 'video';
       if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.video?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
+      if (kind === 'video' && !this.hasVideo(s.source)) throw new Error('This scene has no plays or waits. Save its frame as PNG.');
       if (kind === 'frame' && native && !this.snapshot().dialog?.canCapture) throw new Error('Refresh to a current movie with frame capture support first.');
       if (native && !vscode.workspace.isTrusted) throw new Error('Trust this workspace before executing Python.');
       if (kind === 'video' && method === 'render' && (s.source.timeline ?? s.source.frame)?.profile.videoEncoder === false) throw new Error('New MP4 exports require Manim’s public video encoder profile support. Run Manim Cue: Check Python Environment; existing artifact copies remain available.');

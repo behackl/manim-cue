@@ -24,7 +24,7 @@ test('export dialog separates copies from renders, validates settings, and keeps
     assert.equal(await page.evaluate(() => (window as any).messages.at(-1).kind), 'openExport');
     const dialog: ExportDialogModel = { id: 'export-1', scene: 'Demo', aspect: 16 / 9, previewSize: { width: 960, height: 540 },
       frame: { kind: 'image', description: 'OLD · 1.250 s · 960 × 540 · source abcdef01' }, video: 'OLD · 3 s · H.264 · includes audio', timeline: 'revision abcdef',
-      canCapture: false, dirty: false, newer: false,
+      canExportVideo: true, canCapture: false, dirty: false, newer: false,
       choice: { kind: 'frame', method: 'copy', settings: { width: 1920, height: 1080, fps: 29.97, crf: 18, preset: 'medium', options: '' } } };
     const state = (d = dialog, busy = false) => ({ ...model, exportState: { busy, nativeBusy: false, dialog: d } });
     await publish(state());
@@ -75,6 +75,10 @@ test('export dialog separates copies from renders, validates settings, and keeps
     await publish(state({ ...dialog, id: 'export-2', frame: { kind: 'video', description: '1.250 s · movie' }, canCapture: true }));
     assert.equal(await page.getByRole('button', { name: 'Capture and save PNG…', exact: true }).isEnabled(), true);
     assert.match(await page.locator('.export-note:visible').last().innerText(), /not movie pixel extraction/);
+    await page.keyboard.press('Escape');
+    await publish(state({ ...dialog, id: 'export-3', canExportVideo: false, choice: { ...dialog.choice, kind: 'video' } }));
+    assert.equal(await page.getByRole('button', { name: 'Video', exact: true }).isVisible(), false, 'a scene without plays has no video');
+    assert.equal(await page.getByRole('button', { name: 'Save PNG…', exact: true }).isEnabled(), true);
     await publish({ ...model, exportState: { busy: true, nativeBusy: true, status: 'Export rendering' } });
     assert.equal(await page.getByRole('dialog').count(), 0, 'accepted job leaves the preview accessible');
     await page.getByRole('button', { name: 'Cancel export', exact: true }).click();

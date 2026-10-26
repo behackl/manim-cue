@@ -422,6 +422,7 @@ export async function run(): Promise<void> {
   assert.equal(api.getSnapshot().comparison?.enabled, false);
   assert.equal(api.getSnapshot().canPlay, false, 'static scenes keep an untimed snapshot');
   assert.equal(api.getSnapshot().media?.capture?.time, null);
+  assert.equal((await exportDialog()).canExportVideo, false, 'a scene without plays exports its frame only');
   await vscode.commands.executeCommand('manimCue.clearCaches');
   assert.match(api.getSnapshot().status, /caches cleared/);
 
