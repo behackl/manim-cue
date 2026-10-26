@@ -77,7 +77,7 @@ export function errorLine(output: string): string {
   while (start >= 0 && !/^[A-Za-z_][\w.]*(Error|Exception|Exit|Interrupt)\b/u.test(lines[start])) start--;
   const line = start < 0 ? lines.at(-1) : lines.slice(start).join(' ');
   // Long run and cache paths only hide the message: keep their file names.
-  return line?.replace(/(?:[A-Za-z]:)?[\\/](?:[^\s'"(),:\\/]+[\\/])+(?=[^\s'"(),:\\/])/gu, '').slice(0, 500) || 'Python stopped with an error. See the log.';
+  return line?.replace(/(?<=^|[\s'"(=])(?:[A-Za-z]:)?[\\/](?:[^\s'"(),:\\/]+[\\/])+(?=[^\s'"(),:\\/])/gu, '').slice(0, 500) || 'Python stopped with an error. See the log.';
 }
 async function removeNewer(dir: string, since: number): Promise<void> {
   for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {

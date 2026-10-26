@@ -39,5 +39,6 @@ test('the error line keeps file names instead of long paths', () => {
   const output = 'Traceback (most recent call last):\n  File "/x/y.py", line 1\nRuntimeError: Failed to encode /tmp/cue-a/runs/run-1/work/uncached_00\n000.mp4 (C:\\Users\\me\\scene.py)';
   assert.equal(errorLine(output), 'RuntimeError: Failed to encode uncached_00 000.mp4 (scene.py)');
   assert.equal(errorLine('plain message'), 'plain message');
+  assert.equal(errorLine('ValueError: mp4/libx264/yuv420p at /tmp/run/x.mp4'), 'ValueError: mp4/libx264/yuv420p at x.mp4', 'a path starts after a space');
   assert.equal(errorLine(''), 'Python stopped with an error. See the log.');
 });
