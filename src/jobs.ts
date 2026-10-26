@@ -100,6 +100,7 @@ export async function inspect(job: SceneJob, request: { time?: number; timeline:
       result.frame = { ...o, media: { path: image, kind: 'image', duration: 0, rate: o.profile.fps, hasAudio: false, capture } };
       return frame(result.frame);
     });
+    published.catch(() => {}); // A failed run is the error to report; the await below reports this one.
   });
   await published;
   if (file) result.timeline = { ...await newResult(job), timeline: parseTimeline(await fs.readFile(file, 'utf8')), file };
