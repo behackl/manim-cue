@@ -71,3 +71,12 @@ test('unsaved edits and other files', async () => {
     assert.match(calls.at(-1) ?? '', /^failed Cannot read the scene file/);
   } finally { await fs.rm(dir, { recursive: true }); }
 });
+
+test('an editor text without the UTF-8 BOM of the file is the saved text', async () => {
+  const { dir, file, calls, watch } = await setup();
+  try {
+    await fs.writeFile(file.fsPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('saved')]));
+    await watch.saved(file, 'saved'); await pause(30);
+    assert.deepEqual(calls, ['invalidate Update queued…', 'queued', 'refresh']);
+  } finally { await fs.rm(dir, { recursive: true }); }
+});

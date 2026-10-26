@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { fileHash } from './jobs';
+import * as fs from 'node:fs/promises';
 import { insideEnvironment } from './setup-plan';
 
 /** The parts of a `vscode.Uri` that SourceWatch uses. */
@@ -53,11 +53,12 @@ export class SourceWatch {
     if (uri.toString() !== this.scene.file()?.toString()) { this.changed(uri); return; }
     let check = ++this.check;
     try {
-      const hash = await fileHash(uri.fsPath);
+      const bytes = await fs.readFile(uri.fsPath), hash = createHash('sha256').update(bytes).digest('hex');
       if (check !== this.check) return;
       // A disk notification must never run an older saved version under a dirty buffer.
       if (this.scene.dirty(uri)) return;
-      if (text !== undefined && createHash('sha256').update(text).digest('hex') !== hash) return;
+      // The editor text has no UTF-8 BOM.
+      if (text !== undefined && bytes.toString('utf8').replace(/^\uFEFF/u, '') !== text) return;
       // A save and the file watcher often report the same write. Do not cancel a queued
       // or running update for the duplicate, even when the watcher comes late.
       if (hash === this.hash && !this.edited) return;
