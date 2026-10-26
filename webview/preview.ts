@@ -151,7 +151,7 @@ function create(media: Media): Item {
       if (model?.loop) { element.currentTime = videoPosition(video, model.loop.start); void element.play(); return; }
       playing = false; setTime(lastFrame(), true);
     });
-    element.addEventListener('error', () => fail('VS Code cannot play this video.'));
+    element.addEventListener('error', () => fail('VS Code cannot play this video. Refresh to render it again.'));
     if (frameCallbacks) {
       const frame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
         if (item.disposed) return;
@@ -196,7 +196,7 @@ function sync(): void {
   watermark.hidden = !shown || !shown.media.outdated && current;
   const last = current && !isVideo(shown!.media) && shown!.media.time === null;
   const notice = last ? 'The scene ends before this time. This is its last frame.'
-    : video && !playing && isSkipped(video.skipped, time) ? 'This part is skipped in the video.' : '';
+    : video && !playing && isSkipped(video.skipped, time) ? 'Not in the video: this section is skipped.' : '';
   message.textContent = model.error ?? loadError ?? notice; message.hidden = !message.textContent;
   const d = duration();
   clock.textContent = `${last ? 'Last frame' : time.toFixed(2) + ' s'} / ${d === undefined ? '—' : d.toFixed(2) + ' s'}`;

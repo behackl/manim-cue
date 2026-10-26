@@ -129,7 +129,7 @@ test('in a skipped part, the preview shows a frame; playback goes over the skipp
     assert.equal(await page.locator('.preview-controls .position').innerText(), '2.25 s / 4.00 s');
     await w.send({ kind: 'seek', time: 1.5 });
     assert.equal((await w.message('frameNeeded')).time, 1.5);
-    assert.equal(await page.locator('.banner').innerText(), 'This part is skipped in the video.');
+    assert.equal(await page.locator('.banner').innerText(), 'Not in the video: this section is skipped.');
     await w.publish(model({ time: 1.5, duration: 4, video: skipped, frame: await frame(page, 1.5) }));
     await page.waitForFunction(() => !!document.querySelector('.media-stage img') && !document.querySelector('video'));
     await w.send({ kind: 'seek', time: .5 });

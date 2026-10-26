@@ -139,7 +139,7 @@ function render(): void {
   if (!available) looping = false;
   loop.disabled = !available; loop.setAttribute('aria-pressed', String(looping));
   loop.title = model.timelineOutdated ? 'Refresh to loop the selection.' : range && !available ? 'The video has no frames for this selection.' : 'Select plays and waits: click, Cmd/Ctrl-click to add one, Shift-click for a range. Then press Play.';
-  rangeLabel.textContent = range ? timeRange(range.start, range.end) : 'Select plays to loop';
+  rangeLabel.textContent = range ? timeRange(range.start, range.end) : 'Select plays or waits to loop';
   rangeLabel.classList.toggle('muted', !range);
   chart.classList.toggle('outdated', model.timelineOutdated);
   sendLoop();
@@ -205,8 +205,11 @@ function render(): void {
     const start = d.start;
     let label: string;
     if (d.kind === 'section') {
-      label = `${d.name}${d.skip_animations ? ' (skipped in the video)' : ''}`;
-      g.append(node('path', { d: `M${x(start)},${sectionY + 2}v27m0,-24h7l-4,5h-3`, class: d.skip_animations ? 'skip-request' : '' }), node('text', { x: x(start) + 10, y: sectionY + 18 }, d.name));
+      label = `${d.name}${d.skip_animations ? ' · Not in the video' : ''}`;
+      // The name can use the space up to the next section.
+      const next = t.entries.find((e, i) => i > index && e.kind === 'section' && e.start > start)?.start ?? hi;
+      g.append(node('path', { d: `M${x(start)},${sectionY + 2}v27m0,-24h7l-4,5h-3`, class: d.skip_animations ? 'skip-request' : '' }));
+      if (x(next) - x(start) > 30) g.append(node('text', { x: x(start) + 10, y: sectionY + 18 }, fit(d.name, x(next) - x(start) - 16)));
     } else {
       const y = (d.kind === 'caption' ? captionY : soundY) + lanes.get(index)! * 32;
       if (d.kind === 'caption') {
@@ -243,12 +246,12 @@ function details(t: Timeline): void {
     detail('Time', timeRange(entry.start, entry.end));
     if (Math.abs(entry.run_time - (entry.end - entry.start)) > 1e-6) detail('Requested run time', time(entry.run_time));
     if (entry.frozen) note('Still image');
-    if (entry.skipped) note('Not in the video (skipped section)');
+    if (entry.skipped) note('Not in the video: this section is skipped.');
     if (entry.kind === 'play') detail('Animations', animationNames(entry).join('\n'));
   } else if (entry.kind === 'section') {
     inspector.append(el('h3', '', 'Section'));
     detail('Name', entry.name); detail('Time', time(entry.start));
-    if (entry.skip_animations) note('Skipped in the video');
+    if (entry.skip_animations) note('Not in the video: this section is skipped.');
   } else if (entry.kind === 'caption') {
     inspector.append(el('h3', '', 'Caption'));
     detail('Text', entry.content); detail('Time', timeRange(entry.start, entry.end));
