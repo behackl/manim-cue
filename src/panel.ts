@@ -11,7 +11,8 @@ const range = (x: unknown) => {
 };
 
 /** The state that both webviews show. */
-export function model(s: Session, webview?: vscode.Webview): Model {
+/** `sent`: the timeline that the webview has. The preview needs only the duration. */
+export function model(s: Session, webview?: vscode.Webview, view?: 'timeline' | 'preview', sent?: string): Model {
   const media = (r: PreviewResult) => ({ id: r.media.path, uri: webview ? webview.asWebviewUri(vscode.Uri.file(r.media.path)).toString() : '',
     outdated: r.outdated, frame: { width: r.profile.frameWidth, height: r.profile.frameHeight } });
   const frame = (r?: PreviewResult): FrameMedia | undefined => r && { ...media(r), requestedTime: r.media.capture!.requestedTime, time: r.media.capture!.time };
@@ -22,7 +23,8 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     autoPreview: s.autoPreview, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
     profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
     job: s.watch.edited ? undefined : s.job?.directory, time: s.time,
-    timeline: s.timeline?.timeline, timelineKey: s.timeline?.directory, timelineOutdated: !!s.timeline?.outdated,
+    timeline: view !== 'preview' && sent !== s.timeline?.file ? s.timeline?.timeline : undefined, timelineId: s.timeline?.file,
+    timelineKey: s.timeline?.directory, timelineOutdated: !!s.timeline?.outdated, duration: s.timeline?.timeline.duration,
     frame: frame(s.frame), reference: frame(s.reference),
     video: video && { ...media(s.video!), duration: video.duration, rate: video.rate, skipped: video.skipped ?? [] },
     loop: s.loop, exportState: s.exports.snapshot(webview),
@@ -34,7 +36,7 @@ export async function receive(s: Session, data: unknown, origin: 'timeline' | 'p
   if (!data || typeof data !== 'object') return;
   const m = data as Record<string, unknown>;
   switch (m.kind) {
-    case 'ready': if (origin === 'preview') s.previewReady(); s.views.update(); return;
+    case 'ready': if (origin === 'preview') s.previewReady(); s.views.ready(origin); return;
     case 'refresh': await s.refresh(); return;
     case 'cancel': s.cancel(); return;
     case 'preview': await s.renderVideo(); return;

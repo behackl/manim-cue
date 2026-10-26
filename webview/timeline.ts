@@ -39,6 +39,8 @@ const checkPython = button('Check Python', () => post({ kind: 'doctor' }));
 errorActions.append(button('Show Log', () => post({ kind: 'logs' })), checkPython);
 app.append(header, banner, workspace, error, errorActions);
 let model: Model | undefined;
+/** The host sends the timeline only when it changes. */
+let timeline: Timeline | undefined;
 /** The selection belongs to one timeline key: the render's timeline keeps the entries of the inspection. */
 let key: string | undefined, inspected: number | undefined, selectedEvents: number[] = [], anchor: number | undefined, looping = false;
 const restored = saved() as { key?: string; inspected?: number; selectedEvents?: number[]; looping?: boolean } | undefined;
@@ -61,7 +63,7 @@ function changeZoom(value: number): void {
   viewport.scrollLeft = Math.max(0, x(center) - viewport.clientWidth / 2);
 }
 function select(index: number, event?: MouseEvent | KeyboardEvent): void {
-  const entries = model?.timeline?.entries, entry = entries?.[index];
+  const entries = timeline?.entries, entry = entries?.[index];
   if (!entries || !entry) return;
   inspected = index;
   if (!model!.timelineOutdated) {
@@ -82,7 +84,7 @@ function moveCursor(value: number): void {
 }
 /** The selected range, and the part of it that the current video can loop. */
 function selection(): { start: number; end: number; loop?: { start: number; end: number } } | undefined {
-  const range = model?.timeline && selectionRange(model.timeline.entries, selectedEvents);
+  const range = timeline && selectionRange(timeline.entries, selectedEvents);
   if (!range || model!.timelineOutdated) return range;
   const video = model!.video;
   return { ...range, loop: !video || video.outdated ? range : videoLoop(range, video.rate, videoFrames(video.duration, video.rate), video.skipped) };
@@ -112,7 +114,7 @@ function row(title: string, y: number): void {
   svg.append(node('line', { x1: 0, x2: width, y1: y + 31, y2: y + 31, class: 'lane-rule' }), node('text', { x: 10, y: y + 20, class: 'lane-label' }, title));
 }
 function selectable(g: SVGGElement, index: number, title: string): void {
-  const selected = isCall(model?.timeline?.entries[index]) ? selectedEvents.includes(index) : inspected === index;
+  const selected = isCall(timeline?.entries[index]) ? selectedEvents.includes(index) : inspected === index;
   g.classList.add('selectable'); if (selected) g.classList.add('selected');
   g.setAttribute('aria-pressed', String(!!selected));
   g.setAttribute('role', 'button'); g.setAttribute('tabindex', '0'); g.setAttribute('aria-label', title);
@@ -123,7 +125,7 @@ function selectable(g: SVGGElement, index: number, title: string): void {
 }
 function render(): void {
   if (!model) return;
-  const t = model.timeline;
+  const t = timeline;
   sceneName.textContent = model.scene;
   refresh.disabled = !model.scene; cancel.hidden = !model.busy;
   const range = selection(), available = !!range?.loop;
@@ -267,12 +269,12 @@ viewport.addEventListener('pointermove', e => {
 viewport.addEventListener('pointerup', e => {
   if (!dragging) return;
   dragging = false; nextSeek = undefined;
-  if (model?.timeline) seek(timeAt(e.clientX));
+  if (timeline) seek(timeAt(e.clientX));
 });
 viewport.addEventListener('pointercancel', () => { dragging = false; });
 viewport.addEventListener('keydown', e => {
-  if (!model?.timeline || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-  e.preventDefault(); const entries = model.timeline.entries, calls = entries.map((_, i) => i).filter(i => isCall(entries[i]));
+  if (!model || !timeline || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault(); const entries = timeline.entries, calls = entries.map((_, i) => i).filter(i => isCall(entries[i]));
   if (!calls.length) return;
   const current = calls.indexOf(inspected ?? -1);
   select(calls[Math.max(0, Math.min(calls.length - 1, current + (e.key === 'ArrowRight' ? 1 : -1)))], e);
@@ -285,6 +287,7 @@ listen(message => {
   if (message.kind !== 'state') return;
   const first = !model;
   model = message.model;
+  if (!model.timelineId) timeline = undefined; else if (model.timeline) timeline = model.timeline;
   if (first) cursor = model.time;
   if (model.timelineKey !== key) {
     const same = first && restored?.key !== undefined && restored.key === model.timelineKey;

@@ -18,9 +18,13 @@ export interface Model {
   job?: string;
   /** The last position. A new webview starts here. */
   time: number;
+  /** The timeline, only for the timeline view and only when `timelineId` changes. */
   timeline?: Timeline;
-  /** The selection of the timeline stays while this key stays. */
+  timelineId?: string;
+  /** The selection of the timeline stays while this key stays: a render keeps the entries of the inspection. */
   timelineKey?: string;
+  /** The duration of the scene, from the timeline. */
+  duration?: number;
   timelineOutdated: boolean;
   frame?: FrameMedia; video?: VideoMedia;
   /** The comparison reference. */

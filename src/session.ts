@@ -88,7 +88,7 @@ export class Session implements vscode.Disposable {
       () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); });
     this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python', 'discover.py').fsPath);
     this.views = new Views(context.extensionUri, [vscode.Uri.file(this.mediaRoot)],
-      (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, webview => model(this, webview),
+      (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, (webview, view, sent) => model(this, webview, view, sent),
       () => {
         // Without the preview, frames and videos have no use.
         const rendering = this.queue.running('render');

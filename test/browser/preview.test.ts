@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { frame, model, timeline, video, webview } from './page';
+import { frame, model, video, webview } from './page';
 
 const positions = async (w: Awaited<ReturnType<typeof webview>>) => (await w.messages()).filter(m => m.kind === 'position').map(m => m.time);
 const currentTime = (w: Awaited<ReturnType<typeof webview>>) => w.page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime);
@@ -86,10 +86,10 @@ test('without a current video, the preview asks for the frame at its position', 
     await w.publish(model({ time: 1.25, autoPreview: false, frame: blue, status: 'Rendering video…' }));
     assert.equal((await w.messages()).filter(m => m.kind === 'frameNeeded').length, asked);
     // After the end of the scene, the frame is the last frame.
-    await w.publish(model({ time: 1.25, autoPreview: false, timeline: timeline(1), frame: blue }));
+    await w.publish(model({ time: 1.25, autoPreview: false, duration: 1, frame: blue }));
     assert.equal((await w.message('position')).time, .75, 'the position moves to the last frame');
     const last = await frame(page, .75, '#0f0', { time: null });
-    await w.publish(model({ time: .75, autoPreview: false, timeline: timeline(1), frame: last }));
+    await w.publish(model({ time: .75, autoPreview: false, duration: 1, frame: last }));
     await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('last frame'));
     assert.equal(await page.locator('.preview-controls .position').innerText(), 'Last frame / 1.00 s');
     // Play without a video asks for one.
@@ -97,7 +97,7 @@ test('without a current video, the preview asks for the frame at its position', 
     assert.equal((await w.messages()).at(-1).kind, 'preview');
     assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).getAttribute('aria-busy'), 'true');
     // A scene without plays has no positions to step to; an outdated scene waits for the next job.
-    for (const blocked of [model({ timeline: timeline(0), frame: last }), model({ job: undefined, frame: { ...last, outdated: true } })]) {
+    for (const blocked of [model({ duration: 0, frame: last }), model({ job: undefined, frame: { ...last, outdated: true } })]) {
       await w.publish(blocked);
       assert.equal(await page.getByRole('button', { name: 'Next frame', exact: true }).isDisabled(), true);
     }
@@ -111,13 +111,13 @@ test('in a skipped part, the preview shows a frame; playback goes over the skipp
   try {
     // The 3 s video leaves out the scene time 1–2 s, so the scene has 4 s.
     const skipped = video({ duration: 4, skipped: [{ start: 1, end: 2 }] });
-    await w.publish(model({ time: 2.25, timeline: timeline(4), video: skipped }));
+    await w.publish(model({ time: 2.25, duration: 4, video: skipped }));
     await page.waitForFunction(() => { const v = document.querySelector('video'); return !!v && !v.style.visibility && Math.abs(v.currentTime - 1.375) < 1e-3; });
     assert.equal(await page.locator('.preview-controls .position').innerText(), '2.25 s / 4.00 s');
     await w.send({ kind: 'seek', time: 1.5 });
     assert.equal((await w.message('frameNeeded')).time, 1.5);
     assert.equal(await page.locator('.banner').innerText(), 'This part is skipped in the video.');
-    await w.publish(model({ time: 1.5, timeline: timeline(4), video: skipped, frame: await frame(page, 1.5) }));
+    await w.publish(model({ time: 1.5, duration: 4, video: skipped, frame: await frame(page, 1.5) }));
     await page.waitForFunction(() => !!document.querySelector('.media-stage img') && !document.querySelector('video'));
     await w.send({ kind: 'seek', time: .5 });
     await page.waitForFunction(() => !!document.querySelector('video'));

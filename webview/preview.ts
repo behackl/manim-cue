@@ -58,7 +58,7 @@ let requested: { job?: string; time: number } | undefined;
 let shown: Item | undefined, loading: Item | undefined, loadError: string | undefined;
 const failed = new Set<string>();
 
-const duration = () => model?.timeline?.duration;
+const duration = () => model?.duration;
 const fps = () => model?.fps ?? 30;
 function lastFrame(): number {
   const d = duration();

@@ -6,13 +6,15 @@ export class Views implements vscode.Disposable {
   private timeline?: vscode.WebviewView;
   private preview?: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
+  /** The timeline that the timeline view has. A timeline is large: send it only when it changes. */
+  private sent?: string;
   constructor(private readonly root: vscode.Uri, private readonly mediaRoots: vscode.Uri[],
     private readonly receive: (data: unknown, origin: 'timeline' | 'preview') => void,
-    private readonly model: (webview: vscode.Webview) => Model,
+    private readonly model: (webview: vscode.Webview, view: 'timeline' | 'preview', sent?: string) => Model,
     private readonly closed: () => void = () => {}) {
     this.disposables.push(vscode.window.registerWebviewViewProvider('manimCue.timeline', {
       resolveWebviewView: view => {
-        this.timeline = view; this.initialize(view.webview, 'timeline');
+        this.timeline = view; this.sent = undefined; this.initialize(view.webview, 'timeline');
         view.onDidChangeVisibility(() => { if (view.visible) this.update(); });
         view.onDidDispose(() => { if (this.timeline === view) this.timeline = undefined; });
       },
@@ -39,13 +41,16 @@ export class Views implements vscode.Disposable {
     this.timeline?.show(true);
     this.update();
   }
+  /** A webview script starts: it has no state yet. */
+  ready(view: 'timeline' | 'preview'): void { if (view === 'timeline') this.sent = undefined; this.update(); }
   update(): void {
-    for (const webview of [this.timeline?.webview, this.preview?.webview]) {
-      if (webview) {
-        // Changing resource roots reloads VS Code's webview. Keep the media-only root stable.
-        void webview.postMessage({ kind: 'state', model: this.model(webview) } satisfies HostMessage);
-      }
+    // Changing resource roots reloads VS Code's webview. Keep the media-only root stable.
+    if (this.timeline) {
+      const model = this.model(this.timeline.webview, 'timeline', this.sent);
+      this.sent = model.timelineId;
+      void this.timeline.webview.postMessage({ kind: 'state', model } satisfies HostMessage);
     }
+    if (this.preview) void this.preview.webview.postMessage({ kind: 'state', model: this.model(this.preview.webview, 'preview') } satisfies HostMessage);
   }
   /** The preview moved: show the position on the timeline. */
   position(time: number): void { void this.timeline?.webview.postMessage({ kind: 'position', time } satisfies HostMessage); }
