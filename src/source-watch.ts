@@ -30,7 +30,8 @@ export class SourceWatch {
   private changes = false;
   /** The editor changed the scene file after the last update; a save of the old content still updates. */
   get edited(): boolean { return this.changes; }
-  constructor(private readonly scene: WatchedScene, private readonly delay = 500) {}
+  /** The pause after a save, in ms; a test can make it shorter. */
+  constructor(private readonly scene: WatchedScene, public delay = 500) {}
   /** An update of this content starts. */
   updating(hash: string): void { this.stop(); this.hash = hash; this.changes = false; }
   /** Another scene file opens. */

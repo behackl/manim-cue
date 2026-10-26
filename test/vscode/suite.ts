@@ -14,7 +14,9 @@ export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
   assert.ok(extension, 'development extension registered');
   const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void;
-    setLoop(range?: { start: number; end: number }): void; pin(id: string): void; submitExport(id: string, choice: unknown): Promise<void> };
+    setLoop(range?: { start: number; end: number }): void; pin(id: string): void; setSaveDelay(ms: number): void; submitExport(id: string, choice: unknown): Promise<void> };
+  // A short pause after a save; settle() waits for a save notification and that pause.
+  api.setSaveDelay(100);
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   await testExportCopies(root);
   const uri = vscode.Uri.file(path.join(root, 'cue_demo.py'));
@@ -33,6 +35,7 @@ export async function run(): Promise<void> {
   assert.equal(overrideDiagnostic.status, 'ready', JSON.stringify(overrideDiagnostic));
   await vscode.commands.executeCommand('manimCue.open', uri, 'CueDemo'); await api.whenIdle();
   const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const settle = async () => { await pause(400); await api.whenIdle(); };
   const until = async (predicate: () => boolean, reason: string) => {
     for (let i = 0; i < 600 && !predicate(); i++) await pause(100);
     assert.ok(predicate(), `${reason}: ${JSON.stringify({ ...api.getSnapshot(), timeline: undefined })}`);
@@ -96,7 +99,9 @@ export async function run(): Promise<void> {
   assert.ok(Math.abs(state.video.frame.width - 128 / 9) < 1e-8, 'scene units of the configuration');
   // With a video, a seek needs no frame; the preview steps by itself and reports the position.
   const frameBefore = api.getSnapshot().frame?.id;
-  api.seek(1.25); await pause(1500); await api.whenIdle();
+  api.seek(1.25);
+  await until(() => api.getSnapshot().time === 1.25, 'the preview moves');
+  await settle(); // A frame request would make the host busy.
   assert.equal(api.getSnapshot().time, 1.25);
   assert.equal(api.getSnapshot().frame?.id, frameBefore, 'the video has the frame');
   await vscode.commands.executeCommand('manimCue.nextFrame');
@@ -126,7 +131,7 @@ export async function run(): Promise<void> {
   assert.equal(state.job, undefined, 'an unsaved scene makes no frames');
   // Unsaved files never run. A save updates the frame before the timeline.
   const originalRevision = revision();
-  await pause(800);
+  await api.whenIdle();
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), originalRevision);
   assert.equal(await doc.save(), true);
   await until(frameAt(1.25), 'the frame for the position comes first');
@@ -144,7 +149,7 @@ export async function run(): Promise<void> {
   assert.equal(api.getSnapshot().timeline?.duration, 4, 'the update runs the changed timing');
   assert.ok(frameAt(1.25)());
   const afterSave = api.getSnapshot().frame!.id;
-  await pause(900);
+  await settle();
   assert.equal(api.getSnapshot().frame!.id, afterSave, 'a duplicate watcher notification does not start a new update');
   assert.equal(api.getSnapshot().busy, false);
   assert.equal(api.getSnapshot().reference?.id, firstFrame);
@@ -251,11 +256,12 @@ export async function run(): Promise<void> {
 
   // Save bursts coalesce; cancellation clears a pending debounce as well as active work.
   const beforeCancel = revision();
-  await insert('# first save in burst\n'); await doc.save(); await pause(100);
+  api.setSaveDelay(2000); // Time to see the queued update.
+  await insert('# first save in burst\n'); await doc.save();
   await insert('# cancel queued refresh\n'); await doc.save();
   await until(() => api.getSnapshot().status.includes('Update queued'), 'save is debounced');
   await vscode.commands.executeCommand('manimCue.cancel');
-  await pause(900); await api.whenIdle();
+  api.setSaveDelay(100); await settle();
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), beforeCancel);
   assert.match(api.getSnapshot().status, /Cancelled/);
 
@@ -287,12 +293,12 @@ export async function run(): Promise<void> {
   // Opt-out keeps manual refresh available, without executing on a saved edit.
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoRefreshOnSave', false, vscode.ConfigurationTarget.Workspace);
   const beforeDisabled = revision();
-  await insert('# automatic refresh disabled\n'); await doc.save(); await pause(900);
+  await insert('# automatic refresh disabled\n'); await doc.save(); await settle();
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), beforeDisabled);
   assert.equal(api.getSnapshot().timelineOutdated, true);
   await vscode.commands.executeCommand('manimCue.refresh'); await savedTimeline();
   const job = vscode.commands.executeCommand('manimCue.refresh');
-  await pause(150);
+  await until(() => api.getSnapshot().busy, 'the refresh starts');
   await vscode.commands.executeCommand('manimCue.cancel'); await job; await api.whenIdle();
   assert.equal(api.getSnapshot().busy, false);
   assert.match(api.getSnapshot().status, /Cancelled/);

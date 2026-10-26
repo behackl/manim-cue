@@ -113,5 +113,6 @@ export function activate(context: vscode.ExtensionContext) {
   // Small diagnostic API for integration tests/consumers; no mutable scene or renderer objects.
   return { getSnapshot: () => model(session), whenIdle: () => session.whenIdle(), seek: (time: number) => session.seek(time),
     setLoop: (range?: TimeRange) => session.setLoop(range), pin: (id: string) => session.pin(id),
+    setSaveDelay: (ms: number) => { session.watch.delay = ms; },
     submitExport: (id: string, choice: unknown) => session.exports.submit(id, choice) };
 }
