@@ -139,7 +139,7 @@ jobs:
           uv pip freeze --python "$MANIM_PYTHON"
       - name: Check required Manim capabilities
         run: |
-          "$MANIM_PYTHON" python/support.py diagnose - "$RUNNER_TEMP/cue-manim-diagnostic.json"
+          "$MANIM_PYTHON" python/support.py diagnose "$RUNNER_TEMP/cue-manim-diagnostic.json"
           "$MANIM_PYTHON" - <<'PY'
           import json
           import os
