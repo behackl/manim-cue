@@ -94,11 +94,11 @@ function render(): void {
   status.textContent = model.status; status.classList.toggle('busy', model.busy);
   refresh.disabled = !model.scene; cancel.hidden = !model.busy;
   loop.disabled = !model.selection?.available; loop.setAttribute('aria-pressed', String(!!model.selection?.enabled));
-  loop.title = model.stale ? 'Refresh before looping this selection' : model.selection && !model.selection.available ? 'This selection cannot be mapped to the current movie frames' : 'Select events (Cmd/Ctrl-click to toggle, Shift-click for a range). Loop includes intervening events. Press Play to start.';
-  rangeLabel.textContent = model.selection ? `${model.selection.start.toFixed(3)}–${model.selection.end.toFixed(3)} s${model.stale ? ' · stale' : ''}` : 'Select events to loop';
+  loop.title = model.timelineOutdated ? 'Refresh before looping this selection' : model.selection && !model.selection.available ? 'This selection cannot be mapped to the current movie frames' : 'Select events (Cmd/Ctrl-click to toggle, Shift-click for a range). Loop includes intervening events. Press Play to start.';
+  rangeLabel.textContent = model.selection ? `${model.selection.start.toFixed(3)}–${model.selection.end.toFixed(3)} s${model.timelineOutdated ? ' · stale' : ''}` : 'Select events to loop';
   profile.textContent = model.profile ?? 'Saved source';
-  banner.textContent = `${model.stale ? 'STALE OBSERVATION — ' : ''}${model.notice}`;
-  banner.hidden = !model.stale && !model.notice;
+  banner.textContent = `${model.timelineOutdated ? 'STALE OBSERVATION — ' : ''}${model.notice}`;
+  banner.hidden = !model.timelineOutdated && !model.notice;
   error.textContent = model.error ?? ''; error.hidden = !model.error;
   errorActions.hidden = !model.error;
   checkPython.hidden = !/python|import|module|environment|executable/i.test(model.error ?? '');
@@ -138,7 +138,7 @@ function render(): void {
   if (model.selection) {
     const r = model.selection;
     svg.append(node('rect', { x: x(r.start), y: 24, width: Math.max(0, x(r.end) - x(r.start)), height: height - 24,
-      class: `loop-region${r.enabled ? ' enabled' : ''}${model.stale ? ' stale' : ''}`, 'aria-label': `Selected interval ${seconds(r.start)} to ${seconds(r.end)}` }));
+      class: `loop-region${r.enabled ? ' enabled' : ''}${model.timelineOutdated ? ' outdated' : ''}`, 'aria-label': `Selected interval ${seconds(r.start)} to ${seconds(r.end)}` }));
   }
   row('Sections', sectionY); row('Events', eventY);
   for (let lane = 0; lane < Math.max(1, ends.caption.length); lane++) row(lane ? '' : 'Captions', captionY + lane * 32);
@@ -204,7 +204,7 @@ function details(t: Timeline): void {
   }
   detail('Source', siteLabel(entry.source));
   const source = button('Go to source', () => post({ kind: 'navigate', generation: model!.generation, index: index! }));
-  source.disabled = !entry.source?.path || !!model?.stale; inspector.append(source);
+  source.disabled = !entry.source?.path || !!model?.timelineOutdated; inspector.append(source);
 }
 let dragging = false, nextSeek: number | undefined, scheduled = false;
 viewport.addEventListener('pointerdown', e => {

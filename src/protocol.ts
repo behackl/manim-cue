@@ -2,20 +2,20 @@ import type { ExportChoice, ExportModel } from './export-settings';
 import type { Timeline } from './timeline';
 import type { SelectionMode, TimeRange } from './selection';
 export interface Model {
-  generation: number; scene: string; status: string; busy: boolean; stale: boolean;
+  generation: number; scene: string; status: string; busy: boolean; timelineOutdated: boolean;
   autoPreview: boolean; timeline?: Timeline; selected?: number; selectedEvents?: number[]; error?: string; python?: string;
   selection?: TimeRange & { enabled: boolean; available: boolean };
   profile?: string; playbackTime?: number;
   /** The preview shows the current video, so positions are video positions. */
   followsVideo: boolean;
-  /** Why the preview is old, updating or the end state. */
+  /** Why the preview is outdated, updating or the final frame. */
   notice: string;
   canSeek?: boolean; canPlay?: boolean; mediaReady?: boolean; playIntent?: number;
-  duration?: number; fps?: number; previewWidth?: number; hasMovie?: boolean;
+  duration?: number; fps?: number; previewWidth?: number; hasVideo?: boolean;
   position?: { time: number; request: number };
   exportState?: ExportModel;
   comparison?: { enabled: boolean; pending: boolean; reference?: Model['media'] };
-  media?: { uri: string; kind: 'video' | 'image'; token: string; old: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; sourceHash?: string; loop?: TimeRange;
+  media?: { uri: string; kind: 'video' | 'image'; token: string; outdated: boolean; duration: number; rate: number; seekTime?: number; sourceId?: string; sourceHash?: string; loop?: TimeRange;
     capture?: { requestedTime: number; time: number | null; frameIndex: number | null }; frame?: { width: number; height: number } };
 }
 export type HostMessage =

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright-core';
 import type { Model } from '../../src/protocol';
 
-test('frame-only captures can step without playback or an invented duration; static and stale controls stay gated', async () => {
+test('frame-only captures can step without playback or an invented duration; static and outdated controls stay gated', async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const page = await browser.newPage();
@@ -14,9 +14,9 @@ test('frame-only captures can step without playback or an invented duration; sta
     await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180; return c.toDataURL(); });
-    const model: Model = { generation: 1, scene: 'FrameOnly', status: 'Timeline unavailable', busy: false, stale: false,
+    const model: Model = { generation: 1, scene: 'FrameOnly', status: 'Timeline unavailable', busy: false, timelineOutdated: false,
       autoPreview: false, followsVideo: false, notice: '', canSeek: true, canPlay: false, mediaReady: true, fps: 4,
-      position: { time: 0, request: 1 }, media: { uri: image, token: 'frame', kind: 'image', old: false, duration: 0, rate: 4,
+      position: { time: 0, request: 1 }, media: { uri: image, token: 'frame', kind: 'image', outdated: false, duration: 0, rate: 4,
         capture: { requestedTime: 0, time: 0, frameIndex: 0 } } };
     const publish = (model: Model) => page.evaluate(model => new Promise<void>(resolve => {
       window.addEventListener('message', () => resolve(), { once: true }); window.postMessage({ kind: 'state', model }, '*');
@@ -35,7 +35,7 @@ test('frame-only captures can step without playback or an invented duration; sta
     assert.match(await page.locator('.preview-controls .position').innerText(), /\/ —$/);
     for (const blocked of [
       { ...model, duration: 0 }, // Observed static scene, rather than unknown duration.
-      { ...model, stale: true, mediaReady: false, media: { ...model.media!, old: true } },
+      { ...model, timelineOutdated: true, mediaReady: false, media: { ...model.media!, outdated: true } },
       { ...model, canSeek: false },
     ]) {
       await publish(blocked);

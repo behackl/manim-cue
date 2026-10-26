@@ -19,9 +19,9 @@ test('comparison composites exact endpoints, keeps reference through updates and
       c.getContext('2d')!.fillStyle = color; c.getContext('2d')!.fillRect(0, 0, width, height); return c.toDataURL();
     }, { color, width, height });
     const red = await image('#ff0000'), blue = await image('#0000ff'), green = await image('#00ff00');
-    let model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
+    let model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, timelineOutdated: false, autoPreview: true,
       followsVideo: false, notice: '', canSeek: true, canPlay: true, mediaReady: true, duration: 3, fps: 4, position: { time: 1.25, request: 1 },
-      media: { uri: red, kind: 'image', token: 'red', sourceId: 'run-1', sourceHash: 'abcdef012345', old: false, duration: 0, rate: 4,
+      media: { uri: red, kind: 'image', token: 'red', sourceId: 'run-1', sourceHash: 'abcdef012345', outdated: false, duration: 0, rate: 4,
         capture: { requestedTime: 1.25, time: 1.25, frameIndex: 5 }, frame: { width: 8, height: 4 } } };
     const publish = (m = model) => page.evaluate(model => new Promise<void>(resolve => {
       window.addEventListener('message', () => resolve(), { once: true });
@@ -76,7 +76,7 @@ test('comparison composites exact endpoints, keeps reference through updates and
     assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'compare', generation: 2, enabled: true, replace: true, token: 'blue', time: undefined });
 
     // Keep old current pixels AND the pinned reference through invalidation/decode failure.
-    await publish({ ...model, generation: 3, mediaReady: false, stale: true, media: { ...model.media!, old: true } });
+    await publish({ ...model, generation: 3, mediaReady: false, timelineOutdated: true, media: { ...model.media!, outdated: true } });
     assert.match(await page.locator('.compare-labels').innerText(), /Current: 1.500 s.*OLD/);
     assert.equal(await page.locator('.watermark').innerText(), 'OLD PREVIEW');
     assert.deepEqual(await pixel(.1), [255, 0, 0, 255]); assert.deepEqual(await pixel(.8), [0, 0, 255, 255]);
@@ -126,7 +126,7 @@ test('comparison composites exact endpoints, keeps reference through updates and
     await page.addScriptTag({ content: `window.savedState=${JSON.stringify(preferences)};` + stateApi });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     assert.equal(await page.getByRole('button', { name: 'Measure', exact: true }).getAttribute('aria-pressed'), 'true');
-    await publish({ ...model, mediaReady: false, media: { ...model.media!, old: true } });
+    await publish({ ...model, mediaReady: false, media: { ...model.media!, outdated: true } });
     await displayed('square'); await referenceShown('green');
     assert.equal(await page.getByRole('button', { name: 'Overlay', exact: true }).getAttribute('aria-pressed'), 'true');
     await page.getByRole('button', { name: 'Wipe', exact: true }).click();
@@ -152,9 +152,9 @@ test('entering Compare from a playing movie requests its latest presented frame,
     await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
     await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
-    const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
-      followsVideo: true, notice: '', mediaReady: true, hasMovie: true, canSeek: true, canPlay: true, duration: 3, fps: 4,
-      playIntent: 1, position: { time: .5, request: 1 }, media: { uri: 'https://cue.test/movie.mp4', token: 'movie', kind: 'video', old: false, duration: 3, rate: 4 } };
+    const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, timelineOutdated: false, autoPreview: true,
+      followsVideo: true, notice: '', mediaReady: true, hasVideo: true, canSeek: true, canPlay: true, duration: 3, fps: 4,
+      playIntent: 1, position: { time: .5, request: 1 }, media: { uri: 'https://cue.test/movie.mp4', token: 'movie', kind: 'video', outdated: false, duration: 3, rate: 4 } };
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), model);
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.time >= 1.25), undefined, { timeout: 5000 }).catch(async e => {
       console.error(await page.evaluate(() => ({ messages: (window as any).messages, videos: [...document.querySelectorAll('video')].map(v => ({ time: v.currentTime, ready: v.readyState, duration: v.duration, paused: v.paused, seeking: v.seeking })) })));

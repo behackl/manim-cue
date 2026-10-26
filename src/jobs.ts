@@ -11,9 +11,9 @@ export interface Profile { version: string; module: string; fps: number; width: 
 export interface Media { path: string; kind: 'video' | 'image'; duration: number; rate: number; hasAudio: boolean;
   capture?: { requestedTime: number; time: number | null; frameIndex: number | null } }
 /** `outdated`: the source or the settings changed after the result started. */
-export interface Observation { directory: string; source: string; sourceHash: string; profile: Profile; outdated: boolean }
-export interface PreviewResult extends Observation { media: Media }
-export interface TimelineResult extends Observation { timeline: Timeline; file: string }
+export interface Result { directory: string; source: string; sourceHash: string; profile: Profile; outdated: boolean }
+export interface PreviewResult extends Result { media: Media }
+export interface TimelineResult extends Result { timeline: Timeline; file: string }
 export interface JobOptions {
   source: string; scene: string; python: string; env: NodeJS.ProcessEnv; cwd: string;
   fps: number; width: number; timeout: number;
@@ -62,7 +62,7 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
     o.log(`\n[Cue timing] ${command === 'inspect' ? 'Scene evaluation' : 'Scene render'}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`);
   }
 }
-async function observation(job: SceneJob): Promise<Observation> {
+async function newResult(job: SceneJob): Promise<Result> {
   const profile: Profile = JSON.parse(await fs.readFile(path.join(job.directory, 'profile.json'), 'utf8'));
   return { directory: job.directory, source: job.options.source, sourceHash: job.sourceHash, profile, outdated: false };
 }
@@ -81,20 +81,20 @@ export async function inspect(job: SceneJob, request: { time?: number; timeline:
   await run(job, 'inspect', { time: request.time, frame: image, timeline: file }, signal, line => {
     if (!line.startsWith('[Cue frame] ')) return;
     const capture = JSON.parse(line.slice(12));
-    published = observation(job).then(o => {
+    published = newResult(job).then(o => {
       result.frame = { ...o, media: { path: image, kind: 'image', duration: 0, rate: o.profile.fps, hasAudio: false, capture } };
       return frame(result.frame);
     });
   });
   await published;
-  if (file) result.timeline = { ...await observation(job), timeline: parseTimeline(await fs.readFile(file, 'utf8')), file };
+  if (file) result.timeline = { ...await newResult(job), timeline: parseTimeline(await fs.readFile(file, 'utf8')), file };
   return result;
 }
 /** Renders the preview video and the timeline of the same run. */
 export async function renderPreview(job: SceneJob, signal: AbortSignal): Promise<{ video: PreviewResult; timeline: TimelineResult }> {
   const token = randomUUID(), output = path.join(job.directory, 'media', `preview-${token}.mp4`), file = path.join(job.directory, `timeline-${token}.json`);
   await run(job, 'render', { output, timeline: file }, signal);
-  const o = await observation(job), t = parseTimeline(await fs.readFile(file, 'utf8'));
+  const o = await newResult(job), t = parseTimeline(await fs.readFile(file, 'utf8'));
   // Skipped plays are not in the video, so video time would no longer be scene time.
   if (skipped(t)) throw new Error('The video leaves out skipped sections, so it cannot follow the timeline. Remove skip_animations to preview it.');
   return { timeline: { ...o, timeline: t, file }, video: { ...o, media: { path: output, kind: 'video', duration: t.duration, rate: t.frame_rate,
@@ -105,7 +105,7 @@ export async function renderExport(job: SceneJob, signal: AbortSignal): Promise<
   const output = path.join(job.directory, 'media', `export-${randomUUID()}.mp4`);
   await run(job, 'render', { output }, signal);
   if (!await fs.stat(output).then(s => s.size > 0, () => false)) throw new Error('Scene produced no video. Save the current frame as PNG instead.');
-  return { ...await observation(job), media: { path: output, kind: 'video', duration: 0, rate: job.options.fps, hasAudio: false } };
+  return { ...await newResult(job), media: { path: output, kind: 'video', duration: 0, rate: job.options.fps, hasAudio: false } };
 }
 // Only completed media enters this stable webview root; profiles, source and caches stay private.
 export async function publishPreview(result: PreviewResult, root: string): Promise<PreviewResult> {

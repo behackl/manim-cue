@@ -18,7 +18,7 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     const timeline = parseTimeline(await readFile('test/fixtures/timeline-v1.json', 'utf8'));
     const sound = timeline.entries[7];
     if (sound.kind === 'sound') { sound.start = -.25; sound.duration = null; sound.file = '<img src=x onerror=alert(1)>.wav'; }
-    const model: Model = { generation: 1, scene: 'TimelineExample', status: 'Completed observation', busy: false, stale: false, autoPreview: false,
+    const model: Model = { generation: 1, scene: 'TimelineExample', status: 'Completed observation', busy: false, timelineOutdated: false, autoPreview: false,
       timeline, profile: 'Cairo · 4 fps · 320×180', followsVideo: true, notice: '' };
     await page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), model);
     await page.waitForSelector('g.event', { timeout: 5000 }).catch(async error => {
@@ -63,12 +63,12 @@ test('timeline UI uses observed widths, cue placement, safe labels and media-dri
     await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Video 1 s');
     assert.notEqual(await page.locator('.playhead').getAttribute('x1'), before);
     await page.evaluate(() => window.postMessage({ kind: 'position', generation: 0, time: 99 }, '*'));
-    assert.equal(await page.locator('.position').innerText(), 'Video 1 s', 'stale generation cannot move the playhead');
-    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, stale: true, followsVideo: false, selection: { start: 0, end: 1, enabled: false, available: false }, notice: 'Old preview — source changed' } }, '*'), model);
+    assert.equal(await page.locator('.position').innerText(), 'Video 1 s', 'old generation cannot move the playhead');
+    await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, timelineOutdated: true, followsVideo: false, selection: { start: 0, end: 1, enabled: false, available: false }, notice: 'Old preview — source changed' } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.banner')?.textContent?.includes('STALE OBSERVATION'));
-    assert.equal(await page.locator('.banner').isVisible(), true, 'actionable stale warnings remain');
+    assert.equal(await page.locator('.banner').isVisible(), true, 'outdated timeline warning remains');
     assert.equal(await page.getByRole('button', { name: 'Loop selection', exact: true }).isDisabled(), true);
-    assert.equal(await page.locator('.loop-region.stale').count(), 1);
+    assert.equal(await page.locator('.loop-region.outdated').count(), 1);
     await page.evaluate(model => window.postMessage({ kind: 'state', model: { ...model, followsVideo: false, busy: true,
       position: { time: 1.25, request: 3 }, timeline: { ...model.timeline!, mode: 'render' } } }, '*'), model);
     await page.waitForFunction(() => document.querySelector('.position')?.textContent === 'Selected 1.25 s');

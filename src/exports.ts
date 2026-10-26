@@ -9,7 +9,7 @@ import { copyExport, validateDestination } from './export-files';
 import { videoFrameIndex, videoFrames } from './transport';
 
 export interface ExportSource {
-  uri: vscode.Uri; scene: string; frame?: PreviewResult; movie?: PreviewResult; timeline?: TimelineResult;
+  uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult;
   job?: SceneJob; time: number;
 }
 interface Session { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string }
@@ -28,15 +28,15 @@ export class Exports {
   get busy(): boolean { return !!this.active; }
   get nativeBusy(): boolean { return this.active?.native === true && this.active.started === true; }
   get directories(): string[] {
-    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.directory, s?.movie?.directory, s?.timeline?.directory, s?.job?.directory])
+    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.directory, s?.video?.directory, s?.timeline?.directory, s?.job?.directory])
       .concat(this.active?.job?.directory).filter((p): p is string => !!p);
   }
   /** Results that an open dialog or a running export still uses. */
   get results(): (PreviewResult | TimelineResult)[] {
-    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame, s?.movie, s?.timeline]).filter(r => r !== undefined);
+    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame, s?.video, s?.timeline]).filter(r => r !== undefined);
   }
   get files(): string[] {
-    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.movie?.media.path]).filter((p): p is string => !!p);
+    return [this.session?.source, this.active?.source].flatMap(s => [s?.frame?.media.path, s?.video?.media.path]).filter((p): p is string => !!p);
   }
   private dirty(source: ExportSource): boolean { return vscode.workspace.textDocuments.some(d => d.uri.toString() === source.uri.toString() && d.isDirty); }
   private description(result: PreviewResult | TimelineResult): string {
@@ -53,10 +53,10 @@ export class Exports {
         aspect: p ? p.width / p.height : 16 / 9, previewSize: { width: p?.width ?? 960, height: p?.height ?? 540 },
         frame: s.source.frame ? { kind: s.source.frame.media.kind, description: this.description(s.source.frame),
           uri: webview && s.source.frame.media.kind === 'image' ? webview.asWebviewUri(vscode.Uri.file(s.source.frame.media.path)).toString() : undefined } : undefined,
-        video: s.source.movie?.media.kind === 'video' ? this.description(s.source.movie) : undefined,
+        video: s.source.video?.media.kind === 'video' ? this.description(s.source.video) : undefined,
         timeline: s.source.timeline ? this.description(s.source.timeline) : undefined,
         canCapture: !!s.source.frame && s.source.frame.media.kind === 'video' && !s.source.frame.outdated,
-        dirty: this.dirty(s.source), newer: current?.frame?.media.path !== s.source.frame?.media.path || current?.movie?.media.path !== s.source.movie?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
+        dirty: this.dirty(s.source), newer: current?.frame?.media.path !== s.source.frame?.media.path || current?.video?.media.path !== s.source.video?.media.path || current?.timeline?.directory !== s.source.timeline?.directory,
         error: s.error } : undefined };
   }
   open(token?: string, time?: number): void {
@@ -66,7 +66,7 @@ export class Exports {
     if (!source) { this.update(); return; }
     if (token !== undefined && token !== source.frame?.media.path) return;
     const p = source.frame?.profile ?? source.timeline?.profile;
-    let choice: ExportChoice = { kind: source.frame?.media.kind === 'video' ? 'video' : 'frame', method: source.movie && !source.movie.outdated ? 'copy' : 'render',
+    let choice: ExportChoice = { kind: source.frame?.media.kind === 'video' ? 'video' : 'frame', method: source.video && !source.video.outdated ? 'copy' : 'render',
       settings: { ...exportSize(1080, p ? p.width / p.height : 16 / 9), fps: p?.fps ?? 30, crf: 18, preset: 'medium', options: '' } };
     try { choice = exportChoice(this.context.workspaceState.get('exportChoice')); } catch { /* First visit or incompatible stored preference. */ }
     const media = source.frame?.media, value = time ?? source.time;
@@ -90,7 +90,7 @@ export class Exports {
       s.choice = exportChoice(value, s.choice.settings);
       const { kind, method } = s.choice;
       const native = kind === 'video' && method === 'render' || kind === 'frame' && s.source.frame?.media.kind === 'video';
-      if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.movie?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
+      if (kind === 'frame' && !s.source.frame || kind === 'video' && method === 'copy' && s.source.video?.media.kind !== 'video' || kind === 'timeline' && !s.source.timeline) throw new Error('No completed artifact of this kind.');
       if (kind === 'frame' && native && !this.snapshot().dialog?.canCapture) throw new Error('Refresh to a current movie with frame capture support first.');
       if (native && !vscode.workspace.isTrusted) throw new Error('Trust this workspace before executing Python.');
       if (kind === 'video' && method === 'render' && (s.source.timeline ?? s.source.frame)?.profile.videoEncoder === false) throw new Error('New MP4 exports require Manim’s public video encoder profile support. Run Manim Cue: Check Python Environment; existing artifact copies remain available.');
@@ -107,8 +107,8 @@ export class Exports {
     const { kind, settings } = s.choice, signal = active.abort.signal;
     const native = active.native, source = s.source;
     const extension = kind === 'frame' ? '.png' : kind === 'timeline' ? '.json' : '.mp4';
-    const artifact = kind === 'frame' ? source.frame : kind === 'timeline' ? source.timeline : source.movie;
-    const old = !native && artifact?.outdated;
+    const result = kind === 'frame' ? source.frame : kind === 'timeline' ? source.timeline : source.video;
+    const old = !native && result?.outdated;
     const stamp = kind === 'frame' ? `-${source.frame?.media.capture?.time == null && !native ? 'end-state' : (native ? s.time : source.frame!.media.capture!.time!).toFixed(3) + 's'}` : kind === 'timeline' ? '-timeline' : '';
     let release: (() => void) | undefined, sourceHash: string | undefined;
     try {
@@ -118,7 +118,7 @@ export class Exports {
       signal.throwIfAborted();
       if (!destination) { this.status = undefined; return; }
       if (destination.scheme !== 'file') throw new Error('Export requires a local destination.');
-      const forbidden = [source.uri.fsPath, this.scratch, ...Object.keys(artifact?.profile.configs ?? {})];
+      const forbidden = [source.uri.fsPath, this.scratch, ...Object.keys(result?.profile.configs ?? {})];
       await validateDestination(destination.fsPath, extension, forbidden);
       if (native) {
         if (this.source()?.uri.toString() !== source.uri.toString() || this.source()?.scene !== source.scene) throw new Error('Scene changed. Open Export again.');
@@ -143,7 +143,7 @@ export class Exports {
         const subscription = cancellation.onCancellationRequested(() => this.cancel());
         try {
           let file: string, observed: PreviewResult | undefined;
-          if (!native) file = kind === 'timeline' ? source.timeline!.file : (artifact as PreviewResult).media.path;
+          if (!native) file = kind === 'timeline' ? source.timeline!.file : (result as PreviewResult).media.path;
           else if (kind === 'frame') {
             const { frame } = await inspect(source.job!, { time: s.time, timeline: false }, signal);
             if (!frame?.media.capture || frame.media.capture.time === null) throw new Error('The requested frame is unavailable; no PNG was exported. Refresh or save an end-state snapshot.');

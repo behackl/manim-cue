@@ -13,8 +13,8 @@ export function model(s: Session, webview?: vscode.Webview): Model {
   const uri = (file: string) => webview ? webview.asWebviewUri(vscode.Uri.file(file)).toString() : '';
   const frame = (r: PreviewResult) => ({ width: r.profile.frameWidth, height: r.profile.frameHeight });
   const preview = s.preview, media = preview?.media, fresh = !!preview && !preview.outdated;
-  const ready = s.mediaReady(), stale = !!s.timeline?.outdated, video = s.currentVideo();
-  const followsVideo = fresh && !stale && media?.kind === 'video' && !s.mediaError;
+  const ready = s.mediaReady(), timelineOutdated = !!s.timeline?.outdated, video = s.currentVideo();
+  const followsVideo = fresh && !timelineOutdated && media?.kind === 'video' && !s.mediaError;
   let notice = s.mediaError ?? '';
   if (media && !fresh) notice = 'Old preview — source changed';
   else if (media?.capture?.time === null) notice = 'End state — requested frame unavailable';
@@ -26,20 +26,20 @@ export function model(s: Session, webview?: vscode.Webview): Model {
     exportState: s.exports.snapshot(webview),
     generation: s.generation, scene: s.target?.scene ?? '',
     status: (s.exports.nativeBusy ? 'Export rendering — automatic previews paused' : s.status) + (s.positionClamped ? ' — position clamped to scene end' : ''),
-    busy: s.busy, stale, error: s.error, autoPreview: s.autoPreview, python: s.pythonInUse,
+    busy: s.busy, timelineOutdated, error: s.error, autoPreview: s.autoPreview, python: s.pythonInUse,
     timeline: s.timeline?.timeline, selected: s.selected, selectedEvents: s.selectedEvents,
-    selection: selection && { ...selection.range, enabled: s.loopEnabled && !stale, available: selection.available },
+    selection: selection && { ...selection.range, enabled: s.loopEnabled && !timelineOutdated, available: selection.available },
     followsVideo, notice, playbackTime: s.playbackTime,
     position: { time: s.desiredTime, request: s.seekSequence }, playIntent: s.playIntent,
     comparison: { enabled: s.comparing, pending: !!s.pinRequest, reference: s.reference && {
-      uri: uri(s.reference.media.path), token: s.reference.media.path, kind: 'image', old: false, duration: 0, rate: s.reference.media.rate,
+      uri: uri(s.reference.media.path), token: s.reference.media.path, kind: 'image', outdated: false, duration: 0, rate: s.reference.media.rate,
       capture: s.reference.media.capture, sourceId: s.reference.directory, sourceHash: s.reference.sourceHash, frame: frame(s.reference),
     } },
-    duration: video ? video.media.duration : !stale ? s.timeline?.timeline.duration : undefined,
-    fps: s.job?.options.fps ?? cfg.get<number>('frameRate', 30), previewWidth: cfg.get<number>('previewWidth', 960), hasMovie: !!video,
-    canSeek: !!s.target, canPlay: stale || !s.timeline || s.timeline.timeline.duration > 0, mediaReady: ready,
+    duration: video ? video.media.duration : !timelineOutdated ? s.timeline?.timeline.duration : undefined,
+    fps: s.job?.options.fps ?? cfg.get<number>('frameRate', 30), previewWidth: cfg.get<number>('previewWidth', 960), hasVideo: !!video,
+    canSeek: !!s.target, canPlay: timelineOutdated || !s.timeline || s.timeline.timeline.duration > 0, mediaReady: ready,
     profile: profile && `Cairo · ${profile.fps} fps · ${profile.width}×${profile.height} · seed ${profile.seed}`,
-    media: preview && media && { uri: uri(media.path), kind: media.kind, token: media.path, old: !fresh, duration: media.duration, rate: media.rate,
+    media: preview && media && { uri: uri(media.path), kind: media.kind, token: media.path, outdated: !fresh, duration: media.duration, rate: media.rate,
       capture: media.capture, sourceId: preview.directory, sourceHash: preview.sourceHash, frame: frame(preview),
       seekTime: media.kind === 'video' ? frameIndex(s.desiredTime, media.rate, videoFrames(media.duration, media.rate)) / media.rate : undefined,
       loop: followsVideo && s.loopEnabled ? selection?.loop : undefined },

@@ -54,7 +54,7 @@ dd { margin: 3px 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywh
 .selection-range { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--cue-amber); }
 .loop-region { fill: var(--cue-amber); fill-opacity: .06; stroke: var(--cue-amber); stroke-opacity: .5; stroke-dasharray: 4 3; pointer-events: none; }
 .loop-region.enabled { fill-opacity: .12; stroke-opacity: 1; stroke-dasharray: none; }
-.loop-region.stale { opacity: .45; }
+.loop-region.outdated { opacity: .45; }
 .error-actions { display: flex; gap: 6px; padding: 6px 12px; }
 .error { margin: 0; max-height: 110px; flex-shrink: 0; padding: 8px 12px; background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); overflow: auto; white-space: pre-wrap; font-size: 11px; border-top: 1px solid var(--line); }
 .empty-label { fill: var(--vscode-descriptionForeground); font-size: 13px; }

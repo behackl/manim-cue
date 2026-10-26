@@ -24,7 +24,7 @@ export function selectionRange(entries: Entry[], selected: number[]): TimeRange 
 }
 // Entry boundaries can carry floating-point roundoff. Only map intervals on the
 // frame cadence of the video.
-export function movieLoop(range: TimeRange, fps: number, frames: number): TimeRange | undefined {
+export function videoLoop(range: TimeRange, fps: number, frames: number): TimeRange | undefined {
   const first = Math.round(range.start * fps), stop = Math.round(range.end * fps);
   if (first < 0 || stop > frames || stop <= first ||
     Math.abs(first / fps - range.start) > 1e-6 || Math.abs(stop / fps - range.end) > 1e-6) return;

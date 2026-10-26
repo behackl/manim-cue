@@ -34,7 +34,7 @@ export async function run(): Promise<void> {
   let state = api.getSnapshot();
   assert.ok(state.timeline, JSON.stringify(state));
   assert.equal(state.timeline.duration, 3.5); assert.equal(state.timeline.entries.filter(isCall).length, 6);
-  assert.equal(state.busy, false); assert.equal(state.stale, false);
+  assert.equal(state.busy, false); assert.equal(state.timelineOutdated, false);
   assert.equal(state.media?.kind, 'image'); assert.equal(state.media?.capture?.time, 0);
   assert.equal(state.mediaReady, true);
   for (let i = 0; i < 100 && api.getSnapshot().playbackTime === undefined; i++) await new Promise(resolve => setTimeout(resolve, 100));
@@ -144,7 +144,7 @@ export async function run(): Promise<void> {
   const offset = doc.getText().indexOf(waitCall); assert.ok(offset >= 0);
   edit.replace(uri, new vscode.Range(doc.positionAt(offset), doc.positionAt(offset + waitCall.length)), 'self.wait(0.85, frozen_frame=False)');
   assert.equal(await vscode.workspace.applyEdit(edit), true);
-  assert.equal(api.getSnapshot().stale, true); assert.equal(api.getSnapshot().followsVideo, false);
+  assert.equal(api.getSnapshot().timelineOutdated, true); assert.equal(api.getSnapshot().followsVideo, false);
   assert.equal(api.getSnapshot().selection?.enabled, false, 'source changes disarm the old loop');
   assert.equal(api.getSnapshot().media?.loop, undefined);
   const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -159,7 +159,7 @@ export async function run(): Promise<void> {
   const revision = () => api.getSnapshot().timeline?.source?.sha256;
   const savedTimeline = async () => {
     const hash = createHash('sha256').update(await fs.readFile(uri.fsPath)).digest('hex');
-    await until(() => !api.getSnapshot().busy && !api.getSnapshot().stale && api.getSnapshot().timeline?.source?.sha256 === hash, 'latest saved source published');
+    await until(() => !api.getSnapshot().busy && !api.getSnapshot().timelineOutdated && api.getSnapshot().timeline?.source?.sha256 === hash, 'latest saved source published');
   };
   // Dirty buffers are never executed. With Auto video off, saving refreshes the
   // selected frame and timeline, while leaving complete movie generation explicit.
@@ -169,20 +169,20 @@ export async function run(): Promise<void> {
   assert.equal(await doc.save(), true);
   await until(() => api.getSnapshot().media?.kind === 'image' && api.getSnapshot().media?.capture?.time === 1.25 &&
     api.getSnapshot().mediaReady === true && api.getSnapshot().playbackTime === 1.25, 'saved frame is decoded before timeline completion');
-  assert.equal(api.getSnapshot().stale, true, 'new frame is usable while the previous timeline is still stale');
+  assert.equal(api.getSnapshot().timelineOutdated, true, 'new frame is usable while the previous timeline is outdated');
   const stillToken = api.getSnapshot().media!.token, stillBytes = await fs.readFile(stillToken);
   assert.equal(path.basename(path.dirname(stillToken)), 'preview-media');
   await insert('# edit again while only the still is ready\n');
   await api.whenIdle();
   assert.equal(api.getSnapshot().media?.token, stillToken, 'editing during timeline evaluation retains the still');
-  assert.equal(api.getSnapshot().media?.old, true);
+  assert.equal(api.getSnapshot().media?.outdated, true);
   assert.deepEqual(await fs.readFile(stillToken), stillBytes, 'cancellation cleanup preserves displayed pixels');
   await doc.save(); await savedTimeline();
   assert.equal(path.dirname(api.getSnapshot().media!.token), path.dirname(stillToken), 'replacement uses the same webview resource root');
   assert.notEqual(revision(), originalRevision);
   assert.equal(api.getSnapshot().position?.time, 1.25, 'frame-first refresh retains the timestamp');
   assert.equal(api.getSnapshot().timeline?.duration, 4, 'automatic refresh executes changed timing, not just new labels');
-  assert.equal(api.getSnapshot().followsVideo, false); assert.equal(api.getSnapshot().media?.old, false);
+  assert.equal(api.getSnapshot().followsVideo, false); assert.equal(api.getSnapshot().media?.outdated, false);
   assert.equal(api.getSnapshot().media?.kind, 'image'); assert.equal(api.getSnapshot().media?.capture?.time, 1.25);
   assert.equal(api.getSnapshot().mediaReady, true);
   assert.deepEqual(api.getSnapshot().media?.frame, state.media?.frame, 'capture carries its own reference dimensions');
@@ -191,7 +191,7 @@ export async function run(): Promise<void> {
   assert.equal(api.getSnapshot().generation, afterSave, 'duplicate watcher notification must not restart a completed run');
   assert.equal(api.getSnapshot().comparison?.reference?.token, pinned.token);
   assert.deepEqual(await fs.readFile(pinned.token), pinnedBytes, 'reference survives saves, cancellation and acknowledged current-media cleanup');
-  assert.equal(api.getSnapshot().hasMovie, false, 'saving in Compare suppresses movie work without changing Auto video');
+  assert.equal(api.getSnapshot().hasVideo, false, 'saving in Compare suppresses movie work without changing Auto video');
   assert.equal(api.getSnapshot().autoPreview, true);
   await vscode.workspace.getConfiguration('manimCue', uri).update('autoPreview', false, vscode.ConfigurationTarget.Workspace);
   api.setComparison(false);
@@ -311,7 +311,7 @@ export async function run(): Promise<void> {
   const goodSource = doc.getText();
   await insert('raise RuntimeError("automatic scene failure")\n'); await doc.save();
   await until(() => !api.getSnapshot().busy && !!api.getSnapshot().error?.includes('automatic scene failure'), 'automatic failure reported in panel');
-  assert.equal(revision(), beforeCancel); assert.equal(api.getSnapshot().stale, true);
+  assert.equal(revision(), beforeCancel); assert.equal(api.getSnapshot().timelineOutdated, true);
   assert.equal(api.getSnapshot().position?.time, 1.25, 'failure retains selection');
   const fix = new vscode.WorkspaceEdit();
   fix.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), goodSource);
@@ -341,7 +341,7 @@ export async function run(): Promise<void> {
   const beforeDisabled = revision();
   await insert('# automatic refresh disabled\n'); await doc.save(); await pause(900);
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), beforeDisabled);
-  assert.equal(api.getSnapshot().stale, true);
+  assert.equal(api.getSnapshot().timelineOutdated, true);
   await vscode.commands.executeCommand('manimCue.refresh'); await savedTimeline();
   const job = vscode.commands.executeCommand('manimCue.refresh');
   await pause(150);
@@ -392,7 +392,7 @@ export async function run(): Promise<void> {
   assert.match(api.getSnapshot().error ?? '', /after selected frame/);
   assert.equal(api.getSnapshot().media?.capture?.time, 3);
   assert.equal(api.getSnapshot().mediaReady, true, 'later timeline failure preserves the completed frame');
-  assert.equal(api.getSnapshot().stale, true, 'old timeline remains stale independently');
+  assert.equal(api.getSnapshot().timelineOutdated, true, 'the old timeline stays outdated');
   const shorter = new vscode.WorkspaceEdit();
   shorter.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
     'from manim import Scene\nclass CueDemo(Scene):\n    def construct(self): self.wait(.5)\nclass Other(Scene):\n    def construct(self): pass\n');

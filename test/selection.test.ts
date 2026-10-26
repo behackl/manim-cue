@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectEvents, selectionRange, movieLoop } from '../src/selection';
+import { selectEvents, selectionRange, videoLoop } from '../src/selection';
 import type { Entry } from '../src/timeline';
 
 const call = (i: number) => ({ kind: 'play', start: i / 4, end: (i + 1) / 4 }) as Entry;
@@ -18,9 +18,9 @@ test('replace, toggle and anchored range selection describe one continuous inter
   assert.equal(selectionRange(entries, []), undefined);
 });
 test('loop mapping permits clock roundoff and rejects non-frame boundaries', () => {
-  assert.deepEqual(movieLoop({ start: .25, end: .75 }, 4, 4), { start: .25, end: .75 });
-  assert.deepEqual(movieLoop({ start: .5 - 1e-10, end: 1 }, 4, 4), { start: .5, end: 1 });
-  assert.equal(movieLoop({ start: .3, end: .75 }, 4, 4), undefined);
-  assert.equal(movieLoop({ start: 0, end: 2 }, 4, 4), undefined);
-  assert.equal(movieLoop({ start: 0, end: 0 }, 4, 4), undefined);
+  assert.deepEqual(videoLoop({ start: .25, end: .75 }, 4, 4), { start: .25, end: .75 });
+  assert.deepEqual(videoLoop({ start: .5 - 1e-10, end: 1 }, 4, 4), { start: .5, end: 1 });
+  assert.equal(videoLoop({ start: .3, end: .75 }, 4, 4), undefined);
+  assert.equal(videoLoop({ start: 0, end: 2 }, 4, 4), undefined);
+  assert.equal(videoLoop({ start: 0, end: 0 }, 4, 4), undefined);
 });

@@ -17,7 +17,7 @@ export class ExportDialog {
   private submit = el('button', 'export-submit');
   private kindButtons = new Map<ExportKind, HTMLButtonElement>();
   private copy = button('Save existing preview', () => { this.choice!.method = 'copy'; this.render(); });
-  private renderMovie = button('New render', () => { this.choice!.method = 'render'; this.render(); });
+  private renderVideo = button('New render', () => { this.choice!.method = 'render'; this.render(); });
   private resolution = el('select');
   private width = el('input'); private height = el('input'); private fps = el('input'); private crf = el('input');
   private lock = el('input'); private effort = el('select'); private options = el('textarea');
@@ -37,7 +37,7 @@ export class ExportDialog {
     for (const [kind, label] of tabs) {
       const b = button(label, () => { this.choice!.kind = kind; this.render(); }); this.kindButtons.set(kind, b); this.modes.append(b);
     }
-    this.methods.append(this.copy, this.renderMovie);
+    this.methods.append(this.copy, this.renderVideo);
     const field = (label: string, input: HTMLElement) => { input.setAttribute('aria-label', label); const l = el('label'); l.append(el('span', '', label), input); this.fields.append(l); };
     const select = (element: HTMLSelectElement, options: [string, string][]) => {
       for (const [value, label] of options) { const o = el('option', '', label); o.value = value; element.append(o); }
@@ -125,7 +125,7 @@ export class ExportDialog {
     const { kind, method } = choice, rendering = kind === 'video' && method === 'render', capture = kind === 'frame' && d.frame?.kind === 'video';
     for (const [k, b] of this.kindButtons) b.setAttribute('aria-pressed', String(k === kind));
     this.methods.hidden = kind !== 'video'; this.fields.hidden = !rendering; this.fields.disabled = !rendering;
-    this.copy.setAttribute('aria-pressed', String(method === 'copy')); this.renderMovie.setAttribute('aria-pressed', String(method === 'render'));
+    this.copy.setAttribute('aria-pressed', String(method === 'copy')); this.renderVideo.setAttribute('aria-pressed', String(method === 'render'));
     this.latest.hidden = !d.newer; this.latest.title = 'A newer preview is available. Explicitly replace the held export selection.';
     this.summary.textContent = `${d.scene} — ` + (kind === 'frame' ? d.frame?.description ?? 'No displayed frame.' : kind === 'timeline' ? d.timeline ?? 'No completed timeline.' : rendering ? 'Render the whole saved Scene; preview settings stay unchanged.' : d.video ?? 'No completed preview movie. Choose New render.');
     this.image.hidden = kind !== 'frame' || !d.frame?.uri;

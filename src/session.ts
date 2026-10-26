@@ -9,7 +9,7 @@ import { insideEnvironment } from './setup-plan';
 import { createJob, inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
 import { PreviewQueue } from './preview-queue';
 import { frameIndex, videoFrameIndex, videoFrames } from './transport';
-import { selectEvents, selectionRange, movieLoop, type SelectionMode, type TimeRange } from './selection';
+import { selectEvents, selectionRange, videoLoop, type SelectionMode, type TimeRange } from './selection';
 import { isCall } from './timeline';
 import { Views } from './views';
 import { Exports, type ExportSource } from './exports';
@@ -107,7 +107,7 @@ export class Session implements vscode.Disposable {
     const t = this.timeline, range = t && selectionRange(t.timeline.entries, this.selectedEvents);
     if (!range) return;
     const video = this.currentVideo()?.media;
-    const loop = video && movieLoop(range, video.rate, videoFrames(video.duration, video.rate));
+    const loop = video && videoLoop(range, video.rate, videoFrames(video.duration, video.rate));
     return { range, available: !t.outdated && (!video || !!loop), loop };
   }
   async open(uri?: vscode.Uri, scene?: string): Promise<void> {
@@ -582,7 +582,7 @@ export class Session implements vscode.Disposable {
   private exportSource(): ExportSource | undefined {
     if (!this.target) return;
     return { uri: this.target.uri, scene: this.target.scene, frame: this.displayed ? this.retained.get(this.displayed) : undefined,
-      movie: this.video, timeline: this.timeline, job: this.job, time: this.playbackTime ?? this.desiredTime };
+      video: this.video, timeline: this.timeline, job: this.job, time: this.playbackTime ?? this.desiredTime };
   }
   openExportDialog(token?: string, time?: number): void { this.playIntent = undefined; this.exports.open(token, time); }
   async openExport(): Promise<void> {

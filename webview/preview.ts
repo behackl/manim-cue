@@ -68,7 +68,7 @@ const comparison = new Comparison(stage, controls, () => { if (measurement.enabl
 const exportDialog = new ExportDialog(openExport, controls);
 const settings = iconButton('Cue settings', 'M8 1H12L13 4L16 3L18 6L16 9L19 10L18 14L15 14L14 17L10 19L8 16L5 17L2 14L4 11L1 9L3 5L6 5ZM10 6A4 4 0 1 0 10 14A4 4 0 1 0 10 6Z', () => post({ kind: 'settings' }));
 settings.querySelector('path')!.setAttribute('fill-rule', 'evenodd'); controls.append(settings);
-function ready(): boolean { return model?.mediaReady ?? (!!model?.media && !model.busy && !model.stale && !model.media.old); }
+function ready(): boolean { return model?.mediaReady ?? (!!model?.media && !model.busy && !model.timelineOutdated && !model.media.outdated); }
 function syncMeasurement(): void {
   const item = active, element = item?.element;
   const usable = ready() && item?.media.token === model?.media?.token && !item?.restoring && !(element instanceof HTMLVideoElement && element.seeking);
@@ -76,11 +76,11 @@ function syncMeasurement(): void {
   exportButton.disabled = !model?.scene || !!model?.exportState?.busy || !!item && (!item.acknowledged || item.restoring);
   // A captured still can step without a timeline/movie; an observed static scene stays disabled.
   const captureWithoutDuration = !!model?.media?.capture && model.duration === undefined;
-  previous.disabled = next.disabled = !model?.canSeek || (model.canPlay === false && !captureWithoutDuration) || !!model?.media?.old;
-  render.hidden = model?.comparison?.enabled === true || model?.autoPreview !== false || model?.hasMovie === true || model?.canPlay === false;
+  previous.disabled = next.disabled = !model?.canSeek || (model.canPlay === false && !captureWithoutDuration) || !!model?.media?.outdated;
+  render.hidden = model?.comparison?.enabled === true || model?.autoPreview !== false || model?.hasVideo === true || model?.canPlay === false;
   render.disabled = !model?.scene;
   measurement.setTarget(usable && element && item?.media.frame ? { element, frame: item.media.frame, token: item.media.token } : undefined);
-  play.disabled = !model?.scene || model.canPlay === false || !!model.media?.old;
+  play.disabled = !model?.scene || model.canPlay === false || !!model.media?.outdated;
   const pausing = element instanceof HTMLVideoElement && !element.paused || model?.playIntent !== undefined;
   play.setAttribute('aria-label', pausing ? 'Pause' : 'Play'); play.title = pausing ? 'Pause (Space)' : 'Play (Space)';
   play.querySelector('path')!.setAttribute('d', pausing ? icons.pause : icons.play);
@@ -247,9 +247,9 @@ function create(media: Media): Item {
 function syncTime(): void {
   const value = active?.lastTime ?? active?.media.capture?.time ?? model?.position?.time ?? 0;
   const total = active?.media.kind === 'video' ? active.media.duration
-    : active?.media.token === model?.media?.token && !model?.media?.old ? model?.duration : undefined;
+    : active?.media.token === model?.media?.token && !model?.media?.outdated ? model?.duration : undefined;
   time.textContent = `${active?.media.capture?.time === null ? 'End state' : value.toFixed(3) + ' s'} / ${total === undefined ? '—' : total.toFixed(3) + ' s'}`;
-  scrubber.disabled = !model?.canSeek || model?.duration === undefined || model.duration <= 0 || !!model.media?.old;
+  scrubber.disabled = !model?.canSeek || model?.duration === undefined || model.duration <= 0 || !!model.media?.outdated;
   scrubber.max = String(model?.duration ?? 0); scrubber.step = String(1 / (model?.fps ?? model?.media?.rate ?? 30));
   if (!scrubbing) scrubber.value = String(value);
   scrubber.setAttribute('aria-valuetext', time.textContent);
@@ -263,9 +263,9 @@ document.addEventListener('keydown', event => {
 function syncWatermark(): void {
   const media = model?.media;
   const sameSource = !!active?.media.sourceId && active.media.sourceId === media?.sourceId;
-  const old = media?.old || (active && active.media.token !== media?.token && !sameSource && active.generation !== model?.generation);
-  watermark.textContent = old ? 'OLD PREVIEW' : 'UPDATING FRAME';
-  watermark.hidden = !active || (!old && ((active.media.token === media?.token && ready()) || (sameSource && active.media.capture?.requestedTime === model?.position?.time)));
+  const outdated = media?.outdated || (active && active.media.token !== media?.token && !sameSource && active.generation !== model?.generation);
+  watermark.textContent = outdated ? 'OLD PREVIEW' : 'UPDATING FRAME';
+  watermark.hidden = !active || (!outdated && ((active.media.token === media?.token && ready()) || (sameSource && active.media.capture?.requestedTime === model?.position?.time)));
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && active?.element instanceof HTMLVideoElement) active.element.pause(); });
 listen(m => {

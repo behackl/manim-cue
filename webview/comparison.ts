@@ -126,9 +126,9 @@ export class Comparison {
     let visible = false;
     const target = this.target, reference = this.reference;
     const current = target?.element instanceof HTMLImageElement ? target : undefined;
-    const stale = !!target && (this.model?.media?.old || target.media.sourceId !== this.model?.media?.sourceId);
+    const outdated = !!target && (this.model?.media?.outdated || target.media.sourceId !== this.model?.media?.sourceId);
     const updating = !!target && (!this.model?.mediaReady || target.media.token !== this.model?.media?.token || target.restoring);
-    this.labels.textContent = `${this.label('Reference', reference?.media)}  |  ${current ? this.label('Current', current.media) : 'Current: movie — capture a still to compare'}${stale ? ' · OLD' : updating ? ' · updating' : ''}`;
+    this.labels.textContent = `${this.label('Reference', reference?.media)}  |  ${current ? this.label('Current', current.media) : 'Current: movie — capture a still to compare'}${outdated ? ' · OLD' : updating ? ' · updating' : ''}`;
     this.labels.title = 'Source IDs are primary-file SHA-256 prefixes, not complete dependency revisions. Reference pixels stay fixed until explicitly replaced.';
     const notes: string[] = [];
     if (this.model?.comparison?.pending) notes.push('Capturing a new still at the movie frame (fresh execution, not movie pixel extraction)…');

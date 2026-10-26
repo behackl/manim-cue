@@ -23,9 +23,9 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.addStyleTag({ content: await readFile('webview/styles.css', 'utf8') });
     await page.addScriptTag({ content: 'window.messages=[];window.acquireVsCodeApi=()=>({getState:()=>({}),setState:()=>{},postMessage:m=>window.messages.push(m)});' });
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
-    const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, stale: false, autoPreview: true,
-      followsVideo: true, notice: '', canSeek: true, duration: 3, fps: 4, previewWidth: 960, hasMovie: true, position: { time: 1.25, request: 1 },
-      media: { uri: 'https://cue.test/a.mp4', kind: 'video', token: 'a', old: false, duration: 3, rate: 4, seekTime: 1.25, frame: { width: 8, height: 4 } } };
+    const model: Model = { generation: 1, scene: 'Demo', status: 'Ready', busy: false, timelineOutdated: false, autoPreview: true,
+      followsVideo: true, notice: '', canSeek: true, duration: 3, fps: 4, previewWidth: 960, hasVideo: true, position: { time: 1.25, request: 1 },
+      media: { uri: 'https://cue.test/a.mp4', kind: 'video', token: 'a', outdated: false, duration: 3, rate: 4, seekTime: 1.25, frame: { width: 8, height: 4 } } };
     const publish = (m: Model) => page.evaluate(model => window.postMessage({ kind: 'state', model }, '*'), m);
     await publish(model);
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'playback' && m.time === 1.25), undefined, { timeout: 5000 }).catch(async e => {
@@ -70,7 +70,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await hit.focus(); await page.keyboard.press('Escape');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(() => document.querySelector('.measure-readout')?.textContent === '(0, 0)');
-    await publish({ ...model, busy: true, stale: true, followsVideo: false, position: { time: 1.25, request: 2 }, media: { ...model.media!, old: true } });
+    await publish({ ...model, busy: true, timelineOutdated: true, followsVideo: false, position: { time: 1.25, request: 2 }, media: { ...model.media!, outdated: true } });
     assert.equal(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused), true);
     await page.waitForFunction(() => document.querySelector('.measure-layer')?.hasAttribute('hidden'));
     assert.equal(await page.getByRole('button', { name: 'Copy point', exact: true }).isDisabled(), true);
@@ -78,7 +78,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
       const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 400;
       canvas.getContext('2d')!.fillRect(0, 0, 400, 400); return canvas.toDataURL();
     });
-    const frameModel: Model = { ...model, generation: 2, busy: true, stale: true, followsVideo: false, mediaReady: true, autoPreview: false, hasMovie: false,
+    const frameModel: Model = { ...model, generation: 2, busy: true, timelineOutdated: true, followsVideo: false, mediaReady: true, autoPreview: false, hasVideo: false,
       position: { time: 1.25, request: 2 }, media: { ...model.media!, kind: 'image', uri: captured, token: 'frame', sourceId: 'new',
         capture: { requestedTime: 1.25, time: 1.25, frameIndex: 5 } } };
     await publish(frameModel);
@@ -88,7 +88,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
     assert.equal(await page.getByRole('button', { name: 'Render video', exact: true }).isVisible(), true);
     assert.equal(await page.locator('.measure-layer').isVisible(), true, 'fresh frame remains measurable while the timeline updates');
     const oldFrame = { ...frameModel, generation: 3, mediaReady: false, position: { time: 1.25, request: 3 },
-      media: { ...frameModel.media!, old: true } };
+      media: { ...frameModel.media!, outdated: true } };
     await publish(oldFrame);
     assert.equal(await page.locator('.media-stage img').isVisible(), true, 'editing again retains the still');
     assert.equal(await page.locator('.watermark').innerText(), 'OLD PREVIEW');
@@ -100,13 +100,13 @@ test('preview swaps at the selected position, paused, without reporting initial 
     await page.addScriptTag({ content: await readFile('dist/preview.js', 'utf8') });
     await publish(oldFrame);
     await page.waitForFunction(() => (window as any).messages.some((m: any) => m.kind === 'displayed' && m.token === 'frame'), undefined, { timeout: 5000 });
-    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'stale still restored after view recreation');
+    assert.equal(await page.locator('.media-stage img').isVisible(), true, 'outdated still restored after view recreation');
     assert.equal(await page.locator('.watermark').isVisible(), true);
     assert.equal(await page.getByRole('button', { name: 'Play', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: 'Export…', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => (window as any).messages.at(-1)), { kind: 'openExport', token: 'frame', time: 1.25 });
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
-    assert.equal(await page.locator('.measure-layer').isVisible(), false, 'stale image is display-only');
+    assert.equal(await page.locator('.measure-layer').isVisible(), false, 'outdated image is display-only');
     const movieModel: Model = { ...model, generation: 3, mediaReady: true, position: { time: 1.25, request: 3 },
       media: { ...model.media!, uri: 'https://cue.test/b.mp4', token: 'b', sourceId: 'new', seekTime: undefined, frame: { width: 12, height: 6 } } };
     await publish(movieModel);
@@ -142,7 +142,7 @@ test('preview swaps at the selected position, paused, without reporting initial 
       const times = (window as any).messages.filter((m: any) => m.kind === 'playback' && m.seekSequence === 6).map((m: any) => m.time);
       return times.some((t: number, i: number) => i > 0 && t < times[i - 1]);
     });
-    await publish({ ...movieModel, generation: 4, stale: true, followsVideo: false, mediaReady: false, position: { time: 2.5, request: 7 }, media: { ...movieModel.media!, old: true } });
+    await publish({ ...movieModel, generation: 4, timelineOutdated: true, followsVideo: false, mediaReady: false, position: { time: 2.5, request: 7 }, media: { ...movieModel.media!, outdated: true } });
     await page.waitForFunction(() => { const v = document.querySelector('video'); return v?.paused && !v.seeking; });
     const stopped = await page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime);
     await page.waitForTimeout(600);
