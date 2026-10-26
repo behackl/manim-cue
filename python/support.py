@@ -169,7 +169,7 @@ def inspect_scene(request):
     if len(matches) != 1:
         raise CueError(f"The file has no scene class named {request['scene']}.")
     scene = matches[0]()
-    manager = Manager(scene)
+    manager = scene.manager or Manager(scene)
     time, timeline = request.get("time"), request.get("timeline")
     sent = False
 
