@@ -131,11 +131,6 @@
           "command": "manimCue.refresh",
           "when": "view == manimCue.timeline",
           "group": "navigation"
-        },
-        {
-          "command": "manimCue.cancel",
-          "when": "view == manimCue.timeline",
-          "group": "navigation"
         }
       ]
     },
