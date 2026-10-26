@@ -48,6 +48,12 @@ export async function testExportCopies(root: string): Promise<void> {
         await exports.submit(dialog.id, { ...dialog.choice, kind: 'video', method: 'render' } satisfies ExportChoice);
         assert.match(exports.snapshot().dialog?.error ?? '', /Width and height/);
         assert.equal(pickers, 3, 'invalid new renders are still rejected before the picker');
+        // "Save Frame as PNG" keeps the open dialog.
+        const quick = path.join(dir, `quick-${width}.png`);
+        Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(quick) });
+        await exports.saveFrame();
+        assert.deepEqual(await fs.readFile(quick), await fs.readFile(files.frame));
+        assert.equal(exports.snapshot().dialog?.id, dialog.id);
       } finally { exports.dispose(); }
     }
   } finally {

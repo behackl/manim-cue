@@ -80,7 +80,8 @@ export class Exports {
   /** Saves the frame at the preview position as PNG: the shown frame, or else a new frame for the position. */
   async saveFrame(): Promise<void> {
     const source = this.source();
-    if (!source || this.busy) return;
+    if (!source) return;
+    if (this.busy) throw new Error('Wait for the export to finish, or cancel it.');
     const shown = source.frame?.media.capture?.requestedTime === source.time ? source.frame : undefined;
     if (!shown && !source.job) throw new Error('Refresh to update the frame first.');
     if (!shown && !vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
@@ -166,7 +167,7 @@ export class Exports {
         active.started = true; signal.throwIfAborted();
         release = await this.suspend(); signal.throwIfAborted();
       }
-      this.dialog = undefined;
+      if (!s.quick) this.dialog = undefined;
       let preference: ExportChoice | undefined;
       try { preference = exportChoice(s.choice); } catch { /* A copy may carry an invalid render draft. Keep the last valid preference. */ }
       if (preference && !s.quick) await this.context.workspaceState.update('exportChoice', preference);
