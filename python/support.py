@@ -170,7 +170,7 @@ def inspect_scene(request):
     if len(matches) != 1:
         raise ValueError("Select exactly one Scene class defined in the source file.")
     scene = matches[0]()
-    manager = scene.manager or Manager(scene)
+    manager = Manager(scene)
     time, timeline = request.get("time"), request.get("timeline")
     sent = False
 
