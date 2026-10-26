@@ -1,8 +1,13 @@
-export type PreviewTask = 'inspect' | 'render';
+/** An inspection with a timeline, a frame-only inspection, or a video render. */
+export type PreviewTask = 'inspect' | 'frame' | 'render';
 type Task = { kind: PreviewTask; run: (signal: AbortSignal) => Promise<void>; due: number };
-const priority: PreviewTask[] = ['inspect', 'render'];
+const priority: PreviewTask[] = ['inspect', 'frame', 'render'];
 
-/** One subprocess task at a time; retain only the latest task of each kind. */
+/**
+ * One subprocess task at a time; retain only the latest task of each kind. A new task
+ * stops a running task of the same kind, and an inspection stops a render, which runs
+ * again later.
+ */
 export class PreviewQueue {
   private pending = new Map<PreviewTask, Task>();
   private active?: { task: Task; abort: AbortController };
@@ -16,7 +21,7 @@ export class PreviewQueue {
   enqueue(kind: PreviewTask, run: Task['run'], delay = 0): void {
     this.pending.set(kind, { kind, run, due: Date.now() + delay });
     const active = this.active;
-    if (!this.held && active && !active.abort.signal.aborted && priority.indexOf(kind) <= priority.indexOf(active.task.kind)) {
+    if (!this.held && active && !active.abort.signal.aborted && (kind === active.task.kind || active.task.kind === 'render')) {
       if (kind !== active.task.kind && !this.pending.has(active.task.kind)) this.pending.set(active.task.kind, active.task);
       active.abort.abort();
     }

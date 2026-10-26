@@ -59,3 +59,25 @@ test('completed inspection survives a later task error; cancellation clears defe
   queue.clear(); await queue.whenIdle();
   assert.deepEqual(completed, ['frame']); assert.equal(queue.busy, false);
 });
+
+test('a frame waits for a running timeline inspection but replaces a running frame', async () => {
+  const trace: string[] = [];
+  const queue = new PreviewQueue(() => {}, error => { throw error; });
+  const started = deferred(), release = deferred();
+  queue.enqueue('inspect', async signal => { trace.push('inspect'); started.resolve(); await release.promise; if (signal.aborted) trace.push('inspect stopped'); });
+  await started.promise;
+  queue.enqueue('frame', async () => { trace.push('frame 1'); });
+  queue.enqueue('frame', async () => { trace.push('frame 2'); });
+  release.resolve(); await queue.whenIdle();
+  assert.deepEqual(trace, ['inspect', 'frame 2']);
+  const running = deferred();
+  queue.enqueue('frame', async signal => {
+    trace.push('frame 3'); running.resolve();
+    await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+    trace.push('frame 3 stopped');
+  });
+  await running.promise;
+  queue.enqueue('frame', async () => { trace.push('frame 4'); });
+  await queue.whenIdle();
+  assert.deepEqual(trace.slice(2), ['frame 3', 'frame 3 stopped', 'frame 4']);
+});
