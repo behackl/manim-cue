@@ -7,6 +7,7 @@ import { setupPythonEnvironment } from './setup';
 import type { TimeRange } from './selection';
 import { Session } from './session';
 import { model } from './panel';
+import { migrateSettings } from './settings';
 
 /** The commands that check, select or create the Python environment of a scene. */
 class PythonCommands implements vscode.Disposable {
@@ -80,8 +81,10 @@ class PythonCommands implements vscode.Disposable {
   dispose(): void { this.disposed = true; this.doctorAbort?.abort(); this.setupAbort?.abort(); }
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   const output = vscode.window.createOutputChannel('Manim Cue');
+  // Before the first scene reads a setting. A failure leaves the old value unused, nothing more.
+  await migrateSettings().catch(e => output.appendLine(`Could not move renamed settings: ${e instanceof Error ? e.message : e}`));
   const session = new Session(context, output), python = new PythonCommands(context, output, session);
   const command = (id: string, fn: (...args: never[]) => unknown) => vscode.commands.registerCommand(id, (...args) => Promise.resolve(fn(...args as never[])).catch(e => session.failAction(e)));
   context.subscriptions.push(output, session, python,

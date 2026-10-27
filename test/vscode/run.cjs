@@ -46,6 +46,8 @@ if (!process.env.CUE_TEST_PROFILE) {
   await fs.writeFile(path.join(scratch, 'user-data', 'User', 'settings.json'), JSON.stringify({
     'telemetry.telemetryLevel': 'off', 'update.mode': 'none',
     'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
+    // The activation test checks the move of renamed settings: here the new key stays.
+    ...(activation ? { 'manimCue.autoPreview': false, 'manimCue.renderVideoAutomatically': true } : {}),
   }));
   if (version) {
     // Explicit opt-in: provision only this isolated test profile, never the user's installation.
@@ -62,7 +64,9 @@ if (!process.env.CUE_TEST_PROFILE) {
   await fs.copyFile('examples/cue.wav', path.join(workspace, 'cue.wav'));
   await fs.writeFile(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({
     'manimCue.pythonPath': process.env.MANIM_PYTHON, 'manimCue.frameRate': 4,
-    'manimCue.previewWidth': 320, 'manimCue.renderVideoAutomatically': false,
+    'manimCue.previewWidth': 320,
+    // The activation test checks that the renamed key moves to the new key.
+    [activation ? 'manimCue.autoPreview' : 'manimCue.renderVideoAutomatically']: false,
     'python.defaultInterpreterPath': process.env.MANIM_PYTHON,
     'python.analysis.enabled': false, 'python.useEnvironmentsExtension': false,
   }));

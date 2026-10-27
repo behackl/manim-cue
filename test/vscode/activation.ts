@@ -23,6 +23,13 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('manimCue.clearCaches');
   assert.equal(api.getSnapshot().error, undefined);
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
+  // Activation moves renamed settings; a value of the new key stays.
+  const setting = vscode.workspace.getConfiguration('manimCue').inspect<boolean>('renderVideoAutomatically');
+  assert.equal(setting?.workspaceValue, false, 'the workspace value of autoPreview moves');
+  assert.equal(setting?.globalValue, true, 'the user value of the new key stays');
+  for (const file of [path.join(root, '.vscode', 'settings.json'), path.join(process.env.CUE_TEST_PROFILE!, 'user-data', 'User', 'settings.json')]) {
+    assert.doesNotMatch(await fs.readFile(file, 'utf8'), /autoPreview/, `${file} has no old key`);
+  }
   await testExportCopies(root);
   await fs.writeFile(path.join(root, 'smoke-success.json'), JSON.stringify({
     kind: 'activation-only', vscode: vscode.version, platform: process.platform,
