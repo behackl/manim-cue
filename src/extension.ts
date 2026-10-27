@@ -5,6 +5,7 @@ import { checkPython, diagnosticSummary, formatDiagnostic, type PythonDiagnostic
 import { selectPythonFor } from './python-picker';
 import { setupPythonEnvironment } from './setup';
 import type { TimeRange } from './selection';
+import type { Model } from './protocol';
 import { Session } from './session';
 import { model } from './panel';
 import { migrateSettings } from './settings';
@@ -117,5 +118,7 @@ export async function activate(context: vscode.ExtensionContext) {
   return { getSnapshot: () => model(session), whenIdle: () => session.whenIdle(), seek: (time: number) => session.seek(time),
     setLoop: (range?: TimeRange) => session.setLoop(range), pin: (id: string) => session.pin(id),
     setSaveDelay: (ms: number) => { session.watch.delay = ms; },
+    /** Each state that the webviews get, in order: tests see short states that polling can miss. */
+    onDidUpdate: (listener: (model: Model) => void) => session.views.onDidUpdate(() => listener(model(session))),
     submitExport: (id: string, choice: unknown) => session.exports.submit(id, choice) };
 }

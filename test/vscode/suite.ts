@@ -14,7 +14,8 @@ export async function run(): Promise<void> {
   const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
   assert.ok(extension, 'development extension registered');
   const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void;
-    setLoop(range?: { start: number; end: number }): void; pin(id: string): void; setSaveDelay(ms: number): void; submitExport(id: string, choice: unknown): Promise<void> };
+    setLoop(range?: { start: number; end: number }): void; pin(id: string): void; setSaveDelay(ms: number): void; submitExport(id: string, choice: unknown): Promise<void>;
+    onDidUpdate(listener: (model: Model) => void): vscode.Disposable };
   // A short pause after a save; settle() waits for a save notification and that pause.
   api.setSaveDelay(100);
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -133,9 +134,16 @@ export async function run(): Promise<void> {
   const originalRevision = revision();
   await api.whenIdle();
   assert.equal(api.getSnapshot().busy, false); assert.equal(revision(), originalRevision);
-  assert.equal(await doc.save(), true);
-  await until(frameAt(1.25), 'the frame for the position comes first');
-  assert.equal(api.getSnapshot().timelineOutdated, true, 'the timeline is still outdated');
+  // The frame and the timeline can arrive within milliseconds: observe each state, do not poll.
+  let firstFrame125: Model | undefined;
+  const watching = api.onDidUpdate(state => {
+    if (!firstFrame125 && state.frame?.requestedTime === 1.25 && !state.frame.outdated) firstFrame125 = state;
+  });
+  try {
+    assert.equal(await doc.save(), true);
+    await until(() => !!firstFrame125, 'the frame for the position arrives');
+  } finally { watching.dispose(); }
+  assert.equal(firstFrame125!.timelineOutdated, true, 'the frame for the position comes before the timeline');
   const stillToken = api.getSnapshot().frame!.id, stillBytes = await fs.readFile(stillToken);
   assert.equal(path.basename(path.dirname(stillToken)), 'preview-media');
   await insert('# edit again while only the frame is ready\n');

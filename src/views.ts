@@ -6,6 +6,9 @@ export class Views implements vscode.Disposable {
   private timeline?: vscode.WebviewView;
   private preview?: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly updated = new vscode.EventEmitter<void>();
+  /** Fires after each update of the webviews, also without an open view. */
+  readonly onDidUpdate = this.updated.event;
   /** The timeline that the timeline view has. A timeline is large: send it only when it changes. */
   private sent?: string;
   constructor(private readonly root: vscode.Uri, private readonly mediaRoots: vscode.Uri[],
@@ -51,11 +54,12 @@ export class Views implements vscode.Disposable {
       void this.timeline.webview.postMessage({ kind: 'state', model } satisfies HostMessage);
     }
     if (this.preview) void this.preview.webview.postMessage({ kind: 'state', model: this.model(this.preview.webview, 'preview') } satisfies HostMessage);
+    this.updated.fire();
   }
   /** The preview moved: show the position on the timeline. */
   position(time: number): void { void this.timeline?.webview.postMessage({ kind: 'position', time } satisfies HostMessage); }
   /** The timeline view chose a time: move the preview there. */
   seek(time: number): void { void this.preview?.webview.postMessage({ kind: 'seek', time } satisfies HostMessage); }
   step(direction: -1 | 1): void { void this.preview?.webview.postMessage({ kind: 'step', direction } satisfies HostMessage); }
-  dispose(): void { this.preview?.dispose(); this.disposables.forEach(d => d.dispose()); }
+  dispose(): void { this.preview?.dispose(); this.disposables.forEach(d => d.dispose()); this.updated.dispose(); }
 }
