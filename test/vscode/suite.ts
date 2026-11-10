@@ -53,7 +53,7 @@ export async function run(): Promise<void> {
   const frameAt = (time: number) => () => api.getSnapshot().frame?.requestedTime === time && !api.getSnapshot().frame?.outdated;
   let state = api.getSnapshot();
   assert.ok(state.timeline, JSON.stringify(state));
-  assert.equal(state.timeline.duration, 3.5); assert.equal(state.timeline.entries.filter(isCall).length, 6);
+  assert.equal(state.timeline.duration, 3.75); assert.equal(state.timeline.entries.filter(isCall).length, 6);
   assert.equal(state.busy, false); assert.equal(state.timelineOutdated, false);
   assert.equal(state.frame?.requestedTime, 0); assert.equal(state.frame?.time, 0);
   const saveDialog = vscode.window.showSaveDialog, png = vscode.Uri.file(path.join(root, 'captured.png'));
@@ -96,7 +96,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('manimCue.preview'); await api.whenIdle();
   state = api.getSnapshot();
   assert.ok(state.video && !state.video.outdated, JSON.stringify(state.video));
-  assert.equal(state.video.duration, 3.5); assert.equal(state.video.frame.height, 8);
+  assert.equal(state.video.duration, 3.75); assert.equal(state.video.frame.height, 8);
   assert.ok(Math.abs(state.video.frame.width - 128 / 9) < 1e-8, 'scene units of the configuration');
   // With a video, a seek needs no frame; the preview steps by itself and reports the position.
   const frameBefore = api.getSnapshot().frame?.id;
@@ -154,7 +154,7 @@ export async function run(): Promise<void> {
   await doc.save(); await savedTimeline();
   assert.notEqual(revision(), originalRevision);
   assert.equal(api.getSnapshot().time, 1.25, 'the update keeps the position');
-  assert.equal(api.getSnapshot().timeline?.duration, 4, 'the update runs the changed timing');
+  assert.equal(api.getSnapshot().timeline?.duration, 4.25, 'the update runs the changed timing');
   assert.ok(frameAt(1.25)());
   const afterSave = api.getSnapshot().frame!.id;
   await settle();

@@ -59,16 +59,17 @@ test('evaluation and render give the same timeline; the video follows it', async
     const o = { ...options(path.resolve('examples/cue_demo.py'), root), scene: 'CueDemo' };
     const evaluated = await evaluate(o);
     assert.equal(evaluated.timeline.mode, 'evaluate');
-    assert.deepEqual(calls(evaluated.timeline), [[0, 1, false], [1, 1.5, false], [1.5, 2, false], [2, 2.5, false], [2.5, 2.75, true], [2.75, 3.5, false]]);
+    // At 4 fps a span takes ceil(duration * 4) frames: the frozen wait(0.35) takes 2 frames, 0.5 s.
+    assert.deepEqual(calls(evaluated.timeline), [[0, 1, false], [1, 1.5, false], [1.5, 2, false], [2, 2.5, false], [2.5, 3, true], [3, 3.75, false]]);
     const cue = evaluated.timeline.entries.find(e => e.kind === 'sound');
     assert.equal(cue?.start, 1.75);
     assert.ok(cue?.kind === 'sound' && cue.duration! > 0, 'sound duration comes from the file headers');
     const { video, timeline } = await render(o);
     assert.equal(timeline.timeline.mode, 'render');
     assert.deepEqual(timeline.timeline.entries, evaluated.timeline.entries);
-    assert.equal(video.media.duration, 3.5); assert.equal(video.media.rate, 4); assert.equal(video.media.hasAudio, true);
+    assert.equal(video.media.duration, 3.75); assert.equal(video.media.rate, 4); assert.equal(video.media.hasAudio, true);
     const movie = await probe(video.media.path);
-    assert.equal(movie.frames, 14); assert.equal(movie.rate, 4); assert.equal(movie.audio, true);
+    assert.equal(movie.frames, 15); assert.equal(movie.rate, 4); assert.equal(movie.audio, true);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
