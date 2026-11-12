@@ -56,6 +56,14 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual((built["scene"], built["cells"]), (4, [0, 1, 4]))
         self.assertIsNone(nb.build(cells(*sources), "Missing"))
 
+    def test_state_through_a_module_imported_in_another_cell(self):
+        sources = ("import manim as mn\nfrom manim import Scene, Create, Circle", "mn.config.background_color = 'WHITE'", "RADIUS = 1", SCENE.replace(", color=COLORS[-1]", ""))
+        self.assertEqual(chosen(sources), [0, 1, 2, 3])
+
+    def test_a_call_of_a_function_that_sets_a_global(self):
+        sources = ("from manim import *", "def setup():\n    global RADIUS, COLORS\n    RADIUS, COLORS = 1, [RED]", "setup()", "other()", SCENE)
+        self.assertEqual(chosen(sources), [0, 1, 2, 4])
+
     def test_definitions_inside_branches_and_loops_count(self):
         sources = ("from manim import *", "if True:\n    RADIUS = 1\nfor COLORS in [[RED]]:\n    pass", "with open('x') as handle:\n    pass", SCENE)
         self.assertEqual(chosen(sources), [0, 1, 3])

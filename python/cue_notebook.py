@@ -50,6 +50,8 @@ class Cell:
         self.defines, self.uses, self.mutates = set(), set(), set()
         self.imported, self.state = set(), set()
         self.state_names = set()  # names bound to manim, sys or os, or imported from them
+        self.calls = set()  # functions that the cell calls when it runs
+        self.function_globals = {}  # function name -> the global names that it sets
         self.globals, self.magic_names, self.words = set(), set(), set()
         self.classes = []  # (name, line) of top-level scene class candidates
         self.code = self._translate()
@@ -111,6 +113,8 @@ class Cell:
     def _statements(self, body):
         """The code that runs when the cell runs: module level, with its loops and branches."""
         for node in body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self._calls([node])
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 module = node.module if isinstance(node, ast.ImportFrom) else None
                 for alias in node.names:
@@ -125,6 +129,10 @@ class Cell:
                         self.state_names.add(name)
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 self.defines.add(node.name)
+                if not isinstance(node, ast.ClassDef):
+                    names = {n for child in ast.walk(node) if isinstance(child, ast.Global) for n in child.names}
+                    if names:
+                        self.function_globals[node.name] = names
                 if isinstance(node, ast.ClassDef) and node.bases:
                     self.classes.append((node.name, node.lineno))
                 self._walrus(node.decorator_list)
@@ -159,6 +167,12 @@ class Cell:
                     self._statements(case.body)
                 self._walrus([value for key, value in ast.iter_fields(node) if key in ("test", "iter", "subject")])
 
+    def _calls(self, nodes):
+        for node in nodes:
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    self.calls.add(child.func.id)
+
     def _target(self, target):
         if isinstance(target, ast.Name):
             self.defines.add(target.id)
@@ -178,10 +192,11 @@ class Cell:
                 if isinstance(child, ast.NamedExpr):
                     self.defines.add(child.target.id)
 
-    def changes_state(self, assigned):
-        """The cell changes Manim's, sys's or os's state, or of a name that no cell assigns (from a star import)."""
+    def changes_state(self, assigned, state_names):
+        """The cell changes the state of Manim, sys or os (``state_names``: the names that
+        any cell binds to them), or of a name that no cell assigns, from a star import."""
         changed = self.mutates | self.state
-        return bool(changed & self.state_names) or "config" in changed and "config" not in assigned or bool(self.state - assigned)
+        return bool(changed & state_names) or "config" in changed and "config" not in assigned or bool(self.state - assigned)
 
 
 def _root(node):
@@ -223,6 +238,12 @@ def select(cells, scene_index, mode):
         return above + [scene]
     python = [cell for cell in above if cell.kind == "python"]
     assigned = set().union(*(cell.defines - cell.imported for cell in python + [scene]))
+    state_names = set().union(*(cell.state_names for cell in python + [scene]))
+    # A call of a function that declares `global x` sets x.
+    function_globals = {}
+    for cell in python:
+        function_globals.update(cell.function_globals)
+    sets = lambda cell: cell.defines | cell.mutates | {n for f in cell.calls for n in function_globals.get(f, ())}
     chosen, needed = {scene.index}, set(scene.uses)
     changed = True
     while changed:  # A cell further down can change a name that a cell further up uses.
@@ -230,7 +251,7 @@ def select(cells, scene_index, mode):
         for cell in reversed(python):
             if cell.index in chosen:
                 continue
-            if cell.marker or cell.star or cell.changes_state(assigned) or (cell.defines | cell.mutates) & needed:
+            if cell.marker or cell.star or cell.changes_state(assigned, state_names) or sets(cell) & needed:
                 chosen.add(cell.index)
                 needed |= cell.uses
                 changed = True
