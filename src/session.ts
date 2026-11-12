@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import { environmentFor, PythonNotFound, sceneJob } from './environment';
 import { RuntimeUnavailable } from './diagnostics';
 import { Scenes } from './scenes';
-import { inspect, renderPreview, publishPreview, fileHash, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
+import { inspect, renderPreview, publishPreview, fileHash, NotebookError, type TimelineResult, type PreviewResult, type SceneJob } from './jobs';
+import { codeHash, isDirty, isNotebook, locate, markCell, notebookOfCell, save, showCell, editorCells, type CellMode, type Problem, type ProblemAction } from './notebook';
 import { PreviewQueue } from './preview-queue';
 import type { TimeRange } from './selection';
 import { Views } from './views';
@@ -45,7 +46,8 @@ export class Session implements vscode.Disposable {
   readonly exports: Exports;
   readonly watch = new SourceWatch({
     file: () => this.target?.uri,
-    dirty: uri => vscode.workspace.textDocuments.some(d => d.uri.toString() === uri.toString() && d.isDirty),
+    dirty: uri => isDirty(uri as vscode.Uri),
+    hash: uri => this.target && isNotebook(uri) ? this.savedHash(this.target) : undefined,
     automatic: uri => vscode.workspace.isTrusted && vscode.workspace.getConfiguration('manimCue', uri as vscode.Uri).get('autoRefreshOnSave', true),
     invalidate: (reason, savedHash) => this.invalidate(reason, savedHash),
     // A running update of the saved file goes on; its results are outdated too.
@@ -71,6 +73,10 @@ export class Session implements vscode.Disposable {
   /** "Render video" or Play asked for a video; the render can wait for the timeline. */
   videoWanted = false;
   private errors = new Map<string, string>();
+  /** The notebook problem of the last failed run, with the cell mode of that run. */
+  problem?: { problem: Problem; mode: CellMode };
+  private notebookTimer?: ReturnType<typeof setTimeout>;
+  private notebookCheck = 0;
   private disposed = false;
   private rememberTimer?: ReturnType<typeof setTimeout>;
   private readonly queue = new PreviewQueue(() => {
@@ -86,8 +92,8 @@ export class Session implements vscode.Disposable {
     this.scratch = vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, 'runs').fsPath;
     this.mediaRoot = path.join(this.scratch, 'preview-media');
     this.exports = new Exports(context, this.scratch, () => this.exportSource(), () => { this.views?.update(); void this.cleanup(); },
-      () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); });
-    this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python', 'discover.py').fsPath);
+      () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); }, source => this.savedHash(source));
+    this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python').fsPath);
     this.views = new Views(context.extensionUri, [vscode.Uri.file(this.mediaRoot)],
       (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, (webview, view, sent) => model(this, webview, view, sent),
       () => {
@@ -105,19 +111,23 @@ export class Session implements vscode.Disposable {
     const opening = ++this.opening;
     if (!vscode.workspace.isTrusted) { await vscode.window.showWarningMessage('Trust this workspace to run Manim scenes.'); return; }
     const remembered = this.context.workspaceState.get<{ uri: string; scene: string; time: number }>('lastScene');
-    let document = uri ? await vscode.workspace.openTextDocument(uri) : vscode.window.activeTextEditor?.document;
-    if (!uri && document?.languageId !== 'python' && remembered) {
-      document = await vscode.workspace.openTextDocument(vscode.Uri.parse(remembered.uri));
-      scene ??= remembered.scene;
+    let source = uri;
+    if (!source) {
+      const active = vscode.window.activeTextEditor?.document;
+      const notebook = vscode.window.activeNotebookEditor?.notebook ?? (active && notebookOfCell(active));
+      source = notebook?.uri ?? (active?.languageId === 'python' ? active.uri : undefined);
+      if (!source && remembered) { source = vscode.Uri.parse(remembered.uri); scene ??= remembered.scene; }
     }
+    const python = source && !isNotebook(source) && (await vscode.workspace.openTextDocument(source)).languageId === 'python';
     if (opening !== this.opening) return;
-    if (!document || document.uri.scheme !== 'file' || document.languageId !== 'python') throw new Error('Open a Python file on this computer first.');
-    if (document.isDirty) {
+    if (!source || source.scheme !== 'file' || !python && !isNotebook(source)) throw new Error('Open a Python file or a notebook on this computer first.');
+    const document = { uri: source };
+    if (isDirty(source)) {
       if (await vscode.window.showWarningMessage('Manim Cue runs the saved file. Save it now?', 'Save and Run') !== 'Save and Run') return;
-      if (!await document.save()) return;
+      if (!await save(source)) return;
     }
     if (!scene && remembered?.uri === document.uri.toString()) scene = remembered.scene;
-    scene ??= await this.scenes.pick(document);
+    scene ??= await this.scenes.pick(source);
     if (!scene || opening !== this.opening) return;
     if (!/^[\p{ID_Start}_][\p{ID_Continue}]*$/u.test(scene)) throw new Error('Enter the name of a Python class.');
     const different = !this.target || this.target.uri.toString() !== document.uri.toString() || this.target.scene !== scene;
@@ -129,7 +139,9 @@ export class Session implements vscode.Disposable {
       const time = remembered?.uri === document.uri.toString() && remembered.scene === scene ? remembered.time : 0;
       this.time = Number.isFinite(time) && time >= 0 ? time : 0;
     }
-    this.target = { uri: document.uri, scene, column: vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === document.uri.toString())?.viewColumn };
+    const editors = [...vscode.window.visibleTextEditors.map(e => ({ uri: e.document.uri, column: e.viewColumn })),
+      ...vscode.window.visibleNotebookEditors.map(e => ({ uri: e.notebook.uri, column: e.viewColumn }))];
+    this.target = { uri: document.uri, scene, column: editors.find(e => e.uri.toString() === document.uri.toString())?.column };
     this.remember();
     await this.views.open();
     if (opening === this.opening) await this.refresh();
@@ -140,15 +152,19 @@ export class Session implements vscode.Disposable {
     if (!this.target) { await this.open(); return; }
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
     const target = this.target, intent = this.generation;
-    const document = await vscode.workspace.openTextDocument(target.uri);
-    const hash = await fileHash(target.uri.fsPath);
+    let hash: string;
+    try { hash = await this.savedHash(target); } catch (e) {
+      // The hash of a notebook needs Python: show its errors like those of the update.
+      if (!isNotebook(target.uri) || this.target !== target || intent !== this.generation || this.disposed) throw e;
+      this.cancel(false); this.updateFailed(e); return;
+    }
     if (this.target !== target || intent !== this.generation || this.disposed) return;
-    if (document.isDirty) { this.invalidate('Outdated. Save the scene file to update.'); throw new Error('Save the scene file to update.'); }
+    if (isDirty(target.uri)) { this.invalidate('Outdated. Save the scene file to update.'); throw new Error('Save the scene file to update.'); }
     const videoWanted = this.videoWanted;
     this.cancel(false);
     this.watch.updating(hash); this.videoWanted = videoWanted;
     const generation = this.generation, abort = new AbortController(); this.abort = abort;
-    this.preparing = true; this.busy = true; this.error = undefined; this.errors.clear(); this.pythonProblem = false;
+    this.preparing = true; this.busy = true; this.error = undefined; this.errors.clear(); this.pythonProblem = false; this.problem = undefined;
     this.status = 'Starting Python…'; this.views.update();
     const current = () => generation === this.generation && !abort.signal.aborted && !this.disposed;
     this.pending = this.pending.catch(() => {}).then(async () => {
@@ -156,7 +172,7 @@ export class Session implements vscode.Disposable {
       if (!current()) return;
       try {
         this.output.appendLine(`\n── ${target.scene} · ${path.basename(target.uri.fsPath)} · generation ${generation} ──`);
-        const { job, environment, cwd } = await sceneJob(target.uri, target.scene, { scratch: this.scratch, sourceHash: hash,
+        const { job, environment, cwd } = await sceneJob(target.uri, target.scene, { scratch: this.scratch, sourceHash: hash, cells: this.cells(target.uri),
           helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal: abort.signal, log: s => { if (!this.disposed) this.output.append(s); } });
         if (!current()) return;
         this.pythonInUse = environment.python;
@@ -165,12 +181,64 @@ export class Session implements vscode.Disposable {
         this.requestTimeline(frame);
       } catch (e) {
         if (!current()) return;
-        this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.pythonProblem = e instanceof PythonNotFound;
-        this.output.appendLine(this.error);
+        this.updateFailed(e);
       }
       finally { if (current()) { this.preparing = false; this.busy = this.queue.busy; this.views.update(); } }
     });
     await this.whenIdle();
+  }
+  private updateFailed(e: unknown): void {
+    this.error = e instanceof Error ? e.message : String(e); this.status = 'Update failed'; this.pythonProblem = e instanceof PythonNotFound;
+    this.output.appendLine(this.error); this.views.update();
+  }
+  /** Which cells of a notebook run; remembered for each notebook in this workspace. */
+  cells(uri: vscode.Uri): CellMode {
+    return this.context.workspaceState.get<Record<string, CellMode>>('cellModes', {})[uri.toString()] === 'allAbove' ? 'allAbove' : 'needed';
+  }
+  async setCells(mode: CellMode): Promise<void> {
+    if (!this.target || !isNotebook(this.target.uri) || mode === this.cells(this.target.uri)) return;
+    const modes = { ...this.context.workspaceState.get<Record<string, CellMode>>('cellModes', {}) };
+    if (mode === 'needed') delete modes[this.target.uri.toString()]; else modes[this.target.uri.toString()] = mode;
+    await this.context.workspaceState.update('cellModes', modes);
+    // The user asked for it, and nothing must be saved: update at once.
+    if (isDirty(this.target.uri)) { this.invalidate('Outdated. Save the scene file to update.'); return; }
+    await this.refresh();
+  }
+  private helpers(): string { return vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath; }
+  /** The hash of the saved source of a run: of the file, or of the code that a notebook run executes. */
+  private async savedHash(target: { uri: vscode.Uri; scene: string }): Promise<string> {
+    if (!isNotebook(target.uri)) return fileHash(target.uri.fsPath);
+    return codeHash(await environmentFor(target.uri), this.helpers(), target.scene, this.cells(target.uri), { path: target.uri.fsPath });
+  }
+  /**
+   * A notebook changed in the editor. Only a change of the code that the run executes
+   * makes the results outdated: not outputs, execution counts or the cells that it skips.
+   */
+  notebookChanged(event: vscode.NotebookDocumentChangeEvent): void {
+    const target = this.target;
+    if (!target || event.notebook.uri.toString() !== target.uri.toString()) return;
+    if (!event.contentChanges.length && !event.cellChanges.some(change => change.document)) return;
+    clearTimeout(this.notebookTimer);
+    const check = ++this.notebookCheck;
+    this.notebookTimer = setTimeout(() => {
+      void (async () => {
+        const hash = await codeHash(await environmentFor(target.uri), this.helpers(), target.scene, this.cells(target.uri), { cells: editorCells(event.notebook) });
+        if (check !== this.notebookCheck || this.target !== target) return;
+        if (hash !== this.watch.updated) await this.watch.edit(target.uri);
+        // An undo back to the saved code: as for a file, update that code.
+        else if (this.watch.edited && !event.notebook.isDirty) await this.watch.saved(target.uri);
+      })().catch(e => this.output.appendLine(`Could not check the notebook: ${e instanceof Error ? e.message : e}`));
+    }, 250);
+  }
+  /** An action for the notebook problem of the last failed run. */
+  async problemAction(action: ProblemAction): Promise<void> {
+    const target = this.target, found = this.problem?.problem;
+    if (!target || !found) return;
+    if (action === 'runAllAbove') { await this.setCells('allAbove'); return; }
+    const cell = found.cell ?? found.location;
+    if (!cell) return;
+    if (action === 'runCell') await markCell(target.uri, cell, target.column);
+    else await showCell(target.uri, cell, found.cell ? 1 : found.location!.line, target.column);
   }
   private current(job: SceneJob, signal: AbortSignal): boolean {
     return this.job === job && !this.disposed && !signal.aborted;
@@ -185,6 +253,7 @@ export class Session implements vscode.Disposable {
     const what = failures[topic];
     this.status = `${what} failed`;
     this.setError(topic, `${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof NotebookError) this.problem = { problem: error.problem, mode: job.options.cells ?? 'needed' };
     if (topic !== 'Frame') this.videoWanted = false;
     // A Python executable that does not start, for example a deleted environment.
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') this.pythonProblem = true;
@@ -349,6 +418,13 @@ export class Session implements vscode.Disposable {
     const result = this.timeline, target = this.target, generation = this.generation;
     const site = result.timeline.entries[index]?.source;
     if (!site?.path) throw new Error('This entry has no source line in the scene folder.');
+    if (isNotebook(target.uri)) {
+      if (result.outdated) throw new Error('The notebook changed. Refresh to update the timeline.');
+      const cell = await locate(result.directory, site.path, site.line);
+      if (!cell) throw new Error('This entry has no source line in the notebook.');
+      if (generation === this.generation) await showCell(target.uri, cell, cell.line, target.column);
+      return;
+    }
     if (result.outdated || (await vscode.workspace.openTextDocument(target.uri)).isDirty) throw new Error('The scene file changed. Refresh to update the timeline.');
     const root = path.dirname(await fs.realpath(result.source));
     const file = await fs.realpath(path.resolve(root, site.path));
@@ -361,7 +437,8 @@ export class Session implements vscode.Disposable {
     await vscode.window.showTextDocument(doc, { viewColumn: target.column ?? vscode.ViewColumn.One, selection: new vscode.Range(site.line - 1, 0, site.line - 1, 0), preserveFocus: false });
   }
   private exportSource(): ExportSource | undefined {
-    return this.target && { uri: this.target.uri, scene: this.target.scene, frame: this.frame, video: this.video, timeline: this.timeline, job: this.job, time: this.time };
+    return this.target && { uri: this.target.uri, scene: this.target.scene, frame: this.frame, video: this.video, timeline: this.timeline, job: this.job, time: this.time,
+      cells: isNotebook(this.target.uri) ? this.cells(this.target.uri) : undefined };
   }
   async openExport(): Promise<void> {
     if (!this.target) { void vscode.window.showInformationMessage('Open a scene to export.'); return; }
@@ -397,7 +474,7 @@ export class Session implements vscode.Disposable {
   }
   async whenIdle(): Promise<void> { await this.pending; await this.queue.whenIdle(); await this.exports.whenIdle(); }
   dispose(): void {
-    clearTimeout(this.rememberTimer);
+    clearTimeout(this.rememberTimer); clearTimeout(this.notebookTimer);
     if (this.target) void this.context.workspaceState.update('lastScene', { uri: this.target.uri.toString(), scene: this.target.scene, time: this.time });
     this.watch.dispose(); this.exports.dispose(); this.disposed = true; ++this.generation; this.abort?.abort();
     this.queue.clear(); this.scenes.dispose(); this.views.dispose();

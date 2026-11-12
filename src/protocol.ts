@@ -1,6 +1,7 @@
 import type { ExportChoice, ExportModel } from './export-settings';
 import type { Timeline } from './timeline';
 import type { TimeRange } from './selection';
+import type { CellMode, ProblemAction } from './notebook-problem';
 
 /** A result file for a webview. `id` is the file path; `frame` is the frame size in scene units. */
 interface Media { id: string; uri: string; outdated: boolean; frame: { width: number; height: number } }
@@ -16,6 +17,10 @@ export interface Model {
   status: string; busy: boolean; error?: string;
   /** The error comes from the Python environment. */
   pythonProblem: boolean;
+  /** For a notebook: which cells run. */
+  cells?: CellMode;
+  /** Why a notebook run failed, and what can fix it. */
+  problem?: { text: string; actions: ProblemAction[] };
   /** "Render Video Automatically" is on. */
   autoRender: boolean; fps: number; profile?: string;
   /** "Render video" or Play asked for a video that is not there yet. */
@@ -49,6 +54,8 @@ export type HostMessage =
 export type ViewMessage =
   | { kind: 'ready' }
   | { kind: 'refresh' | 'cancel' | 'preview' | 'logs' | 'export' | 'doctor' | 'settings' }
+  | { kind: 'cells'; mode: CellMode }
+  | { kind: 'problemAction'; action: ProblemAction }
   | { kind: 'seek'; time: number }
   | { kind: 'loop'; range?: TimeRange }
   | { kind: 'navigate'; index: number }

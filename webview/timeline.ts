@@ -34,10 +34,17 @@ chart.append(controls, viewport, legend);
 const inspector = el('aside', 'inspector');
 workspace.append(chart, inspector);
 const error = el('pre', 'error');
+const hint = el('p', 'error-hint');
 const errorActions = el('div', 'error-actions');
 const checkPython = button('Check Python', () => post({ kind: 'doctor' }));
-errorActions.append(button('Show Log', () => post({ kind: 'logs' })), checkPython);
-app.append(header, banner, workspace, error, errorActions);
+// Actions for a notebook error, in the order of the explanation.
+const problemButtons = {
+  runCell: button('Run This Cell Too', () => post({ kind: 'problemAction', action: 'runCell' }), 'Add “# cue: run” as the first line of the cell. Save the notebook to update.'),
+  runAllAbove: button('Run All Cells Above', () => post({ kind: 'problemAction', action: 'runAllAbove' }), 'Run every cell above the scene on each update, including slow setup.'),
+  showCell: button('Show Cell', () => post({ kind: 'problemAction', action: 'showCell' })),
+};
+errorActions.append(problemButtons.runCell, problemButtons.runAllAbove, problemButtons.showCell, button('Show Log', () => post({ kind: 'logs' })), checkPython);
+app.append(header, banner, workspace, error, hint, errorActions);
 let model: Model | undefined;
 /** The host sends the timeline only when it changes. */
 let timeline: Timeline | undefined;
@@ -148,8 +155,10 @@ function render(): void {
   banner.textContent = 'This timeline is outdated.';
   banner.hidden = !model.timelineOutdated;
   error.textContent = model.error ?? ''; error.hidden = !model.error;
+  hint.textContent = model.problem?.text ?? ''; hint.hidden = !model.problem;
   errorActions.hidden = !model.error;
   checkPython.hidden = !model.pythonProblem;
+  for (const [action, b] of Object.entries(problemButtons)) b.hidden = !model.problem?.actions.includes(action as keyof typeof problemButtons);
   svg.replaceChildren();
   if (!t) {
     svg.setAttribute('width', '100%'); svg.setAttribute('height', '140');

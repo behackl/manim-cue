@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { FrameMedia, Model } from './protocol';
 import type { PreviewResult } from './jobs';
 import type { Session } from './session';
+import { explain, isNotebook } from './notebook-problem';
 
 const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const text = (x: unknown): x is string => typeof x === 'string';
@@ -20,6 +21,8 @@ export function model(s: Session, webview?: vscode.Webview, view?: 'timeline' | 
   return {
     scene: s.target?.scene ?? '', sceneKey: s.target ? `${s.target.uri.toString()}#${s.target.scene}` : '', status: s.exports.nativeBusy ? 'Rendering for export…' : s.status, busy: s.busy, error: s.error,
     pythonProblem: !!s.error && s.pythonProblem,
+    cells: s.target && isNotebook(s.target.uri) ? s.cells(s.target.uri) : undefined,
+    problem: s.error && s.problem ? explain(s.problem.problem, s.problem.mode) : undefined,
     autoRender: s.autoRender, videoWanted: s.videoWanted, fps: s.job?.options.fps ?? vscode.workspace.getConfiguration('manimCue', s.target?.uri).get<number>('frameRate', 30),
     profile: profile && `${profile.fps} fps · ${profile.width} × ${profile.height}`,
     job: s.watch.edited ? undefined : s.job?.directory, time: s.time,
@@ -44,6 +47,8 @@ export async function receive(s: Session, data: unknown, origin: 'timeline' | 'p
     case 'logs': await vscode.commands.executeCommand('manimCue.logs'); return;
     case 'doctor': await vscode.commands.executeCommand('manimCue.doctor'); return;
     case 'settings': await vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${s.extensionId}`); return;
+    case 'cells': if (m.mode === 'needed' || m.mode === 'allAbove') await s.setCells(m.mode); return;
+    case 'problemAction': if (m.action === 'showCell' || m.action === 'runCell' || m.action === 'runAllAbove') await s.problemAction(m.action); return;
   }
   if (origin === 'timeline') {
     if (m.kind === 'seek' && finite(m.time) && m.time >= 0) s.seek(m.time);

@@ -12,6 +12,8 @@ export interface WatchedScene {
   /** A save starts an update: the workspace is trusted and "Auto Refresh On Save" is on. */
   automatic(uri: FileUri): boolean;
   invalidate(reason: string, savedHash?: string): void;
+  /** The hash of the saved code that a run uses, when it is not the hash of the file (a notebook). */
+  hash?(uri: FileUri): Promise<string> | undefined;
   /** The editor has the first unsaved change of the scene file since the last update. */
   edited(): void;
   /** A save starts an update after a short pause. */
@@ -30,6 +32,8 @@ export class SourceWatch {
   private changes = false;
   /** The editor changed the scene file after the last update; a save of the old content still updates. */
   get edited(): boolean { return this.changes; }
+  /** The hash of the content of the last update. */
+  get updated(): string | undefined { return this.hash; }
   /** The pause after a save, in ms; a test can make it shorter. */
   constructor(private readonly scene: WatchedScene, public delay = 500) {}
   /** An update of this content starts. */
@@ -54,6 +58,7 @@ export class SourceWatch {
     if (uri.toString() === file.toString()) void this.edit(uri);
     else if (!insideEnvironment(uri.fsPath) &&
       (uri.fsPath.endsWith('.py') || uri.fsPath.endsWith('manim.cfg') || path.basename(uri.fsPath) === '.env')) {
+      // A notebook is not a project file: Manim cannot import it.
       this.scene.invalidate('Outdated. A project file changed. Refresh to update.');
     }
   }
@@ -65,12 +70,14 @@ export class SourceWatch {
     if (uri.toString() !== this.scene.file()?.toString()) { this.changed(uri); return; }
     let check = ++this.check;
     try {
-      const bytes = await fs.readFile(uri.fsPath), hash = createHash('sha256').update(bytes).digest('hex');
+      const custom = this.scene.hash?.(uri);
+      const bytes = custom ? undefined : await fs.readFile(uri.fsPath);
+      const hash = custom ? await custom : createHash('sha256').update(bytes!).digest('hex');
       if (check !== this.check) return;
       // A disk notification must never run an older saved version under a dirty buffer.
       if (this.scene.dirty(uri)) return;
       // The editor text has no UTF-8 BOM.
-      if (text !== undefined && bytes.toString('utf8').replace(/^\uFEFF/u, '') !== text) return;
+      if (text !== undefined && bytes && bytes.toString('utf8').replace(/^\uFEFF/u, '') !== text) return;
       // A save and the file watcher often report the same write. Do not cancel a queued
       // or running update for the duplicate, even when the watcher comes late.
       if (hash === this.hash && !this.changes) return;

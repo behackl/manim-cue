@@ -17,8 +17,8 @@ class PythonCommands implements vscode.Disposable {
   private disposed = false;
   constructor(private readonly context: vscode.ExtensionContext, private readonly output: vscode.OutputChannel, private readonly session: Session) {}
   private resource(uri?: vscode.Uri): vscode.Uri {
-    const resource = uri ?? this.session.target?.uri ?? vscode.window.activeTextEditor?.document.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
-    if (!resource || resource.scheme !== 'file') throw new Error('Open a Python file on this computer first.');
+    const resource = uri ?? this.session.target?.uri ?? vscode.window.activeNotebookEditor?.notebook.uri ?? vscode.window.activeTextEditor?.document.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!resource || resource.scheme !== 'file') throw new Error('Open a Python file or a notebook on this computer first.');
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to check or set up Python.');
     return resource;
   }
@@ -89,7 +89,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const session = new Session(context, output), python = new PythonCommands(context, output, session);
   const command = (id: string, fn: (...args: never[]) => unknown) => vscode.commands.registerCommand(id, (...args) => Promise.resolve(fn(...args as never[])).catch(e => session.failAction(e)));
   context.subscriptions.push(output, session, python,
-    vscode.languages.registerCodeLensProvider({ language: 'python', scheme: 'file' }, session.scenes),
+    vscode.languages.registerCodeLensProvider([{ language: 'python', scheme: 'file' }, { language: 'python', scheme: 'vscode-notebook-cell' }], session.scenes),
     command('manimCue.open', (uri?: vscode.Uri, scene?: string) => session.open(uri, scene)),
     command('manimCue.refresh', () => session.refresh()), command('manimCue.refreshTimeline', () => session.refresh(false)),
     command('manimCue.preview', () => session.renderVideo()),
@@ -102,14 +102,17 @@ export async function activate(context: vscode.ExtensionContext) {
     command('manimCue.saveFrame', () => session.exports.saveFrame()), command('manimCue.openExport', () => session.openExport()),
     command('manimCue.previousFrame', () => session.views.step(-1)), command('manimCue.nextFrame', () => session.views.step(1)),
     vscode.workspace.onDidChangeTextDocument(e => {
-      if (!e.contentChanges.length) return;
+      // A cell of a notebook: the notebook change event reports it.
+      if (!e.contentChanges.length || e.document.uri.scheme === 'vscode-notebook-cell') return;
       // An undo back to the saved content starts an update of that content.
       void session.watch.edit(e.document.uri, e.document.isDirty ? undefined : e.document.getText());
     }),
     vscode.workspace.onDidSaveTextDocument(document => { void session.watch.saved(document.uri); }),
+    vscode.workspace.onDidChangeNotebookDocument(e => session.notebookChanged(e)),
+    vscode.workspace.onDidSaveNotebookDocument(notebook => { void session.watch.saved(notebook.uri); }),
     vscode.workspace.onDidChangeConfiguration(e => session.configurationChanged(e)),
   );
-  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{py,cfg,env}');
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*.{py,cfg,env,ipynb}');
   context.subscriptions.push(watcher, watcher.onDidChange(uri => { void session.watch.saved(uri); }), watcher.onDidCreate(uri => { void session.watch.saved(uri); }), watcher.onDidDelete(uri => session.watch.changed(uri)));
   void PythonExtension.api().then(api => {
     context.subscriptions.push(api.environments.onDidChangeActiveEnvironmentPath(() => { void session.environmentChanged().catch(e => session.failAction(e)); }));
@@ -118,6 +121,7 @@ export async function activate(context: vscode.ExtensionContext) {
   return { getSnapshot: () => model(session), whenIdle: () => session.whenIdle(), seek: (time: number) => session.seek(time),
     setLoop: (range?: TimeRange) => session.setLoop(range), pin: (id: string) => session.pin(id),
     setSaveDelay: (ms: number) => { session.watch.delay = ms; },
+    setCells: (mode: 'needed' | 'allAbove') => session.setCells(mode), problemAction: (action: 'showCell' | 'runCell' | 'runAllAbove') => session.problemAction(action),
     /** Each state that the webviews get, in order: tests see short states that polling can miss. */
     onDidUpdate: (listener: (model: Model) => void) => session.views.onDidUpdate(() => listener(model(session))),
     submitExport: (id: string, choice: unknown) => session.exports.submit(id, choice) };

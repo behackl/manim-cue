@@ -3,13 +3,17 @@ import * as path from 'node:path';
 import { PythonExtension } from '@vscode/python-extension';
 import { createJob, type SceneJob } from './jobs';
 import type { RenderSettings } from './export-settings';
+import { isNotebook, type CellMode } from './notebook-problem';
 
 export interface PythonEnvironment {
   python: string; env: NodeJS.ProcessEnv; selection: string;
 }
+/** The setting, relative to the workspace folder; else the workspace folder, or for a notebook its folder, as in Jupyter. */
 export function workingDirectoryFor(uri: vscode.Uri): string {
+  const setting = vscode.workspace.getConfiguration('manimCue', uri).get('workingDirectory', '');
   const root = vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath ?? path.dirname(uri.fsPath);
-  return path.resolve(root, vscode.workspace.getConfiguration('manimCue', uri).get('workingDirectory', '') || '.');
+  if (!setting && isNotebook(uri)) return path.dirname(uri.fsPath);
+  return path.resolve(root, setting || '.');
 }
 
 /** No Python executable for the scene: "Check Python" helps. */
@@ -35,7 +39,7 @@ export async function environmentFor(uri: vscode.Uri): Promise<PythonEnvironment
  * export sets its own size and frame rate.
  */
 export async function sceneJob(uri: vscode.Uri, scene: string, o: { scratch: string; helpers: string; signal: AbortSignal;
-  log: (text: string) => void; sourceHash?: string; exportSettings?: RenderSettings }): Promise<{ job: SceneJob; environment: PythonEnvironment; cwd: string }> {
+  log: (text: string) => void; sourceHash?: string; exportSettings?: RenderSettings; cells?: CellMode }): Promise<{ job: SceneJob; environment: PythonEnvironment; cwd: string }> {
   const environment = await environmentFor(uri);
   const cfg = vscode.workspace.getConfiguration('manimCue', uri), cwd = workingDirectoryFor(uri);
   const fps = o.exportSettings?.fps ?? cfg.get<number>('frameRate', 30), width = o.exportSettings?.width ?? cfg.get<number>('previewWidth', 960);
@@ -44,6 +48,7 @@ export async function sceneJob(uri: vscode.Uri, scene: string, o: { scratch: str
     throw new Error('Check the Manim Cue settings for the frame rate, the preview width and the timeout.');
   }
   const job = await createJob({ ...environment, source: uri.fsPath, scene, cwd, fps, width, timeout: timeout * 1000,
-    scratch: o.scratch, helpers: o.helpers, signal: o.signal, log: o.log, exportSettings: o.exportSettings }, o.sourceHash);
+    scratch: o.scratch, helpers: o.helpers, signal: o.signal, log: o.log, exportSettings: o.exportSettings,
+    cells: isNotebook(uri) ? o.cells ?? 'needed' : undefined }, o.sourceHash);
   return { job, environment, cwd };
 }

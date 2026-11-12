@@ -1,12 +1,14 @@
 """Environment check, scene inspection and video render through public Manim APIs."""
 import configparser
 import hashlib
+import importlib.util
 from inspect import signature
 import json
 import os
 from pathlib import Path
 import runpy
 import sys
+import traceback
 
 
 def digest(path):
@@ -24,9 +26,69 @@ class CueError(Exception):
     """An error with a message for the user, printed without a traceback."""
 
 
+def notebook_module():
+    # Loaded from its path: the scene's folder can have its own modules on sys.path.
+    spec = importlib.util.spec_from_file_location("cue_notebook", Path(__file__).with_name("cue_notebook.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def source_file(request):
+    """The file that Manim loads: the scene file, or the Python file made from a notebook."""
+    if not request.get("notebook"):
+        return Path(request["source"])
+    # The suffix keeps a notebook named manim.ipynb from shadowing the manim package.
+    return Path(request["run"]) / "notebook" / (Path(request["source"]).stem + "_ipynb.py")
+
+
 def check_source(request):
-    if digest(request["source"]) != request["sourceHash"]:
+    """The saved source is still the source of this update. Returns the build of a notebook."""
+    built = None
+    if request.get("notebook"):
+        notebook = notebook_module()
+        built = notebook.build(notebook.read(request["source"]), request["scene"], request["notebook"]["mode"])
+        current = built["hash"] if built else "missing"
+    else:
+        current = digest(request["source"])
+    if current != request["sourceHash"]:
         raise CueError("The scene file changed during the update. Save it again to update.")
+    if request.get("notebook") and built is None:
+        raise CueError(f"The notebook has no scene class named {request['scene']}.")
+    return built
+
+
+def write_notebook(request):
+    """Write the Python file of a notebook into the run folder and return its build."""
+    built = check_source(request)
+    if built:
+        file = source_file(request)
+        file.parent.mkdir(exist_ok=True)
+        file.write_text(built["source"], encoding="utf-8")
+        write_json(file.parent / "notebook.json", {key: built[key] for key in ("hash", "scene", "cells", "segments", "mode")})
+        sys.path.insert(0, str(Path(request["source"]).parent))  # Jupyter imports from the notebook's folder.
+    return built
+
+
+def describe(request, built, error):
+    """Where an error of notebook code happened and, for a NameError, why the name has no value."""
+    file = source_file(request).resolve()
+    same = lambda name: bool(name) and not name.startswith("<") and Path(name).resolve() == file
+    line, innermost = None, False
+    if isinstance(error, SyntaxError) and same(error.filename):
+        line, innermost = error.lineno, True
+    else:
+        frames = list(traceback.walk_tb(error.__traceback__))
+        for frame, number in frames:
+            if same(frame.f_code.co_filename):
+                line = number
+        innermost = bool(frames) and same(frames[-1][0].f_code.co_filename)
+    notebook = notebook_module()
+    problem = {"location": notebook.locate(built, line) if line else None}
+    # Only a name that the notebook's own code uses: not one inside Manim or another module.
+    if isinstance(error, NameError) and getattr(error, "name", None) and innermost:
+        problem.update(name=error.name, **notebook.explain(notebook.read(request["source"]), built, error.name))
+    write_json(request["problem"], problem)
 
 
 def parameters(function):
@@ -84,7 +146,7 @@ def prepare(request):
     import manim
     from manim import config
     run = Path(request["run"])
-    source = Path(request["source"])
+    source = source_file(request)
     project = Path.cwd() / "manim.cfg"
     user = Path.home() / ("AppData/Roaming/Manim/manim.cfg" if os.name == "nt" else ".config/manim/manim.cfg")
     parser = configparser.ConfigParser()
@@ -160,12 +222,26 @@ def inspect_scene(request):
     The frame is announced with one ``[Cue frame] {json}`` line on stdout as soon as it is written.
     """
     prepare(request)
+    built = write_notebook(request) if request.get("notebook") else check_source(request)
+    try:
+        evaluate_scene(request)
+    except (CueError, FrameReady):
+        raise
+    except BaseException as error:
+        if built and request.get("problem"):
+            try:
+                describe(request, built, error)
+            except Exception as failure:  # The scene's error is the one to report.
+                print(f"[Cue] Could not locate the error in the notebook: {failure!r}", file=sys.stderr)
+        raise
+
+
+def evaluate_scene(request):
     from manim import Manager, config
     from manim.utils.module_ops import scene_classes_from_file
-    check_source(request)
     config.digest_file(Path(request["run"]) / "cue.cfg")
     sys.path.insert(0, os.getcwd())
-    matches = [cls for cls in scene_classes_from_file(Path(request["source"]), full_list=True) if cls.__name__ == request["scene"]]
+    matches = [cls for cls in scene_classes_from_file(source_file(request), full_list=True) if cls.__name__ == request["scene"]]
     if len(matches) != 1:
         raise CueError(f"The file has no scene class named {request['scene']}.")
     scene = matches[0]()
@@ -202,11 +278,14 @@ def inspect_scene(request):
 def render_scene(request):
     """Render the video with Manim's CLI and, if requested, the timeline of the same run."""
     prepare(request)
-    check_source(request)
+    if request.get("notebook"):
+        write_notebook(request)
+    else:
+        check_source(request)
     sys.path.insert(0, os.getcwd())
     timeline = ["--timeline-output", request["timeline"]] if request.get("timeline") else []
     sys.argv = ["manim", "--config_file", str(Path(request["run"]) / "cue.cfg"), "--silent", "--progress_bar", "none",
-                "-o", request["output"], *timeline, request["source"], request["scene"]]
+                "-o", request["output"], *timeline, str(source_file(request)), request["scene"]]
     try:
         runpy.run_module("manim", run_name="__main__", alter_sys=True)
     except SystemExit as exit:

@@ -6,34 +6,43 @@ import sys
 BASES = {"Scene", "ThreeDScene", "MovingCameraScene", "ZoomedScene", "VectorScene", "LinearTransformationScene"}
 
 
-def discover(source):
-    tree = ast.parse(source)
-    roots, modules = set(), set()
+class State:
+    """The names known as scene bases. Notebook cells share one state, in order."""
+
+    def __init__(self):
+        self.roots, self.modules = set(), set()
+
+
+def discover_tree(tree, state):
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "manim":
             for alias in node.names:
                 if alias.name == "*":
-                    roots.update(BASES)
+                    state.roots.update(BASES)
                 elif alias.name in BASES:
-                    roots.add(alias.asname or alias.name)
+                    state.roots.add(alias.asname or alias.name)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "manim":
-                    modules.add(alias.asname or alias.name)
+                    state.modules.add(alias.asname or alias.name)
     candidates = []
     for node in tree.body:
         if not isinstance(node, ast.ClassDef):
             continue
         known = any(
-            (isinstance(base, ast.Name) and base.id in roots)
+            (isinstance(base, ast.Name) and base.id in state.roots)
             or (isinstance(base, ast.Attribute) and isinstance(base.value, ast.Name)
-                and base.value.id in modules and base.attr in BASES)
+                and base.value.id in state.modules and base.attr in BASES)
             for base in node.bases
         )
         if known:
-            roots.add(node.name)
+            state.roots.add(node.name)
             candidates.append({"name": node.name, "line": node.lineno})
     return candidates
+
+
+def discover(source):
+    return discover_tree(ast.parse(source), State())
 
 
 if __name__ == "__main__":

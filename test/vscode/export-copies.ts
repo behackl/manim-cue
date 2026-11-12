@@ -28,7 +28,8 @@ export async function testExportCopies(root: string): Promise<void> {
         video: { ...result, media: { ...media, kind: 'video', path: files.video } },
         timeline: { ...result, timeline: { duration: 1, entries: [{ kind: 'wait', start: 0, end: 1 }] } as unknown as TimelineResult['timeline'], file: files.timeline } };
       let pickers = 0;
-      const exports = new Exports(context, scratch, () => source, () => {}, async () => { throw new Error('Copies must not start native work'); }, () => {});
+      const exports = new Exports(context, scratch, () => source, () => {}, async () => { throw new Error('Copies must not start native work'); }, () => {},
+        async () => { throw new Error('Copies need no source hash'); });
       try {
         for (const kind of ['frame', 'video', 'timeline'] as const) {
           const destination = path.join(dir, `copy-${width}-${kind}${path.extname(files[kind])}`);

@@ -3,7 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { sceneJob } from './environment';
-import { fileHash, inspect, renderExport, type PreviewResult, type Result, type TimelineResult, type SceneJob } from './jobs';
+import { inspect, renderExport, type PreviewResult, type Result, type TimelineResult, type SceneJob } from './jobs';
+import { isDirty, save, type CellMode } from './notebook';
 import { exportChoice, exportSize, type ExportChoice, type ExportModel } from './export-settings';
 import { copyExport, validateDestination } from './export-files';
 import { isCall } from './timeline';
@@ -11,6 +12,8 @@ import { isCall } from './timeline';
 /** For a dialog, `frame` is the shown media: a frame or the video. `time` is the preview position. */
 export interface ExportSource {
   uri: vscode.Uri; scene: string; frame?: PreviewResult; video?: PreviewResult; timeline?: TimelineResult; job?: SceneJob; time: number;
+  /** For a notebook: which cells run. */
+  cells?: CellMode;
 }
 /** The state of the export dialog. `quick`: a save without the dialog, which keeps the stored dialog choice. */
 interface Dialog { id: string; source: ExportSource; choice: ExportChoice; time: number; error?: string; quick?: boolean }
@@ -25,7 +28,9 @@ export class Exports {
   requestOpen = false;
   constructor(private context: vscode.ExtensionContext, private scratch: string,
     private source: () => ExportSource | undefined, private update: () => void,
-    private suspend: () => Promise<() => void>, private log: (text: string) => void) {}
+    private suspend: () => Promise<() => void>, private log: (text: string) => void,
+    /** The hash of the saved source that a render of `source` runs. */
+    private savedHash: (source: { uri: vscode.Uri; scene: string }) => Promise<string>) {}
   get busy(): boolean { return !!this.active; }
   get nativeBusy(): boolean { return this.active?.native === true && this.active.started === true; }
   get directories(): string[] {
@@ -41,7 +46,7 @@ export class Exports {
   }
   /** A scene without plays and waits has no video; its frame is the export. */
   private hasVideo(source: ExportSource): boolean { return !source.timeline || source.timeline.timeline.entries.some(isCall); }
-  private dirty(source: ExportSource): boolean { return vscode.workspace.textDocuments.some(d => d.uri.toString() === source.uri.toString() && d.isDirty); }
+  private dirty(source: ExportSource): boolean { return isDirty(source.uri); }
   private description(result: PreviewResult | TimelineResult): string {
     const p = result.profile;
     const media = 'media' in result ? result.media : undefined;
@@ -155,15 +160,14 @@ export class Exports {
       await validateDestination(destination.fsPath, extension, forbidden);
       if (native) {
         if (this.source()?.uri.toString() !== source.uri.toString() || this.source()?.scene !== source.scene) throw new Error('The scene changed. Open Export again.');
-        const document = await vscode.workspace.openTextDocument(source.uri);
-        if (document.isDirty) {
+        if (isDirty(source.uri)) {
           // Explicit consent even if the document became dirty while Save As was open.
           if (kind === 'frame') throw new Error('The scene file has unsaved changes. Save it, then save the frame.');
           if (await vscode.window.showWarningMessage('Save the scene file and render the video?', { modal: true }, 'Save and Render') !== 'Save and Render') { this.status = undefined; return; }
-          if (!await document.save()) throw new Error('The scene file could not be saved.');
+          if (!await save(source.uri)) throw new Error('The scene file could not be saved.');
         }
-        active.sourceHash = sourceHash = await fileHash(source.uri.fsPath);
-        if (document.isDirty) throw new Error('The scene file changed. Save it and try again.');
+        active.sourceHash = sourceHash = await this.savedHash(source);
+        if (isDirty(source.uri)) throw new Error('The scene file changed. Save it and try again.');
         active.started = true; signal.throwIfAborted();
         release = await this.suspend(); signal.throwIfAborted();
       }
@@ -182,7 +186,7 @@ export class Exports {
             if (!frame?.media.capture || frame.media.capture.time === null) throw new Error('The scene ends before this time. Choose an earlier time.');
             file = frame.media.path; rendered = frame;
           } else {
-            const { job, environment } = await sceneJob(source.uri, source.scene, { scratch: this.scratch, sourceHash, exportSettings: settings,
+            const { job, environment } = await sceneJob(source.uri, source.scene, { scratch: this.scratch, sourceHash, exportSettings: settings, cells: source.cells,
               helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal, log: this.log });
             active.job = job; signal.throwIfAborted();
             if (this.dirty(source)) throw new Error('The scene file changed. Save it and try again.');

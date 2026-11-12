@@ -12,7 +12,13 @@ import { ExportDialog } from './export-dialog';
 const app = document.getElementById('app')!; app.classList.add('preview-app');
 const header = el('header', 'preview-header');
 const title = el('strong', 'scene-name', 'Manim Cue');
-const status = el('span', 'status'); header.append(title, status);
+const status = el('span', 'status');
+// For a notebook: which cells run, and a switch to the other way.
+const cells = el('span', 'cells');
+const cellsLabel = el('span', 'cells-label');
+const cellsToggle = button('', () => post({ kind: 'cells', mode: model?.cells === 'allAbove' ? 'needed' : 'allAbove' }));
+cellsToggle.className = 'link-button'; cells.append(cellsLabel, cellsToggle); cells.hidden = true;
+header.append(title, status, cells);
 const message = el('div', 'banner warning');
 const stage = el('div', 'media-stage');
 const empty = el('div', 'preview-empty');
@@ -245,6 +251,10 @@ listen(m => {
     if (item && media) item.media = media;
   }
   title.textContent = model.scene || 'Manim Cue'; status.textContent = model.status; status.classList.toggle('busy', model.busy);
+  cells.hidden = !model.cells;
+  cellsLabel.textContent = model.cells === 'allAbove' ? 'Runs all cells above' : 'Runs the cells that the scene needs';
+  cellsToggle.textContent = model.cells === 'allAbove' ? 'Run needed cells only' : 'Run all above';
+  cellsToggle.title = model.cells === 'allAbove' ? 'Run only the cells that the scene uses' : 'Run every cell above the scene on each update, including slow setup';
   if (!model.timelineOutdated && time > lastFrame()) setTime(lastFrame(), true);
   if (playWanted && currentVideo()) start(); else sync();
   exportDialog.update(model);

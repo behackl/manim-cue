@@ -7,6 +7,7 @@ import { readDiagnostic, RuntimeUnavailable } from './diagnostics';
 import { renderSettings, encoderOptions, type RenderSettings } from './export-settings';
 import { parseTimeline, type Timeline } from './timeline';
 import { skippedParts } from './video-time';
+import { where, type CellMode, type Problem } from './notebook-problem';
 import type { TimeRange } from './selection';
 
 export interface Profile { version: string; module: string; fps: number; width: number; height: number; frameWidth: number; frameHeight: number; seed: number; configs: Record<string, string | null>; videoEncoder: boolean }
@@ -22,6 +23,12 @@ export interface JobOptions {
   fps: number; width: number; timeout: number;
   scratch: string; helpers: string; signal: AbortSignal; exportSettings?: RenderSettings;
   log: (s: string) => void;
+  /** For a notebook: which cells run. The source hash is then the hash of their code. */
+  cells?: CellMode;
+}
+/** A notebook run failed; `problem` says where, and for a NameError, why. */
+export class NotebookError extends Error {
+  constructor(message: string, readonly problem: Problem) { super(message); }
 }
 /** One saved source and one set of settings. Its results share one run directory. */
 export interface SceneJob { options: JobOptions; directory: string; sourceHash: string; cache: string; request: Record<string, unknown> }
@@ -32,19 +39,22 @@ export async function createJob(o: JobOptions, sourceHash?: string): Promise<Sce
   await fs.mkdir(o.scratch, { recursive: true });
   const directory = await fs.mkdtemp(path.join(o.scratch, 'run-'));
   await fs.mkdir(path.join(directory, 'media'));
+  if (o.cells && !sourceHash) throw new Error('A notebook job needs the hash of its code.');
   sourceHash ??= await fileHash(o.source);
   const cacheKey = createHash('sha256').update(JSON.stringify([o.python, o.cwd, path.dirname(o.source),
     Object.entries(o.env).sort(([a], [b]) => a.localeCompare(b))])).digest('hex');
   const cache = path.join(o.scratch, 'cache-v1', cacheKey);
   const request = { run: directory, cache: path.join(cache, 'typesetting'), source: o.source,
     sourceHash, scene: o.scene, fps: o.fps, width: o.width,
+    notebook: o.cells ? { mode: o.cells } : undefined,
     export: o.exportSettings ? { ...renderSettings(o.exportSettings), encoderOptions: encoderOptions(o.exportSettings.options) } : undefined };
   return { options: o, directory, sourceHash, cache, request };
 }
 async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<string, unknown>, signal: AbortSignal, line?: (text: string) => void): Promise<void> {
   const o = job.options, start = performance.now(), started = Date.now();
-  const request = path.join(job.directory, `${command}-${randomUUID()}.json`);
-  await fs.writeFile(request, JSON.stringify({ ...job.request, ...fields }));
+  const id = randomUUID(), request = path.join(job.directory, `${command}-${id}.json`);
+  const problem = o.cells ? path.join(job.directory, `problem-${id}.json`) : undefined;
+  await fs.writeFile(request, JSON.stringify({ ...job.request, ...fields, problem }));
   try {
     await runProcess(o.python, ['-B', '--check-hash-based-pycs', 'always', '-X', `pycache_prefix=${path.join(job.cache, 'bytecode')}`,
       path.join(o.helpers, 'cache_runner.py'), path.join(o.helpers, 'support.py'), command, request], {
@@ -62,10 +72,16 @@ async function run(job: SceneJob, command: 'inspect' | 'render', fields: Record<
       const diagnostic = await readDiagnostic(path.join(job.directory, 'diagnostic.json')).catch(() => undefined);
       if (diagnostic && (o.exportSettings ? !diagnostic.video_encoder : !diagnostic.timeline || !diagnostic.capture_frame)) throw new RuntimeUnavailable(diagnostic);
     }
-    if (error instanceof ProcessFailed) throw new Error(errorLine(error.detail));
+    if (error instanceof ProcessFailed) {
+      const found: Problem | undefined = problem ? await fs.readFile(problem, 'utf8').then(JSON.parse, () => undefined) : undefined;
+      const line = errorLine(error.detail);
+      if (found) throw new NotebookError(found.location ? `${line} (${where(found.location)})` : line, found);
+      throw new Error(line);
+    }
     throw error;
   } finally {
     await fs.rm(request, { force: true });
+    if (problem) await fs.rm(problem, { force: true });
     o.log(`\n[Cue timing] ${command === 'inspect' ? 'Scene inspection' : 'Scene render'}: ${((performance.now() - start) / 1000).toFixed(3)} s\n`);
   }
 }
