@@ -1,7 +1,8 @@
 import * as path from 'node:path';
 
 export const SETUP_PYTHON = '3.13';
-export const MANIM_BRANCH = 'refactor/audio-mixer';
+// The development version of Manim, until a Manim release has the API that Cue uses.
+export const MANIM_BRANCH = 'main';
 export const MANIM_ARCHIVE = `https://github.com/ManimCommunity/manim/archive/refs/heads/${MANIM_BRANCH}.zip`;
 export const MANIM_REQUIREMENT = `manim @ ${MANIM_ARCHIVE}`;
 

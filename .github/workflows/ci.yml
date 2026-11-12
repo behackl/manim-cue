@@ -84,11 +84,11 @@ jobs:
       - run: xvfb-run -a pnpm test:vscode:activation
 
   native:
-    name: Native Manim (preview branch)
+    name: Native Manim (development version)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      MANIM_BRANCH: refactor/audio-mixer
+      MANIM_BRANCH: main
       VSCODE_VERSION: stable
       PYTHON_EXTENSION_VERSION: '2024.22.2'
     steps:
@@ -111,7 +111,7 @@ jobs:
         run: |
           uv venv --python 3.13 "$RUNNER_TEMP/cue-manim"
           echo "MANIM_PYTHON=$RUNNER_TEMP/cue-manim/bin/python" >> "$GITHUB_ENV"
-      - name: Install the current preview branch
+      - name: Install the current development version
         # The same source archive the extension's setup command installs.
         # Refresh the cached archive even if uv restored an older download of this branch.
         run: uv pip install --python "$MANIM_PYTHON" --refresh-package manim "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/$MANIM_BRANCH.zip"
@@ -147,7 +147,7 @@ jobs:
 
           report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "cue-manim-diagnostic.json").read_text(encoding="utf-8"))
           print(json.dumps(report, indent=2))
-          assert report["status"] == "ready", "The preview branch no longer provides all required Cue APIs."
+          assert report["status"] == "ready", "The Manim branch no longer provides all required Cue APIs."
           PY
       - run: pnpm build
       - run: pnpm test:integration

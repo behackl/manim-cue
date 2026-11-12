@@ -2,7 +2,7 @@
   "name": "manim-cue",
   "displayName": "Manim Cue",
   "description": "See the frames, the timeline and the video of a Manim scene while you edit it in VS Code.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "behackl",
   "private": true,
   "preview": true,

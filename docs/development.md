@@ -20,7 +20,7 @@ Chromium of a Linux distribution, set `CUE_CHROMIUM` to its executable:
 CUE_CHROMIUM=/usr/bin/chromium pnpm test:ui
 ```
 
-For the tests with Manim, create an environment with the `refactor/audio-mixer` branch
+For the tests with Manim, create an environment with the `main` branch of Manim
 (see the [README](../README.md#get-started)) and set `MANIM_PYTHON` to the Python
 executable of that environment.
 
@@ -95,7 +95,7 @@ The workflow in `.github/workflows/ci.yml` runs:
 - the VSIX packaging;
 - the integration tests and the complete extension test with real Manim on Linux.
 
-The Manim job installs the `refactor/audio-mixer` branch and writes the commit of the
+The Manim job installs the `main` branch of Manim and writes the commit of the
 branch into the job summary, so that a failure from a change in Manim is easy to find.
 The workflow runs for pushes and pull requests, on request, and each day.
 

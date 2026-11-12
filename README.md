@@ -19,21 +19,21 @@ You need desktop VS Code 1.96 or newer, the Microsoft Python extension and Pytho
 or newer.
 
 > [!IMPORTANT]
-> **Manim Cue needs a preview version of Manim**, from the `refactor/audio-mixer` branch.
-> The command **Manim Cue: Set Up Python Environment** installs it into a new `.venv`
+> **Manim Cue needs the development version of Manim**, from its `main` branch, until
+> the next Manim release. The command **Manim Cue: Set Up Python Environment** installs it into a new `.venv`
 > in your project folder. With `uv` on VS Code's `PATH`, the setup uses `uv` and
 > Python 3.13. Otherwise it uses the Python interpreter that you selected in VS Code.
 >
-> To install the branch into an existing uv project:
+> To install it into an existing uv project:
 >
 > ```sh
-> uv add "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/audio-mixer.zip"
+> uv add "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/main.zip"
 > ```
 >
 > To install it with pip into an active virtual environment:
 >
 > ```sh
-> pip install --upgrade --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/audio-mixer.zip"
+> pip install --upgrade --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/main.zip"
 > ```
 >
 > Manim can also need [system packages](https://docs.manim.community/en/stable/installation.html)

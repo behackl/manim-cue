@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Install Manim from its `main` branch. The new Manim API is merged there; the
+  `refactor/audio-mixer` branch is gone, so the setup of 0.3.0 fails.
+- Frozen waits can take one frame more with this Manim: a span of scene time takes the
+  frames that start in it.
+
 ## 0.3.0
 
 - Use the new Manim API from the `refactor/audio-mixer` branch. The setup command installs it.

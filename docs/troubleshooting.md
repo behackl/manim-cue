@@ -37,7 +37,7 @@ The packages of the environment are available only through this executable.
 ## Set up an environment
 
 **Manim Cue: Set Up Python Environment** creates a new `.venv` in the workspace folder of
-the scene and installs Manim from the `refactor/audio-mixer` branch:
+the scene and installs the development version of Manim, from its `main` branch:
 
 1. Choose **Create with uv** (when `uv` is on VS Code's `PATH`), **Create with the
    selected Python**, or **Locate uv…**.
@@ -55,7 +55,7 @@ To install the branch into an existing environment, use the commands in the
 activate the environment and run:
 
 ```sh
-pip install --upgrade --force-reinstall --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/refactor/audio-mixer.zip"
+pip install --upgrade --force-reinstall --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/main.zip"
 ```
 
 Then run **Manim Cue: Check Python Environment**. The log shows the path of the Manim
