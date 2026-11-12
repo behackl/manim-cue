@@ -46,10 +46,11 @@ or newer.
 3. Run **Manim Cue: Set Up Python Environment**. Or install Manim yourself and select
    that environment with **Python: Select Interpreter**.
 4. Run **Manim Cue: Check Python Environment**. The result must be **Ready**.
-5. Open a saved Python file with a `Scene` class.
+5. Open a saved Python file or Jupyter notebook with a `Scene` class.
 6. Click **▶ Open Manim Cue** above the class, or run **Manim Cue: Open Scene**.
 
-To try Cue first, open the example scene `examples/cue_demo.py`.
+To try Cue first, open the example scene `examples/cue_demo.py`, or the notebook
+`examples/cue_notebook.ipynb`.
 
 ## Everyday use
 

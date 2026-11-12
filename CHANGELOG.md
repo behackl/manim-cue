@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Preview scenes in Jupyter notebooks. Cue runs the scene cell and the cells above it that
+  the scene needs, or all cells above it; a cell with `# cue: run` as its first line always
+  runs. Changes of skipped cells and of outputs leave the preview up to date.
+- When a name of a notebook scene is not set, the timeline view names the cell that
+  probably sets it and offers to run that cell, to run all cells above, or to show it.
+- Errors in notebooks name the line and the cell.
+
 ## 0.3.1
 
 - Install Manim from its `main` branch. The new Manim API is merged there; the

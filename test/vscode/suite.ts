@@ -8,6 +8,7 @@ import type { PythonDiagnostic } from '../../src/diagnostics';
 import { PythonExtension } from '@vscode/python-extension';
 import { testExportCopies } from './export-copies';
 import { isCall } from '../../src/timeline';
+import { testNotebook } from './notebook';
 
 export async function run(): Promise<void> {
   const manifest = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
@@ -15,7 +16,8 @@ export async function run(): Promise<void> {
   assert.ok(extension, 'development extension registered');
   const api = await extension.activate() as { getSnapshot(): Model; whenIdle(): Promise<void>; seek(time: number): void;
     setLoop(range?: { start: number; end: number }): void; pin(id: string): void; setSaveDelay(ms: number): void; submitExport(id: string, choice: unknown): Promise<void>;
-    onDidUpdate(listener: (model: Model) => void): vscode.Disposable };
+    onDidUpdate(listener: (model: Model) => void): vscode.Disposable;
+    setCells(mode: 'needed' | 'allAbove'): Promise<void>; problemAction(action: 'showCell' | 'runCell' | 'runAllAbove'): Promise<void> };
   // A short pause after a save; settle() waits for a save notification and that pause.
   api.setSaveDelay(100);
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
@@ -381,6 +383,7 @@ export async function run(): Promise<void> {
   assert.equal((await exportDialog()).canExportVideo, false, 'a scene without plays exports its frame only');
   await vscode.commands.executeCommand('manimCue.clearCaches');
   assert.match(api.getSnapshot().status, /Caches cleared/);
+  await testNotebook(api, root);
 
   await fs.writeFile(path.join(root, 'smoke-success.json'), JSON.stringify({ timelineEnd: state.timeline?.duration, events: state.timeline?.entries.filter(isCall).length, video: !!state.video }));
   console.log('MANIM CUE VS CODE SMOKE PASSED');

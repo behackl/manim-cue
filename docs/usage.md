@@ -19,6 +19,40 @@ environment.
 Cue keeps the last scene and the selected time of each workspace. Another scene opens at
 its start.
 
+## Scenes in notebooks
+
+Cue also previews scenes in Jupyter notebooks (`.ipynb`). Click **▶ Open Manim Cue**
+above a `Scene` class in a code cell, or click **Manim Cue: Open Scene** in the notebook
+toolbar. Cue runs the saved notebook in its own Python process, with the Python of Cue,
+not with the kernel of the notebook. The kernel's variables are not used, and Cue does
+not change them.
+
+Cue runs the scene cell and, of the code cells above it, the cells that the scene needs:
+
+- the cells that set a name that the scene uses, also through other cells;
+- the cells that change the configuration of Manim, `sys` or `os`, such as
+  `config.background_color = WHITE` or `sys.path.append("lib")`;
+- the cells with a star import, such as `from manim import *`;
+- the cells whose first line is `# cue: run`.
+
+A slow setup cell that the scene does not use is skipped. An edit of a skipped cell, new
+outputs and execution counts leave the preview up to date; an edit of a cell that runs
+makes it **Outdated** until you save the notebook. Cue ignores the options of `%%manim`
+and uses its own settings. Other IPython commands (`%matplotlib`, `!pip`) do not run,
+and cells with other cell magics, such as `%%bash`, are left out.
+
+To run every code cell above the scene, click **Run all above** next to the status in the
+preview header. Cue keeps this choice for the notebook. **Run needed cells only** goes
+back.
+
+When a scene fails because a name is not set, the timeline view names the cell that
+probably sets it. **Run This Cell Too** adds `# cue: run` to that cell; save the
+notebook to update. **Run All Cells Above** runs every cell above the scene. **Show
+Cell** shows the cell.
+
+A notebook runs in its own folder, as in Jupyter, unless **Manim Cue: Working Directory**
+is set. The scene can import Python files from that folder.
+
 ## Move through the scene
 
 - Drag the scrubber to choose a time.

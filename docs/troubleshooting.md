@@ -77,7 +77,7 @@ A save of the scene file starts an update. After a change to an imported file,
 ## Imports or assets are not found
 
 Cue runs the scene in its workspace folder. For a Python file outside a workspace, it
-uses the folder of the file.
+uses the folder of the file. A notebook runs in the folder of the notebook.
 
 If your project needs another working folder, set **Manim Cue: Working Directory** in the
 VS Code settings. The value is a full path or a path relative to the workspace folder.
@@ -87,6 +87,20 @@ Also make sure that:
 - the selected environment contains each imported package;
 - the asset paths work from the working folder;
 - the scene runs with the same environment in a terminal.
+
+## A notebook scene does not find a name
+
+Cue runs only the cells above the scene that the scene needs (see
+[Scenes in notebooks](usage.md#scenes-in-notebooks)). When a name is missing, the timeline
+view explains why and offers a fix:
+
+- The name is set in a cell below the scene: move that cell above the scene cell.
+- A skipped cell sets the name in a way that Cue cannot see, for example with `exec()`
+  or `globals()`: click **Run This Cell Too**, or add `# cue: run` as the first line of
+  the cell yourself.
+- The name comes from an IPython command, such as `files = !ls`: write it as Python.
+- Click **Run All Cells Above** to run every cell above the scene, as **Run Above** does
+  in Jupyter. Slow setup cells then run on each update.
 
 ## The frame, the timeline or the video fails
 

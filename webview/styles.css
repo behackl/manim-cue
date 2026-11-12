@@ -67,8 +67,8 @@ dd { margin: 3px 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywh
 .error-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; }
 .error-hint { margin: 0; padding: 6px 12px 0; font-size: 12px; }
 .cells { font-size: 11px; color: var(--vscode-descriptionForeground); display: flex; gap: 6px; align-items: baseline; flex-basis: 100%; }
-.link-button { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); cursor: pointer; font: inherit; }
-.link-button:hover { text-decoration: underline; }
+button.link-button, button.link-button:hover { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground, #3794ff); }
+button.link-button:hover { text-decoration: underline; }
 .error { margin: 0; max-height: 110px; flex-shrink: 0; padding: 8px 12px; background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); overflow: auto; white-space: pre-wrap; font-size: 11px; border-top: 1px solid var(--line); }
 .empty-label { fill: var(--vscode-descriptionForeground); font-size: 13px; }
 .preview-header { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; padding: 14px; border-bottom: 1px solid var(--line); }

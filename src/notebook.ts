@@ -58,9 +58,11 @@ export function findCell(notebook: vscode.NotebookDocument, ref: CellRef): vscod
 export async function showCell(uri: vscode.Uri, ref: CellRef, line = 1, column?: vscode.ViewColumn): Promise<void> {
   const notebook = await vscode.workspace.openNotebookDocument(uri), cell = findCell(notebook, ref);
   if (!cell) throw new Error('This cell changed. Refresh to update.');
-  await vscode.window.showNotebookDocument(notebook, { viewColumn: column, selections: [new vscode.NotebookRange(cell.index, cell.index + 1)] });
+  const editor = await vscode.window.showNotebookDocument(notebook, { viewColumn: column, selections: [new vscode.NotebookRange(cell.index, cell.index + 1)] });
+  editor.revealRange(new vscode.NotebookRange(cell.index, cell.index + 1), vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);
+  // A cell opens as text only in the column of its notebook editor.
   const position = new vscode.Position(Math.min(line, cell.document.lineCount) - 1, 0);
-  await vscode.window.showTextDocument(cell.document, { viewColumn: column, selection: new vscode.Range(position, position) });
+  await vscode.window.showTextDocument(cell.document, { viewColumn: editor.viewColumn, selection: new vscode.Range(position, position) });
 }
 /** Adds the marker that makes Cue run the cell. The notebook stays unsaved: a save updates. */
 export async function markCell(uri: vscode.Uri, ref: CellRef, column?: vscode.ViewColumn): Promise<void> {

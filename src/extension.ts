@@ -90,7 +90,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const command = (id: string, fn: (...args: never[]) => unknown) => vscode.commands.registerCommand(id, (...args) => Promise.resolve(fn(...args as never[])).catch(e => session.failAction(e)));
   context.subscriptions.push(output, session, python,
     vscode.languages.registerCodeLensProvider([{ language: 'python', scheme: 'file' }, { language: 'python', scheme: 'vscode-notebook-cell' }], session.scenes),
-    command('manimCue.open', (uri?: vscode.Uri, scene?: string) => session.open(uri, scene)),
+    // A notebook toolbar passes its own context object, not a file.
+    command('manimCue.open', (uri?: unknown, scene?: unknown) => session.open(uri instanceof vscode.Uri ? uri : undefined, typeof scene === 'string' ? scene : undefined)),
     command('manimCue.refresh', () => session.refresh()), command('manimCue.refreshTimeline', () => session.refresh(false)),
     command('manimCue.preview', () => session.renderVideo()),
     command('manimCue.cancel', () => session.cancel()), command('manimCue.logs', () => output.show(true)),

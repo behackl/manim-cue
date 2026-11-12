@@ -28,7 +28,8 @@
   "icon": "resources/icon.png",
   "main": "./dist/extension.cjs",
   "activationEvents": [
-    "onLanguage:python"
+    "onLanguage:python",
+    "onNotebook:jupyter-notebook"
   ],
   "extensionKind": [
     "workspace"
@@ -123,6 +124,13 @@
         {
           "command": "manimCue.open",
           "when": "resourceLangId == python",
+          "group": "navigation"
+        }
+      ],
+      "notebook/toolbar": [
+        {
+          "command": "manimCue.open",
+          "when": "notebookType == jupyter-notebook",
           "group": "navigation"
         }
       ],
