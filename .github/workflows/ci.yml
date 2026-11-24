@@ -3,7 +3,7 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  # Upstream branch pushes do not trigger this repository's CI; check them daily too.
+  # Check for changes in resolved dependencies even when Cue has not changed.
   schedule:
     - cron: '23 5 * * *'
 
@@ -84,11 +84,11 @@ jobs:
       - run: xvfb-run -a pnpm test:vscode:activation
 
   native:
-    name: Native Manim (development version)
+    name: Native Manim (pinned prerelease)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      MANIM_BRANCH: main
+      MANIM_VERSION: '0.30.0a1'
       VSCODE_VERSION: stable
       PYTHON_EXTENSION_VERSION: '2024.22.2'
     steps:
@@ -111,27 +111,19 @@ jobs:
         run: |
           uv venv --python 3.13 "$RUNNER_TEMP/cue-manim"
           echo "MANIM_PYTHON=$RUNNER_TEMP/cue-manim/bin/python" >> "$GITHUB_ENV"
-      - name: Install the current development version
-        # The same source archive the extension's setup command installs.
-        # Refresh the cached archive even if uv restored an older download of this branch.
-        run: uv pip install --python "$MANIM_PYTHON" --refresh-package manim "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/$MANIM_BRANCH.zip"
-      - name: Record resolved revision and dependencies
+      - name: Install the pinned Manim prerelease
+        run: uv pip install --python "$MANIM_PYTHON" "manim==$MANIM_VERSION"
+      - name: Record Manim version and dependencies
         run: |
-          MANIM_COMMIT="$(git ls-remote https://github.com/ManimCommunity/manim.git "refs/heads/$MANIM_BRANCH" | cut -f1)"
-          test -n "$MANIM_COMMIT"
-          MANIM_COMMIT="$MANIM_COMMIT" "$MANIM_PYTHON" - <<'PY'
-          from importlib.metadata import distribution
-          import json
+          "$MANIM_PYTHON" - <<'PY'
+          from importlib.metadata import version
           import os
           import sys
 
-          package = distribution("manim")
-          source = json.loads(package.read_text("direct_url.json"))
-          expected = f"archive/refs/heads/{os.environ['MANIM_BRANCH']}.zip"
-          assert "archive_info" in source and source["url"].endswith(expected), source
-          report = (f"Manim branch: {os.environ['MANIM_BRANCH']}\n"
-                    f"Branch head when recorded: {os.environ['MANIM_COMMIT']}\n"
-                    f"Package version: {package.version}\nPython: {sys.version}\n")
+          installed = version("manim")
+          expected = os.environ["MANIM_VERSION"]
+          assert installed == expected, f"Expected Manim {expected}, got {installed}"
+          report = f"Manim: {installed}\nPython: {sys.version}\n"
           print(report)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("### Native Manim environment\n```text\n" + report + "```\n")
@@ -147,7 +139,7 @@ jobs:
 
           report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "cue-manim-diagnostic.json").read_text(encoding="utf-8"))
           print(json.dumps(report, indent=2))
-          assert report["status"] == "ready", "The Manim branch no longer provides all required Cue APIs."
+          assert report["status"] == "ready", "The installed Manim does not provide all required Cue APIs."
           PY
       - run: pnpm build
       - run: pnpm test:integration

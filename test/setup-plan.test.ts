@@ -2,33 +2,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { insideEnvironment, MANIM_BRANCH, MANIM_REQUIREMENT, SETUP_PYTHON, setupCommands } from '../src/setup-plan';
+import { insideEnvironment, MANIM_VERSION, SETUP_PYTHON, setupCommands } from '../src/setup-plan';
 
-test('uv setup creates a fresh environment and installs the moving branch archive without Git', () => {
+test('uv setup creates a fresh environment and installs the pinned Manim prerelease', () => {
   const plan = setupCommands({ kind: 'uv', executable: '/tools/uv' }, '/project/.venv', 'linux');
   assert.deepEqual(plan.create, { executable: '/tools/uv', args: ['venv', '--python', SETUP_PYTHON, '/project/.venv'] });
   assert.equal(plan.python, '/project/.venv/bin/python');
   assert.deepEqual(plan.install, { executable: '/tools/uv', args: [
-    'pip', 'install', '--python', plan.python, '--refresh-package', 'manim', MANIM_REQUIREMENT,
+    'pip', 'install', '--python', plan.python, `manim==${MANIM_VERSION}`,
   ] });
-  assert.match(MANIM_REQUIREMENT, new RegExp(`archive/refs/heads/${MANIM_BRANCH.replace('/', '\\/')}\\.zip$`));
-  assert.doesNotMatch(MANIM_REQUIREMENT, /git\+|[0-9a-f]{40}/u);
 });
 
-test('Python fallback invokes the environment pip directly and bypasses the moving URL cache', () => {
+test('Python fallback installs the same pin using the new environment’s pip', () => {
   const plan = setupCommands({ kind: 'python', executable: 'C:\\Python313\\python.exe' }, 'C:\\project\\.venv', 'win32');
   assert.deepEqual(plan.create, { executable: 'C:\\Python313\\python.exe', args: ['-m', 'venv', 'C:\\project\\.venv'] });
   assert.equal(plan.python, 'C:\\project\\.venv\\Scripts\\python.exe');
   assert.deepEqual(plan.install, { executable: plan.python, args: [
-    '-m', 'pip', 'install', '--upgrade', '--no-cache-dir', MANIM_REQUIREMENT,
+    '-m', 'pip', 'install', `manim==${MANIM_VERSION}`,
   ] });
 });
 
-test('continuous integration exercises the branch and archive the setup command installs', async () => {
+test('continuous integration exercises the exact Manim release that setup installs', async () => {
   const workflow = await fs.readFile(path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'), 'utf8');
-  assert.match(workflow, new RegExp(`^\\s*MANIM_BRANCH: ${MANIM_BRANCH}$`, 'mu'), 'CI follows the shipped branch');
-  assert.ok(workflow.includes('archive/refs/heads/$MANIM_BRANCH.zip'), 'CI installs the shipped source archive');
-  assert.doesNotMatch(workflow, /git\+https:\/\/github\.com\/ManimCommunity/u, 'CI no longer installs a path users do not use');
+  assert.ok(workflow.split('\n').some(line => line.trim() === `MANIM_VERSION: '${MANIM_VERSION}'`), 'CI uses the shipped pin');
+  assert.ok(workflow.includes('uv pip install --python "$MANIM_PYTHON" "manim==$MANIM_VERSION"'), 'CI installs the shipped requirement');
 });
 
 test('package installs never invalidate a scene, while ordinary project files still do', () => {

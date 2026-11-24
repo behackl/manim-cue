@@ -1,10 +1,8 @@
 import * as path from 'node:path';
 
 export const SETUP_PYTHON = '3.13';
-// The development version of Manim, until a Manim release has the API that Cue uses.
-export const MANIM_BRANCH = 'main';
-export const MANIM_ARCHIVE = `https://github.com/ManimCommunity/manim/archive/refs/heads/${MANIM_BRANCH}.zip`;
-export const MANIM_REQUIREMENT = `manim @ ${MANIM_ARCHIVE}`;
+export const MANIM_VERSION = '0.30.0a1';
+const MANIM_REQUIREMENT = `manim==${MANIM_VERSION}`;
 
 export type SetupTool = { kind: 'uv'; executable: string } | { kind: 'python'; executable: string };
 export interface SetupCommand { executable: string; args: string[] }
@@ -26,12 +24,12 @@ export function setupCommands(tool: SetupTool, directory: string, platform: Node
   const python = environmentExecutable(directory, platform);
   if (tool.kind === 'uv') return {
     create: { executable: tool.executable, args: ['venv', '--python', SETUP_PYTHON, directory] },
-    install: { executable: tool.executable, args: ['pip', 'install', '--python', python, '--refresh-package', 'manim', MANIM_REQUIREMENT] },
+    install: { executable: tool.executable, args: ['pip', 'install', '--python', python, MANIM_REQUIREMENT] },
     python,
   };
   return {
     create: { executable: tool.executable, args: ['-m', 'venv', directory] },
-    install: { executable: python, args: ['-m', 'pip', 'install', '--upgrade', '--no-cache-dir', MANIM_REQUIREMENT] },
+    install: { executable: python, args: ['-m', 'pip', 'install', MANIM_REQUIREMENT] },
     python,
   };
 }
