@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createJob, inspect, NotebookError, renderPreview, type JobOptions } from '../../src/jobs';
+import { createJob, inspect, NotebookError, renderExport, renderPreview, type JobOptions } from '../../src/jobs';
+import type { RenderSettings } from '../../src/export-settings';
 import { runProcess } from '../../src/process';
 import { locate, type CellMode } from '../../src/notebook-problem';
 import { isCall } from '../../src/timeline';
@@ -26,9 +27,10 @@ async function hash(file: string, scene: string, mode: CellMode): Promise<string
     cwd: helpers, signal, timeout: 10000, input: JSON.stringify({ path: file, scene, mode }) });
   return (JSON.parse(output) as { hash: string }).hash;
 }
-async function job(file: string, scene: string, cells: CellMode = 'needed', scratch = path.join(path.dirname(file), 'runs')) {
+async function job(file: string, scene: string, cells: CellMode = 'needed', exportSettings?: RenderSettings) {
+  const scratch = path.join(path.dirname(file), 'runs');
   const o: JobOptions = { python: python!, source: file, scene, cwd: path.dirname(file), fps: 4, width: 128, timeout: 60000,
-    env: process.env, helpers, scratch, signal, log: () => {}, cells };
+    env: process.env, helpers, scratch, signal, log: () => {}, cells, exportSettings };
   return createJob(o, await hash(file, scene, cells));
 }
 const SCENE = `%%manim -qm Orbit
@@ -50,8 +52,10 @@ test('the example notebook runs only the cells that the scene needs; a timeline 
     const play = timeline!.timeline.entries.find(isCall)!;
     const cell = await locate(j.directory, play.source!.path!, play.source!.line);
     assert.deepEqual([cell?.index, cell?.line, cell?.first], [4, 6, 'class Orbit(Scene):'], 'the play() line of the scene cell');
-    const { video } = await renderPreview(j, signal);
+    const { video, timeline: rendered } = await renderPreview(j, signal);
     assert.equal(video.media.duration, 2.5);
+    const renderedPlay = rendered.timeline.entries.find(isCall)!;
+    assert.deepEqual(await locate(j.directory, renderedPlay.source!.path!, renderedPlay.source!.line), cell);
     // All cells above: the cell that raises runs, and the error names it.
     await assert.rejects(inspect(await job(file, 'Orbit', 'allAbove'), { timeline: true }, signal), (error: Error) => {
       assert.ok(error instanceof NotebookError);
@@ -95,6 +99,39 @@ test('a NameError of a name set below the scene, or inside Manim, is explained o
       assert.equal(error.problem.location?.index, 1, 'the deepest notebook line is the call in the scene cell');
       return true;
     });
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('future annotations work in both cell modes, without shifting the timeline source line', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-notebook-'));
+  try {
+    const file = await notebook(root, 'from manim import *', 'from __future__ import annotations', 'RADIUS = 1',
+      SCENE.replace('def construct(self):', 'def construct(self) -> Later:'));
+    for (const mode of ['needed', 'allAbove'] as const) {
+      const j = await job(file, 'Orbit', mode);
+      const { timeline } = await inspect(j, { timeline: true }, signal);
+      const play = timeline!.timeline.entries.find(isCall)!;
+      const cell = await locate(j.directory, play.source!.path!, play.source!.line);
+      assert.deepEqual([cell?.index, cell?.line], [3, 4]);
+    }
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('notebook render and export errors identify the cell and line', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cue-notebook-'));
+  try {
+    const file = await notebook(root, 'from manim import *', 'RADIUS = 1', SCENE + '\n        self.add(UNKNOWN)');
+    const preview = await job(file, 'Orbit');
+    const production = await job(file, 'Orbit', 'needed', { width: 128, height: 72, fps: 4, crf: 18, preset: 'veryfast', options: '' });
+    for (const render of [() => renderPreview(preview, signal), () => renderExport(production, signal)]) {
+      await assert.rejects(render, (error: Error) => {
+        assert.ok(error instanceof NotebookError);
+        assert.match(error.message, /NameError: name 'UNKNOWN' is not defined.*line 6 of the cell starting with “class Orbit\(Scene\):”/u);
+        assert.equal(error.problem.location?.index, 2);
+        assert.equal(error.problem.reason, 'unknown');
+        return true;
+      });
+    }
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 

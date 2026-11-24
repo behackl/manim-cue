@@ -9,19 +9,21 @@ A run takes the cell with the scene class and, above it, the cells that the scen
 - defines or changes a name that a needed cell uses;
 - changes the global state of Manim, ``sys`` or ``os`` (``config.x = …``,
   ``Text.set_default(…)``, ``sys.path.append(…)``);
-- has a star import; or
+- imports a feature from ``__future__`` or has a star import; or
 - starts with the line ``# cue: run``.
 """
 import ast
 import hashlib
 import importlib.util
+import io
 import json
 import re
 import sys
+import tokenize
 from pathlib import Path
 
 MARKER = re.compile(r"#\s*cue:\s*run\s*$", re.IGNORECASE)
-# Cell magics whose body is Python that runs once in Jupyter too.
+# Cell magics whose body Cue can run as Python, without the magic's behavior.
 PYTHON_CELL_MAGICS = {"manim", "time", "timeit", "capture"}
 MAGIC_LINE = re.compile(r"^(\s*)[%!]")
 MAGIC_ASSIGNMENT = re.compile(r"^(\s*)([A-Za-z_][\w, ]*?)\s*=\s*[%!]")
@@ -34,6 +36,29 @@ PREAMBLE = "def display(*objects, **options):\n    pass\n"
 
 def _sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _next_magic(lines):
+    """Find a magic at the start of a Python statement, not inside a string or expression."""
+    # Don't lex past a recognized command: its shell text isn't necessarily valid Python
+    # and could otherwise throw off the tokenizer for the rest of the cell.
+    first = True
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO("\n".join(lines)).readline):
+            if tok.type == tokenize.NEWLINE:
+                first = True
+            elif tok.type not in (tokenize.NL, tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER):
+                if first:
+                    row, column = tok.start
+                    text = lines[row - 1]
+                    assignment = MAGIC_ASSIGNMENT.match(text)
+                    match = assignment or MAGIC_LINE.match(text)
+                    if match and column == len(match.group(1)):
+                        return row - 1, match.group(1), assignment
+                first = False
+    except (tokenize.TokenError, SyntaxError):
+        pass  # Report real Python syntax errors in the generated scene.
+    return None
 
 
 class Cell:
@@ -54,6 +79,7 @@ class Cell:
         self.function_globals = {}  # function name -> the global names that it sets
         self.globals, self.magic_names, self.words = set(), set(), set()
         self.classes = []  # (name, line) of top-level scene class candidates
+        self.futures = []  # Top-level __future__ imports to move to the generated module's header.
         self.code = self._translate()
         # The cell's name in messages: VS Code shows no cell numbers.
         lines = [line.strip() for line in source.split("\n")]
@@ -73,25 +99,43 @@ class Cell:
         try:
             tree = ast.parse(code)
         except SyntaxError:
-            # IPython lines are not Python. Replace them only when the cell needs it, so
-            # that a line starting with % inside a string (a TeX comment) stays as it is.
-            for number, line in enumerate(lines):
-                assignment = MAGIC_ASSIGNMENT.match(line)
+            while (magic := _next_magic(lines)) is not None:
+                number, indent, assignment = magic
+                line = lines[number].strip()
                 if assignment:
                     self.magic_names.update(n.strip() for n in assignment.group(2).split(",") if n.strip().isidentifier())
-                elif not MAGIC_LINE.match(line):
-                    continue
-                if line.lstrip().startswith("%run"):
+                if line.startswith("%run"):
                     self.dynamic = True
-                lines[number] = (assignment or MAGIC_LINE.match(line)).group(1) + "pass  # IPython: " + line.strip()
+                lines[number] = indent + "pass  # IPython: " + line
             code = "\n".join(lines)
             try:
                 tree = ast.parse(code)
             except SyntaxError:
                 self.kind = "invalid"
                 return code
+        self.futures = [node for node in tree.body if isinstance(node, ast.ImportFrom)
+                        and node.level == 0 and node.module == "__future__"]
         self._analyze(tree)
         return code
+
+    def lift_futures(self):
+        """Keep cell line numbers while moving valid future imports ahead of any generated code."""
+        if not self.futures:
+            return [], self.code
+        try:
+            compile(self.code, "<cell>", "exec", dont_inherit=True)
+        except SyntaxError:
+            return [], self.code  # Keep syntax errors at the original cell and line.
+        header = ["from __future__ import " + ", ".join(
+            alias.name + (f" as {alias.asname}" if alias.asname else "") for alias in node.names
+        ) + "\n" for node in self.futures]
+        lines = self.code.encode("utf-8").split(b"\n")  # AST columns are UTF-8 byte offsets.
+        for node in reversed(self.futures):
+            start, end = node.lineno - 1, node.end_lineno - 1
+            prefix, suffix = lines[start][:node.col_offset], lines[end][node.end_col_offset:]
+            # Leave a valid statement in place, including for "from __future__ import (\n…); x = …".
+            lines[start:end + 1] = [b""] * (end - start) + [prefix + b"pass" + suffix]
+        return header, b"\n".join(lines).decode("utf-8")
 
     def _analyze(self, tree):
         for node in ast.walk(tree):
@@ -251,7 +295,7 @@ def select(cells, scene_index, mode):
         for cell in reversed(python):
             if cell.index in chosen:
                 continue
-            if cell.marker or cell.star or cell.changes_state(assigned, state_names) or sets(cell) & needed:
+            if cell.marker or cell.star or cell.futures or cell.changes_state(assigned, state_names) or sets(cell) & needed:
                 chosen.add(cell.index)
                 needed |= cell.uses
                 changed = True
@@ -268,9 +312,11 @@ def build(sources, scene, mode="needed"):
     if target is None:
         return None
     chosen = select(cells, target.index, mode)
-    parts, segments, line = [PREAMBLE], [], PREAMBLE.count("\n") + 1
-    for cell in chosen:
-        code = cell.code + "\n"
+    translated = [cell.lift_futures() for cell in chosen]
+    parts = [line for header, _ in translated for line in header] + [PREAMBLE]
+    segments, line = [], sum(part.count("\n") for part in parts) + 1
+    for cell, (_, code) in zip(chosen, translated):
+        code += "\n"
         segments.append({"cell": cell.index, "sha": cell.sha, "first": cell.first, "start": line, "count": code.count("\n")})
         parts.append(code)
         line += code.count("\n")

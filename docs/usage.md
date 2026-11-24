@@ -32,14 +32,15 @@ Cue runs the scene cell and, of the code cells above it, the cells that the scen
 - the cells that set a name that the scene uses, also through other cells;
 - the cells that change the configuration of Manim, `sys` or `os`, such as
   `config.background_color = WHITE` or `sys.path.append("lib")`;
-- the cells with a star import, such as `from manim import *`;
+- the cells with a star import, such as `from manim import *`, or a `__future__` import;
 - the cells whose first line is `# cue: run`.
 
 A slow setup cell that the scene does not use is skipped. An edit of a skipped cell, new
 outputs and execution counts leave the preview up to date; an edit of a cell that runs
 makes it **Outdated** until you save the notebook. Cue ignores the options of `%%manim`
 and uses its own settings. Other IPython commands (`%matplotlib`, `!pip`) do not run,
-and cells with other cell magics, such as `%%bash`, are left out.
+and cells with other cell magics, such as `%%bash`, are left out. A `__future__`
+import applies to all the code that Cue runs from the notebook as one Python module.
 
 To run every code cell above the scene, click **Run all above** next to the status in the
 preview header. Cue keeps this choice for the notebook. **Run needed cells only** goes

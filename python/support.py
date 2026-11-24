@@ -1,5 +1,6 @@
 """Environment check, scene inspection and video render through public Manim APIs."""
 import configparser
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 from inspect import signature
@@ -216,15 +217,11 @@ class FrameReady(BaseException):
     """Ends an evaluation that only needs its frame. Scene code rarely catches a BaseException."""
 
 
-def inspect_scene(request):
-    """Evaluate the scene once: write the frame at request["time"] and the timeline, if requested.
-
-    The frame is announced with one ``[Cue frame] {json}`` line on stdout as soon as it is written.
-    """
-    prepare(request)
-    built = write_notebook(request) if request.get("notebook") else check_source(request)
+@contextmanager
+def notebook_errors(request, built):
+    """Keep the original exception; add its notebook location for Cue if available."""
     try:
-        evaluate_scene(request)
+        yield
     except (CueError, FrameReady):
         raise
     except BaseException as error:
@@ -236,15 +233,30 @@ def inspect_scene(request):
         raise
 
 
-def evaluate_scene(request):
-    from manim import Manager, config
+def inspect_scene(request):
+    """Evaluate the scene once: write the frame at request["time"] and the timeline, if requested.
+
+    The frame is announced with one ``[Cue frame] {json}`` line on stdout as soon as it is written.
+    """
+    prepare(request)
+    built = write_notebook(request) if request.get("notebook") else check_source(request)
+    with notebook_errors(request, built):
+        evaluate_scene(request)
+
+
+def load_scene(request):
     from manim.utils.module_ops import scene_classes_from_file
-    config.digest_file(Path(request["run"]) / "cue.cfg")
-    sys.path.insert(0, os.getcwd())
     matches = [cls for cls in scene_classes_from_file(source_file(request), full_list=True) if cls.__name__ == request["scene"]]
     if len(matches) != 1:
         raise CueError(f"The file has no scene class named {request['scene']}.")
-    scene = matches[0]()
+    return matches[0]
+
+
+def evaluate_scene(request):
+    from manim import Manager, config
+    config.digest_file(Path(request["run"]) / "cue.cfg")
+    sys.path.insert(0, os.getcwd())
+    scene = load_scene(request)()
     manager = scene.manager or Manager(scene)
     time, timeline = request.get("time"), request.get("timeline")
     sent = False
@@ -275,14 +287,41 @@ def evaluate_scene(request):
         manager.timeline.write(timeline)
 
 
+def render_notebook(request):
+    """Use the scene's render API; Manim's CLI prints exceptions and exits without their traceback."""
+    from manim import Manager, config, tempconfig
+    config.digest_file(Path(request["run"]) / "cue.cfg")
+    config.scene_names = [request["scene"]]
+    config.output_file = request["output"]
+    scene_class = load_scene(request)
+    while True:
+        with tempconfig({}):
+            scene = scene_class()
+            manager = scene.manager or Manager(scene)
+            with manager:
+                manager.capture_timeline = bool(request.get("timeline"))
+                rerun = scene.render()  # Preserve custom Scene.render() overrides, as the CLI does.
+            if not rerun:
+                if request.get("timeline"):
+                    manager.timeline.write(request["timeline"])
+                return
+
+
 def render_scene(request):
-    """Render the video with Manim's CLI and, if requested, the timeline of the same run."""
+    """Render the video and, if requested, the timeline of the same run."""
     prepare(request)
-    if request.get("notebook"):
-        write_notebook(request)
-    else:
-        check_source(request)
+    built = write_notebook(request) if request.get("notebook") else check_source(request)
     sys.path.insert(0, os.getcwd())
+    if built:
+        with notebook_errors(request, built):
+            render_notebook(request)
+    else:
+        render_cli(request)
+    check_source(request)
+
+
+def render_cli(request):
+    """Keep the regular Python-file render on Manim's CLI."""
     timeline = ["--timeline-output", request["timeline"]] if request.get("timeline") else []
     sys.argv = ["manim", "--config_file", str(Path(request["run"]) / "cue.cfg"), "--silent", "--progress_bar", "none",
                 "-o", request["output"], *timeline, str(source_file(request)), request["scene"]]
@@ -291,7 +330,6 @@ def render_scene(request):
     except SystemExit as exit:
         if exit.code:
             raise
-    check_source(request)
 
 
 if __name__ == "__main__":

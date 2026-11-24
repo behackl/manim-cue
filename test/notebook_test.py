@@ -90,6 +90,39 @@ class TranslationTests(unittest.TestCase):
         built = nb.build(cells(source, SCENE), "Orbit")
         self.assertIn("\n% a TeX comment\n", built["source"])
 
+    def test_magics_do_not_rewrite_string_contents_or_modulo(self):
+        source = ("%matplotlib inline\n"
+                  "LABEL = r'''Title\n% TeX comment\n! Plain text\n'''\n"
+                  "FSTRING = f'''Title\n% {1}\n'''\n"
+                  "VALUE = (8\n         % 3)\n"
+                  "!echo (\n"
+                  "MISSING = %time compute()\n")
+        cell = nb.Cell(0, source)
+        scope = {}
+        exec(compile(cell.code, "cell.py", "exec"), scope)
+        self.assertEqual(scope["LABEL"], "Title\n% TeX comment\n! Plain text\n")
+        self.assertEqual(scope["FSTRING"], "Title\n% 1\n")
+        self.assertEqual(scope["VALUE"], 2)
+        self.assertEqual(cell.magic_names, {"MISSING"})
+        self.assertEqual(cell.code.count("\n"), source.count("\n"))
+        self.assertIn("pass  # IPython: !echo (", cell.code)
+
+    def test_future_imports_are_included_and_lifted_without_shifting_cell_lines(self):
+        future = "from __future__ import (\n    annotations as feature,\n); RADIUS = 2"
+        scene = "class Orbit(Base):\n    def construct(self) -> Later:\n        pass"
+        for mode in ("needed", "allAbove"):
+            with self.subTest(mode=mode):
+                built = nb.build(cells("Base = object", future, scene), "Orbit", mode)
+                self.assertEqual(built["cells"], [0, 1, 2])
+                self.assertTrue(built["source"].startswith("from __future__ import annotations as feature\n"))
+                line = built["segments"][2]["start"] + 1
+                self.assertEqual(built["source"].splitlines()[line - 1].strip(), "def construct(self) -> Later:")
+                self.assertEqual(nb.locate(built, line)["line"], 2)
+                scope = {}
+                exec(compile(built["source"], "nb.py", "exec", dont_inherit=True), scope)
+                self.assertEqual(scope["RADIUS"], 2)
+                self.assertEqual(scope["Orbit"].construct.__annotations__, {"return": "Later"})
+
     def test_outputs_and_execution_counts_do_not_change_the_hash(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "n.ipynb"
