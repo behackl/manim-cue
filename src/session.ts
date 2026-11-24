@@ -92,7 +92,7 @@ export class Session implements vscode.Disposable {
     this.scratch = vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, 'runs').fsPath;
     this.mediaRoot = path.join(this.scratch, 'preview-media');
     this.exports = new Exports(context, this.scratch, () => this.exportSource(), () => { this.views?.update(); void this.cleanup(); },
-      () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); }, source => this.savedHash(source));
+      () => this.queue.suspend(), text => { if (!this.disposed) this.output.append(text); }, source => this.savedHash(source, source.cells));
     this.scenes = new Scenes(vscode.Uri.joinPath(context.extensionUri, 'python').fsPath);
     this.views = new Views(context.extensionUri, [vscode.Uri.file(this.mediaRoot)],
       (m, origin) => { void receive(this, m, origin).catch(e => this.failAction(e)); }, (webview, view, sent) => model(this, webview, view, sent),
@@ -151,14 +151,16 @@ export class Session implements vscode.Disposable {
     this.watch.stop();
     if (!this.target) { await this.open(); return; }
     if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace to run the scene.');
-    const target = this.target, intent = this.generation;
+    const target = this.target, intent = this.generation, cells = this.cells(target.uri);
+    const superseded = () => this.target !== target || intent !== this.generation || this.disposed || cells !== this.cells(target.uri);
     let hash: string;
-    try { hash = await this.savedHash(target); } catch (e) {
+    try { hash = await this.savedHash(target, cells); } catch (e) {
+      if (superseded()) return;
       // The hash of a notebook needs Python: show its errors like those of the update.
-      if (!isNotebook(target.uri) || this.target !== target || intent !== this.generation || this.disposed) throw e;
+      if (!isNotebook(target.uri)) throw e;
       this.cancel(false); this.updateFailed(e); return;
     }
-    if (this.target !== target || intent !== this.generation || this.disposed) return;
+    if (superseded()) return;
     if (isDirty(target.uri)) { this.invalidate('Outdated. Save the scene file to update.'); throw new Error('Save the scene file to update.'); }
     const videoWanted = this.videoWanted;
     this.cancel(false);
@@ -172,7 +174,7 @@ export class Session implements vscode.Disposable {
       if (!current()) return;
       try {
         this.output.appendLine(`\n── ${target.scene} · ${path.basename(target.uri.fsPath)} · generation ${generation} ──`);
-        const { job, environment, cwd } = await sceneJob(target.uri, target.scene, { scratch: this.scratch, sourceHash: hash, cells: this.cells(target.uri),
+        const { job, environment, cwd } = await sceneJob(target.uri, target.scene, { scratch: this.scratch, sourceHash: hash, cells,
           helpers: vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath, signal: abort.signal, log: s => { if (!this.disposed) this.output.append(s); } });
         if (!current()) return;
         this.pythonInUse = environment.python;
@@ -206,9 +208,9 @@ export class Session implements vscode.Disposable {
   }
   private helpers(): string { return vscode.Uri.joinPath(this.context.extensionUri, 'python').fsPath; }
   /** The hash of the saved source of a run: of the file, or of the code that a notebook run executes. */
-  private async savedHash(target: { uri: vscode.Uri; scene: string }): Promise<string> {
+  private async savedHash(target: { uri: vscode.Uri; scene: string }, cells = this.cells(target.uri)): Promise<string> {
     if (!isNotebook(target.uri)) return fileHash(target.uri.fsPath);
-    return codeHash(await environmentFor(target.uri), this.helpers(), target.scene, this.cells(target.uri), { path: target.uri.fsPath });
+    return codeHash(await environmentFor(target.uri), this.helpers(), target.scene, cells, { path: target.uri.fsPath });
   }
   /**
    * A notebook changed in the editor. Only a change of the code that the run executes

@@ -30,7 +30,7 @@ export class Exports {
     private source: () => ExportSource | undefined, private update: () => void,
     private suspend: () => Promise<() => void>, private log: (text: string) => void,
     /** The hash of the saved source that a render of `source` runs. */
-    private savedHash: (source: { uri: vscode.Uri; scene: string }) => Promise<string>) {}
+    private savedHash: (source: Pick<ExportSource, 'uri' | 'scene' | 'cells'>) => Promise<string>) {}
   get busy(): boolean { return !!this.active; }
   get nativeBusy(): boolean { return this.active?.native === true && this.active.started === true; }
   get directories(): string[] {

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Model } from '../../src/protocol';
 import { isCall } from '../../src/timeline';
@@ -7,6 +8,7 @@ import { isCall } from '../../src/timeline';
 export interface NotebookApi {
   getSnapshot(): Model; whenIdle(): Promise<void>; setSaveDelay(ms: number): void;
   setCells(mode: 'needed' | 'allAbove'): Promise<void>; problemAction(action: 'showCell' | 'runCell' | 'runAllAbove'): Promise<void>;
+  submitExport(id: string, choice: unknown): Promise<void>;
 }
 
 /** A scene in a notebook: which cells run, what makes results outdated, and the help for a NameError. */
@@ -82,11 +84,29 @@ export async function testNotebook(api: NotebookApi, root: string): Promise<void
   assert.equal(await notebook.save(), true); await updated();
   assert.equal(api.getSnapshot().problem, undefined);
 
+  // Capture the needed-cells preview in Export before switching the current cell mode.
+  await vscode.commands.executeCommand('manimCue.openExport');
+  await until(() => !!api.getSnapshot().exportState?.dialog, 'the export dialog opens');
+  const dialog = api.getSnapshot().exportState!.dialog!;
+
   // All cells above: switching runs at once, here into the cell that raises.
   await api.setCells('allAbove'); await api.whenIdle();
   state = api.getSnapshot();
   assert.equal(state.cells, 'allAbove');
   assert.match(state.error ?? '', /This cell must not run, still \(line 1 of the cell starting with “raise RuntimeError/u);
+
+  // The dialog still renders using the earlier mode. Hashing in the current mode would
+  // fail the source check; actually running in the current mode would raise the error above.
+  const output = path.join(root, 'notebook-export.mp4');
+  const saveDialog = vscode.window.showSaveDialog;
+  try {
+    Object.assign(vscode.window, { showSaveDialog: async () => vscode.Uri.file(output) });
+    await api.submitExport(dialog.id, { kind: 'video', method: 'render',
+      settings: { width: 128, height: 72, fps: 4, crf: 18, preset: 'veryfast', options: '' } });
+    assert.equal(api.getSnapshot().exportState?.status, 'Saved notebook-export.mp4');
+    assert.ok((await fs.stat(output)).size > 0);
+  } finally { Object.assign(vscode.window, { showSaveDialog: saveDialog }); }
+
   await api.setCells('needed'); await updated();
   assert.equal(api.getSnapshot().cells, 'needed');
 }
