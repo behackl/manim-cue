@@ -1,13 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Preview scenes in Jupyter notebooks. Cue runs the scene cell and the cells above it that
   the scene needs, or all cells above it; a cell with `# cue: run` as its first line always
   runs. Changes of skipped cells and of outputs leave the preview up to date.
 - When a name of a notebook scene is not set, the timeline view names the cell that
   probably sets it and offers to run that cell, to run all cells above, or to show it.
-- Errors in notebooks name the line and the cell.
+- Notebook errors identify the cell and line where they occurred.
+- **Set Up Python Environment** installs the Manim `0.30.0a1` prerelease from PyPI
+  instead of the moving `main` branch. Existing environments are left unchanged.
 
 ## 0.3.1
 

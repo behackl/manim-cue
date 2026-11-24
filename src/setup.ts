@@ -5,7 +5,7 @@ import { PythonExtension } from '@vscode/python-extension';
 import { checkPython, diagnosticSummary, formatDiagnostic, type PythonDiagnostic } from './diagnostics';
 import { workingDirectoryFor } from './environment';
 import { Cancelled, runProcess } from './process';
-import { MANIM_BRANCH, SETUP_PYTHON, setupCommands } from './setup-plan';
+import { MANIM_VERSION, SETUP_PYTHON, setupCommands } from './setup-plan';
 
 const SETUP_TIMEOUT = 15 * 60 * 1000;
 
@@ -96,7 +96,7 @@ async function confirmSetup(root: string, directory: string, tool: Tool): Promis
     ? `The setup downloads and installs Python packages. uv downloads Python ${SETUP_PYTHON} if it is missing.`
     : 'The setup downloads and installs Python packages.';
   const answer = await vscode.window.showInformationMessage(
-    `Create a new Python environment for Manim?\n\nProject: ${root}\nEnvironment: ${directory}\nCreated with: ${creator}\nManim branch: ${MANIM_BRANCH}\n\n${downloads} Package installation can run the build code of the packages.`,
+    `Create a new Python environment for Manim?\n\nProject: ${root}\nEnvironment: ${directory}\nCreated with: ${creator}\nManim version: ${MANIM_VERSION}\n\n${downloads} Package installation can run the build code of the packages.`,
     { modal: true }, 'Create Environment',
   );
   return answer === 'Create Environment';
@@ -160,7 +160,7 @@ export async function setupPythonEnvironment(options: {
           await runProcess(executable, args, { cwd: root, env: process.env, signal: abort.signal, timeout: SETUP_TIMEOUT, log });
         };
         try {
-          options.output.appendLine(`\n── Python environment setup ──\nProject: ${root}\nEnvironment: ${directory}\nManim branch: ${MANIM_BRANCH}\nCreator: ${tool.executable} (${tool.version})`);
+          options.output.appendLine(`\n── Python environment setup ──\nProject: ${root}\nEnvironment: ${directory}\nManim version: ${MANIM_VERSION}\nCreator: ${tool.executable} (${tool.version})`);
           progress.report({ message: 'Creating .venv…' });
           owned = true; // The destination was absent immediately before this user-approved operation.
           const commands = setupCommands(tool, directory);

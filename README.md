@@ -19,22 +19,24 @@ You need desktop VS Code 1.96 or newer, the Microsoft Python extension and Pytho
 or newer.
 
 > [!IMPORTANT]
-> **Manim Cue needs the development version of Manim**, from its `main` branch, until
-> the next Manim release. The command **Manim Cue: Set Up Python Environment** installs it into a new `.venv`
-> in your project folder. With `uv` on VS Code's `PATH`, the setup uses `uv` and
+> **Manim Cue uses the Manim `0.30.0a1` prerelease.** The command
+> **Manim Cue: Set Up Python Environment** installs it from PyPI into a new `.venv` in
+> your project folder. With `uv` on VS Code's `PATH`, the setup uses `uv` and
 > Python 3.13. Otherwise it uses the Python interpreter that you selected in VS Code.
 >
 > To install it into an existing uv project:
 >
 > ```sh
-> uv add "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/main.zip"
+> uv add "manim==0.30.0a1"
 > ```
 >
 > To install it with pip into an active virtual environment:
 >
 > ```sh
-> pip install --upgrade --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/main.zip"
+> python -m pip install "manim==0.30.0a1"
 > ```
+>
+> If you previously installed Manim from GitHub, see [how to switch to the PyPI release](docs/troubleshooting.md#set-up-an-environment).
 >
 > Manim can also need [system packages](https://docs.manim.community/en/stable/installation.html)
 > for Cairo, text and video. Cue checks the features of the installed Manim:

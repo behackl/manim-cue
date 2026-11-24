@@ -37,12 +37,12 @@ The packages of the environment are available only through this executable.
 ## Set up an environment
 
 **Manim Cue: Set Up Python Environment** creates a new `.venv` in the workspace folder of
-the scene and installs the development version of Manim, from its `main` branch:
+the scene and installs Manim `0.30.0a1` from PyPI:
 
 1. Choose **Create with uv** (when `uv` is on VS Code's `PATH`), **Create with the
    selected Python**, or **Locate uv…**.
 2. Read the confirmation: it shows the project, the environment, the tool and the Manim
-   branch. With `uv`, the setup downloads Python 3.13 if it is missing.
+   version. With `uv`, the setup downloads Python 3.13 if it is missing.
 3. When the check of the new environment says Ready, Cue selects the environment.
 
 If a `.venv` folder exists already, select it with **Select Python…**, or delete it to
@@ -50,16 +50,14 @@ create a new one. If the setup fails, click **Show Log** for the complete output
 **Retry** or **Delete Incomplete .venv**. Install compilers and system libraries with the
 package manager of your system.
 
-To install the branch into an existing environment, use the commands in the
-[README](../README.md#get-started). To install the newest state of the branch again,
-activate the environment and run:
+To switch an existing environment from the GitHub archive to the PyPI prerelease,
+use the commands in the [README](../README.md#get-started). In a uv project, remove
+any `manim` entry under `[tool.uv.sources]` in `pyproject.toml` first, or uv will
+keep using the archive. With pip, if the old build already reports the same version,
+run `python -m pip uninstall manim` before installing the release.
 
-```sh
-pip install --upgrade --force-reinstall --no-cache-dir "manim @ https://github.com/ManimCommunity/manim/archive/refs/heads/main.zip"
-```
-
-Then run **Manim Cue: Check Python Environment**. The log shows the path of the Manim
-that Python loads.
+Then run **Manim Cue: Check Python Environment**. The log shows the version and path
+of the Manim that Python loads.
 
 ## The preview stays Outdated
 
